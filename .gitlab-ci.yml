@@ -60,14 +60,42 @@ typecheck:
 
 test:
   extends: .verify
+  # Real Postgres 18 (uuidv7) + Redis for integration tests. Job variables are also passed to the
+  # service containers, so POSTGRES_* below initialise the database. wal_level=logical is not
+  # needed: CI does not run Debezium.
+  services:
+    - name: postgres:18.6-alpine
+      alias: postgres
+    - name: redis:8.10.2-alpine
+      alias: redis
+  variables:
+    POSTGRES_DB: udemy
+    POSTGRES_USER: udemy
+    POSTGRES_PASSWORD: udemy
+    DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
+    REDIS_URL: redis://redis:6379
+    NODE_ENV: test
+    API_PUBLIC_URL: http://localhost:4000
+    JWT_AUDIENCE: udemy-api
+    JWT_KEYS_DIR: $CI_PROJECT_DIR/apps/api/.secrets/jwt
+  before_script:
+    - *pnpm-setup
+    # Ephemeral Ed25519 signing key (PKCS8 PEM), valid for this job only; never stored anywhere.
+    - export JWT_ACTIVE_KID="ed25519-ci-${CI_PIPELINE_ID}"
+    - mkdir -p "$JWT_KEYS_DIR"
+    - openssl genpkey -algorithm ed25519 -out "$JWT_KEYS_DIR/${JWT_ACTIVE_KID}.pem"
+    # Ephemeral API/worker secrets: random per job, so nothing secret lives in this file.
+    - export REFRESH_TOKEN_PEPPER="$(openssl rand -base64 32)"
+    - export LOGIN_EMAIL_HMAC_KEY="$(openssl rand -base64 32)"
+    - export EMAIL_TOKEN_SECRET="$(openssl rand -base64 32)"
+    - pnpm --filter @udemy/db migrate:latest
   script:
     - pnpm turbo run test
-  # Integration tests will use Testcontainers later. Uncomment to give the job a Docker daemon:
-  # services:
+  # If tests later need Testcontainers, add a Docker daemon by merging these entries into the
+  # services/variables above (do not add second `services:`/`variables:` keys):
   #   - name: docker:27-dind
   #     alias: docker
   #     command: ["--tls=false"]
-  # variables:
   #   DOCKER_HOST: tcp://docker:2375
   #   DOCKER_TLS_CERTDIR: ""
   #   TESTCONTAINERS_HOST_OVERRIDE: docker

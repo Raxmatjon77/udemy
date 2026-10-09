@@ -20,7 +20,7 @@
     "migrate:latest": "tsx --env-file-if-exists=../../.env src/cli/migrate-latest.ts",
     "migrate:down": "tsx --env-file-if-exists=../../.env src/cli/migrate-down.ts",
     "migrate:make": "tsx src/cli/migrate-make.ts",
-    "codegen": "kysely-codegen --dialect postgres --camel-case --env-file ../../.env --out-file src/generated/db.ts"
+    "codegen": "kysely-codegen --dialect postgres --camel-case --numeric-parser string --date-parser timestamp --env-file ../../.env --out-file src/generated/db.ts && prettier --write src/generated/db.ts"
   },
   "dependencies": {
     "kysely": "0.29.6",

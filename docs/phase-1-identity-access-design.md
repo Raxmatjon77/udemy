@@ -871,3 +871,11 @@ The prerequisite is Phase 0 complete: `nest-common` (config, pino, DomainError �
 | Display name location (D8)      | **`identity.users.display_name`**; the rest of the profile lives in `users.profiles`.                 |
 
 Other open questions in §12 keep their stated defaults.
+
+## 14. Amendments from the schema review (T1)
+
+`docs/phase-1-schema-design.md` is the source of truth for the DDL. It changes three things for implementers:
+
+- **`IssueOneTimeToken` redelivery bug.** The invalidate step must exclude the current event: `UPDATE … SET invalidated_at = now() WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL AND invalidated_at IS NULL AND source_event_id <> $eventId`. Set `expires_at = requested_at + TTL` and skip issuing if that is already in the past.
+- **`access.user_roles`** no longer has `granted_by`/`grant_reason`; that history lives only in `access.role_changes`.
+- **Per-user mutex:** ban, unban, grantRole, revokeRole, password change/reset and IssueOneTimeToken lock `identity.users` with `FOR NO KEY UPDATE`. All state timestamps use SQL `now()`. The constraint-name → domain-error mapping is in the schema doc §6.

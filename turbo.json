@@ -7,9 +7,32 @@
       "env": ["NEXT_PUBLIC_*"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
-    "dev": { "cache": false, "persistent": true },
-    "lint": { "dependsOn": ["^build"] },
-    "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"] }
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "passThroughEnv": [
+        "DATABASE_URL",
+        "REDIS_URL",
+        "KAFKA_*",
+        "S3_*",
+        "SMTP_*",
+        "JWT_*",
+        "API_PUBLIC_URL",
+        "REFRESH_TOKEN_PEPPER",
+        "LOGIN_EMAIL_HMAC_KEY",
+        "EMAIL_TOKEN_SECRET",
+        "CLIENT_*_SECRET_HASH",
+        "NODE_ENV"
+      ]
+    }
   }
 }

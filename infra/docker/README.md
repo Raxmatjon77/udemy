@@ -10,7 +10,7 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml ps      # 
 docker compose --env-file .env -f infra/docker/docker-compose.dev.yml down    # stop, keep data
 ```
 
-`minio-init` and `debezium-init` are one-shot containers; they exit with code 0 when done.
+`minio-init`, `kafka-init` and `debezium-init` are one-shot containers; they exit with code 0 when done.
 
 ## Ports and UIs
 
@@ -61,7 +61,40 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec postg
   `schemas.enable=false`. The `payload` column is jsonb, which Debezium hands over as a JSON string;
   `table.expand.json.payload=true` makes the router parse it, so the message value is the plain JSON object
   (not an escaped string and not wrapped in a schema/payload envelope).
-- Topics are auto-created by the broker (3 partitions). The Kafka consumers in `apps/worker` should use the same names.
+- Business topics are pre-created by `kafka-init` (below); any other topic is auto-created by the broker
+  (3 partitions). The Kafka consumers in `apps/worker` should use the same names.
+
+## Kafka topics (`kafka-init`)
+
+`kafka-init` runs `infra/kafka/create-topics.sh`, which holds **the topic list** (one place, commented).
+
+| Topic                                                                                | Partitions | Config                                            |
+| ------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------- |
+| `identity.user`, `users.instructor_application`, `access.user_role` and their `.dlq` | 3          | `retention.ms=604800000` (7 days: PII, design §7) |
+| `system.ping`                                                                        | 3          | broker defaults                                   |
+
+- Idempotent: `kafka-topics.sh --create --if-not-exists`, then `kafka-configs.sh --alter --add-config`.
+  If the worker (which creates its handler topics and `.dlq` at startup with broker defaults) or Debezium
+  created a topic first, the next `kafka-init` run still applies the retention.
+- Partition counts are never changed for an existing topic (that would remap keys); a mismatch is
+  only reported as `WARN`.
+- To add a topic, add a line to the list and re-run:
+
+```bash
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml up --no-deps kafka-init
+
+# check
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec kafka \
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:19092 --describe --topic identity.user
+```
+
+The Kafka CLI prints `WARNING: Due to limitations in metric names, topics with a period ('.') or
+underscore ('_') could collide` for names like `users.instructor_application`. It is harmless here,
+because no two topic names differ only in `.` vs `_`.
+
+## Prod database roles
+
+Dev uses the single superuser `udemy`. For staging/prod see `infra/postgres/README.md` (`roles.sql`).
 
 ## Reset
 

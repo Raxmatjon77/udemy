@@ -76,6 +76,24 @@ services:
       retries: 20
       start_period: 20s
 
+  # One-shot: pre-creates the business topics (3 partitions; 7-day retention for the PII topics).
+  # The topic list lives in infra/kafka/create-topics.sh. Idempotent (--if-not-exists + config alter),
+  # and safe alongside the worker, which creates its handler topics and DLQs at startup.
+  kafka-init:
+    image: apache/kafka:4.2.2
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: 'no'
+    environment:
+      KAFKA_BOOTSTRAP: kafka:19092
+      TOPIC_REPLICATION: 1
+      # The CLI tools start a JVM; keep it small on a 2 GB Docker VM.
+      KAFKA_HEAP_OPTS: -Xms32m -Xmx128m
+    volumes:
+      - ../kafka/create-topics.sh:/scripts/create-topics.sh:ro
+    entrypoint: ['/bin/sh', '/scripts/create-topics.sh']
+
   # ------------------------------------------------------------ Kafka Connect
   kafka-connect:
     image: quay.io/debezium/connect:3.6.3.Final

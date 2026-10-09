@@ -8,3 +8,5 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+# Local secrets (dev JWT signing keys in apps/api/.secrets/jwt), at any depth
+.secrets/
