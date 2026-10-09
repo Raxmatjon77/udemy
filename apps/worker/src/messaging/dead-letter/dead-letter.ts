@@ -1,0 +1,55 @@
+import type { InboundRecord, RecordHeaders } from '../envelope/inbound-record';
+
+/** Injection token for the DeadLetterPublisher implementation (Kafka in prod, fakes in tests). */
+export const DEAD_LETTER_PUBLISHER = Symbol('DEAD_LETTER_PUBLISHER');
+
+export interface DeadLetter {
+  record: InboundRecord;
+  error: unknown;
+  attempts: number;
+  /** Handler that failed; undefined when the message itself was unreadable. */
+  consumerName?: string;
+}
+
+export interface DeadLetterPublisher {
+  publish(deadLetter: DeadLetter): Promise<void>;
+}
+
+export interface DeadLetterMessage {
+  topic: string;
+  key: Buffer | null;
+  value: Buffer | null;
+  headers: RecordHeaders;
+}
+
+const MAX_ERROR_MESSAGE_LENGTH = 1_000;
+
+export function deadLetterTopic(topic: string): string {
+  return `${topic}.dlq`;
+}
+
+/**
+ * The DLQ message is the original key/value/headers plus `dlq.*` headers describing the
+ * failure, so it can be inspected in Kafka UI and replayed to the original topic as-is.
+ */
+export function buildDeadLetterMessage(
+  deadLetter: DeadLetter,
+  now: Date = new Date(),
+): DeadLetterMessage {
+  const { record, error } = deadLetter;
+  const err = error instanceof Error ? error : new Error(String(error));
+  const headers: RecordHeaders = {
+    ...record.headers,
+    'dlq.original.topic': record.topic,
+    'dlq.original.partition': String(record.partition),
+    'dlq.original.offset': record.offset,
+    'dlq.error.name': err.name,
+    'dlq.error.message': err.message.slice(0, MAX_ERROR_MESSAGE_LENGTH),
+    'dlq.attempts': String(deadLetter.attempts),
+    'dlq.failed.at': now.toISOString(),
+  };
+  if (deadLetter.consumerName !== undefined) {
+    headers['dlq.consumer'] = deadLetter.consumerName;
+  }
+  return { topic: deadLetterTopic(record.topic), key: record.key, value: record.value, headers };
+}

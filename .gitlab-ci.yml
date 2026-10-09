@@ -1,0 +1,119 @@
+# Pipeline: install -> verify (lint/typecheck/test/build in parallel) -> docker (main + tags only)
+
+stages:
+  - install
+  - verify
+  - docker
+
+variables:
+  PNPM_VERSION: '10.7.1'
+  PNPM_STORE_DIR: '$CI_PROJECT_DIR/.pnpm-store'
+  # Turbo local cache lives in .turbo (cached below)
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+default:
+  image: node:22
+  cache:
+    - key:
+        files: [pnpm-lock.yaml]
+      paths: [.pnpm-store]
+      policy: pull
+    - key: turbo-$CI_COMMIT_REF_SLUG
+      paths: [.turbo]
+      fallback_keys: [turbo-$CI_DEFAULT_BRANCH]
+      policy: pull-push
+
+# Shared setup: enable pnpm via corepack, point the store at the cached dir, install.
+.pnpm-setup: &pnpm-setup
+  - corepack enable
+  - corepack prepare pnpm@${PNPM_VERSION} --activate
+  - pnpm config set store-dir "$PNPM_STORE_DIR"
+  - pnpm install --frozen-lockfile --prefer-offline
+
+# Warms the pnpm store cache once; verify jobs only pull it, so parallel jobs never race on cache upload.
+install:
+  stage: install
+  script:
+    - *pnpm-setup
+  cache:
+    - key:
+        files: [pnpm-lock.yaml]
+      paths: [.pnpm-store]
+      policy: pull-push
+
+.verify:
+  stage: verify
+  needs: [install]
+  before_script:
+    - *pnpm-setup
+
+lint:
+  extends: .verify
+  script:
+    - pnpm turbo run lint
+
+typecheck:
+  extends: .verify
+  script:
+    - pnpm turbo run typecheck
+
+test:
+  extends: .verify
+  script:
+    - pnpm turbo run test
+  # Integration tests will use Testcontainers later. Uncomment to give the job a Docker daemon:
+  # services:
+  #   - name: docker:27-dind
+  #     alias: docker
+  #     command: ["--tls=false"]
+  # variables:
+  #   DOCKER_HOST: tcp://docker:2375
+  #   DOCKER_TLS_CERTDIR: ""
+  #   TESTCONTAINERS_HOST_OVERRIDE: docker
+
+build:
+  extends: .verify
+  script:
+    - pnpm turbo run build
+
+# ---- Docker images (Kaniko, no privileged daemon needed) ----
+.kaniko:
+  stage: docker
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: ['']
+  needs: [lint, typecheck, test, build]
+  # Only main and tags
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  cache: []
+  variables:
+    APP: ''
+  script:
+    # Kaniko registry auth: exact docker config JSON format.
+    - mkdir -p /kaniko/.docker
+    - |
+      printf '{"auths":{"%s":{"auth":"%s"}}}' "$CI_REGISTRY" \
+        "$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')" \
+        > /kaniko/.docker/config.json
+    - |
+      EXTRA_TAG=""
+      if [ -n "$CI_COMMIT_TAG" ]; then EXTRA_TAG="--destination $CI_REGISTRY_IMAGE/$APP:$CI_COMMIT_TAG"; fi
+      /kaniko/executor \
+        --context "$CI_PROJECT_DIR" \
+        --dockerfile "$CI_PROJECT_DIR/apps/$APP/Dockerfile" \
+        --destination "$CI_REGISTRY_IMAGE/$APP:$CI_COMMIT_SHORT_SHA" \
+        $EXTRA_TAG \
+        --cache=true --cache-repo "$CI_REGISTRY_IMAGE/$APP/cache"
+
+docker-api:
+  extends: .kaniko
+  variables:
+    APP: api
+
+docker-worker:
+  extends: .kaniko
+  variables:
+    APP: worker

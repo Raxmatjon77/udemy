@@ -1,0 +1,18 @@
+# Keep the build context small and avoid leaking secrets.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+!.env.example
+.DS_Store
+infra
+docs
+*.md
+Dockerfile
+**/Dockerfile
+.gitlab-ci.yml

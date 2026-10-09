@@ -1,0 +1,39 @@
+{
+  "name": "@udemy/db",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "migrate:latest": "tsx --env-file-if-exists=../../.env src/cli/migrate-latest.ts",
+    "migrate:down": "tsx --env-file-if-exists=../../.env src/cli/migrate-down.ts",
+    "migrate:make": "tsx src/cli/migrate-make.ts",
+    "codegen": "kysely-codegen --dialect postgres --camel-case --env-file ../../.env --out-file src/generated/db.ts"
+  },
+  "dependencies": {
+    "kysely": "0.29.6",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
+    "@udemy/eslint-config": "workspace:*",
+    "@udemy/tsconfig": "workspace:*",
+    "eslint": "10.12.0",
+    "kysely-codegen": "0.20.0",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3"
+  }
+}

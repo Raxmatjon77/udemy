@@ -1,0 +1,232 @@
+# Local dev dependency stack. The apps (api, worker, web-*) run on the host via `pnpm dev`.
+#   docker compose -f infra/docker/docker-compose.dev.yml up -d
+name: udemy-dev
+
+services:
+  # ---------------------------------------------------------------- PostgreSQL
+  postgres:
+    # PG18 is required for the built-in uuidv7() used by migrations.
+    image: postgres:18.6-alpine
+    command:
+      - postgres
+      # Debezium reads changes through logical decoding; this is the key switch.
+      - -c
+      - wal_level=logical
+      # Debezium holds 1 replication slot (udemy_outbox); keep spare for restarts/tools.
+      - -c
+      - max_replication_slots=10
+      # One WAL sender per slot/streaming client.
+      - -c
+      - max_wal_senders=10
+    environment:
+      POSTGRES_DB: udemy
+      POSTGRES_USER: udemy
+      POSTGRES_PASSWORD: udemy
+    ports:
+      - '${POSTGRES_HOST_PORT:-5432}:5432' # override if a native Postgres already uses 5432
+    volumes:
+      # PG18 images keep data in /var/lib/postgresql/18/docker, so mount the parent dir.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U udemy -d udemy']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # --------------------------------------------------------------------- Kafka
+  kafka:
+    image: apache/kafka:4.2.2
+    # KRaft: this one node is both broker and controller, no ZooKeeper.
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Three listeners:
+      #   INTERNAL   kafka:19092      for containers (kafka-connect, kafka-ui)
+      #   HOST       localhost:9092   for apps running on the host
+      #   CONTROLLER kafka:9093       KRaft quorum traffic, never used by clients
+      KAFKA_LISTENERS: INTERNAL://:19092,HOST://:9092,CONTROLLER://:9093
+      # What clients are told to reconnect to after the bootstrap call. Each client
+      # must be able to resolve the address of the listener it connected to.
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # Single broker: internal topics cannot be replicated more than once.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+      # Docker Desktop VMs are often 2 GB; the default heap (1 GB) leaves too little for the rest.
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    ports:
+      - '9092:9092'
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null 2>&1',
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 20s
+
+  # ------------------------------------------------------------ Kafka Connect
+  kafka-connect:
+    image: quay.io/debezium/connect:3.6.3.Final
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:19092
+      # Cap the JVM and discover plugins via their ServiceLoader manifests instead of reflectively
+      # scanning every bundled Debezium connector (Oracle, DB2, Informix, ...): the full scan got the
+      # container OOM-killed on a 2 GB Docker VM.
+      HEAP_OPTS: -Xms256m -Xmx512m
+      CONNECT_PLUGIN_DISCOVERY: service_load
+      GROUP_ID: udemy-connect
+      # Connect stores its own state in these topics (single broker => RF 1).
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      # Worker defaults; the connector overrides converters itself (see outbox-connector.json).
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+    ports:
+      - '8083:8083'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:8083/connectors > /dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # One-shot: registers/updates the outbox connector. PUT .../config is idempotent
+  # (creates the connector if missing, updates it otherwise).
+  debezium-init:
+    image: curlimages/curl:8.22.0
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    restart: 'no'
+    volumes:
+      - ../debezium/outbox-connector.json:/config/outbox-connector.json:ro
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        until curl -fsS http://kafka-connect:8083/connectors > /dev/null; do
+          echo "waiting for kafka-connect..."; sleep 2
+        done
+        curl -fsS -X PUT -H 'Content-Type: application/json' \
+          --data @/config/outbox-connector.json \
+          http://kafka-connect:8083/connectors/udemy-outbox/config
+        echo
+        echo "connector udemy-outbox registered"
+
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: udemy-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      DYNAMIC_CONFIG_ENABLED: 'false'
+    ports:
+      - '8080:8080'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:8080/actuator/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # --------------------------------------------------------------------- Redis
+  redis:
+    image: redis:8.10.2-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_HOST_PORT:-6379}:6379' # override if a native Redis already uses 6379
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # --------------------------------------------------------------------- MinIO
+  # NOTE: upstream minio/minio images are no longer published to Docker Hub/Quay.
+  # bitnamilegacy/* is a frozen (no security updates) mirror: fine for local dev only.
+  minio:
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports:
+      - '9000:9000' # S3 API
+      - '9001:9001' # web console
+    volumes:
+      - minio-data:/bitnami/minio/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/minio/health/live > /dev/null']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: creates the private buckets (idempotent via --ignore-existing).
+  minio-init:
+    image: bitnamilegacy/minio-client:2025.7.21-debian-12-r3
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -eu
+        mc alias set local http://minio:9000 minio minio12345
+        mc mb --ignore-existing local/udemy-uploads
+        mc mb --ignore-existing local/udemy-media
+        # Buckets are private by default; make it explicit.
+        mc anonymous set none local/udemy-uploads
+        mc anonymous set none local/udemy-media
+        echo "buckets ready"
+
+  # ------------------------------------------------------------------- Mailpit
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # web UI
+    volumes:
+      - mailpit-data:/data
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  kafka-data:
+  redis-data:
+  minio-data:
+  mailpit-data:

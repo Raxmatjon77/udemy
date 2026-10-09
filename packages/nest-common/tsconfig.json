@@ -1,0 +1,12 @@
+{
+  "extends": "@udemy/tsconfig/nestjs.json",
+  "compilerOptions": {
+    // nodenext + no "type" in package.json => CommonJS output, like @udemy/db.
+    // Nest 12 itself is ESM-only; Node >= 22.12 loads it through require(esm).
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

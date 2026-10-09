@@ -1,0 +1,11 @@
+{
+  "extends": "@udemy/tsconfig/library.json",
+  "compilerOptions": {
+    // library.json is nodenext; with no "type" in package.json that emits CommonJS,
+    // which both Nest (nodenext) and Next.js (bundler) can consume.
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src"]
+}
