@@ -6,7 +6,10 @@ export interface UserContact {
   readonly displayName: string;
 }
 
-/** Current address and name of a user, for notices whose event carries only the userId. */
+/**
+ * Current address and display name of a user (`identity.users`), for notices whose event carries
+ * only the userId. Read inside the handler's transaction; null when the account no longer exists.
+ */
 @Injectable()
 export class UserContactReader {
   async find(trx: Transaction<DB>, userId: string): Promise<UserContact | null> {

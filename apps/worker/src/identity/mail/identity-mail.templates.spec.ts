@@ -7,6 +7,8 @@ import {
   passwordResetMail,
   sessionCompromiseMail,
   tokenLink,
+  userBannedMail,
+  userUnbannedMail,
 } from './identity-mail.templates';
 
 const EVIL = `<script>alert("x")</script> & 'Bob'`;
@@ -50,6 +52,17 @@ describe('identity mail templates', () => {
       detectedAt: new Date('2026-10-10T10:00:00Z'),
       forgotPasswordUrl: 'http://localhost:3000/forgot-password',
     }),
+    userBannedMail({
+      displayName: EVIL,
+      reason: 'Repeated spam in course Q&A threads.',
+      bannedAt: new Date('2026-10-10T10:00:00Z'),
+      supportEmail: 'no-reply@udemy.local',
+    }),
+    userUnbannedMail({
+      displayName: EVIL,
+      liftedAt: new Date('2026-10-10T10:00:00Z'),
+      loginUrl: 'http://localhost:3000/login',
+    }),
   ];
 
   it.each(mails.map((m) => [m.subject, m]))(
@@ -79,6 +92,30 @@ describe('identity mail templates', () => {
   it('refuses non-http(s) links', () => {
     expect(() =>
       passwordResetMail({ displayName: 'Jane', link: 'javascript:alert(1)//#token=x' }),
+    ).toThrow(TypeError);
+  });
+
+  it('escapes the ban reason in the HTML part', () => {
+    const mail = userBannedMail({
+      displayName: 'Jane',
+      reason: EVIL,
+      bannedAt: new Date('2026-10-10T10:00:00Z'),
+      supportEmail: 'no-reply@udemy.local',
+    });
+    expect(mail.html).not.toContain('<script>');
+    expect(mail.html).toContain(
+      'Reason: &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &#39;Bob&#39;',
+    );
+    expect(mail.text).toContain('contact support at no-reply@udemy.local.');
+  });
+
+  it('refuses a non-http(s) sign-in link in the unban notice', () => {
+    expect(() =>
+      userUnbannedMail({
+        displayName: 'Jane',
+        liftedAt: new Date('2026-10-10T10:00:00Z'),
+        loginUrl: 'javascript:alert(1)',
+      }),
     ).toThrow(TypeError);
   });
 });

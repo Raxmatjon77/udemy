@@ -5,10 +5,9 @@ import {
 } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { eventMessageId, Mailer } from '@udemy/nest-common/mail';
-import { EventHandler, type EventHandlerContract } from '../../messaging';
+import { EventHandler, type EventHandlerContract, parseEvent } from '../../messaging';
 import { accountExistsMail } from '../mail/identity-mail.templates';
 import { IdentityLinks } from '../mail/identity-links';
-import { parseIdentityEvent } from './parse-identity-event';
 
 /**
  * `SignupAttemptedForExistingEmail`: "you already have an account" (at most one per 24 h per
@@ -24,7 +23,7 @@ export class AccountExistsMailerHandler implements EventHandlerContract {
   ) {}
 
   async handle(envelope: EventEnvelope, _trx: Transaction<DB>): Promise<void> {
-    const event = parseIdentityEvent(SignupAttemptedForExistingEmail, envelope);
+    const event = parseEvent(SignupAttemptedForExistingEmail, envelope);
     await this.mailer.send({
       to: event.email,
       ...accountExistsMail({

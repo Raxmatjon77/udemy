@@ -7,11 +7,10 @@ import {
 } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { eventMessageId, Mailer } from '@udemy/nest-common/mail';
-import { EventHandler, type EventHandlerContract } from '../../messaging';
+import { EventHandler, type EventHandlerContract, parseEvent } from '../../messaging';
 import { passwordChangedMail, sessionCompromiseMail } from '../mail/identity-mail.templates';
 import { IdentityLinks } from '../mail/identity-links';
-import { UserContactReader } from '../mail/user-contact.reader';
-import { parseIdentityEvent } from './parse-identity-event';
+import { UserContactReader } from '../../shared/mail/user-contact.reader';
 
 /** `PasswordChanged` (RESET or CHANGE): security notice to the account's current address. */
 @EventHandler(IDENTITY_USER_AGGREGATE, PasswordChanged.type, {
@@ -27,7 +26,7 @@ export class PasswordChangedMailerHandler implements EventHandlerContract {
   ) {}
 
   async handle(envelope: EventEnvelope, trx: Transaction<DB>): Promise<void> {
-    const event = parseIdentityEvent(PasswordChanged, envelope);
+    const event = parseEvent(PasswordChanged, envelope);
     const contact = await this.contacts.find(trx, event.userId);
     if (contact === null) {
       this.logger.warn({ userId: event.userId }, 'PasswordChanged for an unknown user; no mail');
@@ -60,7 +59,7 @@ export class SessionCompromiseMailerHandler implements EventHandlerContract {
   ) {}
 
   async handle(envelope: EventEnvelope, trx: Transaction<DB>): Promise<void> {
-    const event = parseIdentityEvent(SessionCompromiseDetected, envelope);
+    const event = parseEvent(SessionCompromiseDetected, envelope);
     const contact = await this.contacts.find(trx, event.userId);
     if (contact === null) {
       this.logger.warn({ userId: event.userId }, 'SessionCompromiseDetected for an unknown user');

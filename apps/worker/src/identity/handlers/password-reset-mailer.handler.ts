@@ -5,11 +5,10 @@ import {
 } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { eventMessageId, Mailer } from '@udemy/nest-common/mail';
-import { EventHandler, type EventHandlerContract } from '../../messaging';
+import { EventHandler, type EventHandlerContract, parseEvent } from '../../messaging';
 import { passwordResetMail } from '../mail/identity-mail.templates';
 import { IdentityLinks } from '../mail/identity-links';
 import { IssueOneTimeToken } from '../one-time-tokens/issue-one-time-token';
-import { parseIdentityEvent } from './parse-identity-event';
 
 /** `PasswordResetRequested`: IssueOneTimeToken (30 min), then the reset mail (see D10, §7). */
 @EventHandler(IDENTITY_USER_AGGREGATE, PasswordResetRequested.type, {
@@ -23,7 +22,7 @@ export class PasswordResetMailerHandler implements EventHandlerContract {
   ) {}
 
   async handle(envelope: EventEnvelope, trx: Transaction<DB>): Promise<void> {
-    const event = parseIdentityEvent(PasswordResetRequested, envelope);
+    const event = parseEvent(PasswordResetRequested, envelope);
     const issued = await this.issueToken.execute(trx, {
       eventId: envelope.eventId,
       userId: event.userId,

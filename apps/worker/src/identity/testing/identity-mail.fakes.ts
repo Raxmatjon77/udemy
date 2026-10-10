@@ -15,11 +15,13 @@ export const FAKE_TRX = { isTransaction: true } as unknown as Transaction<DB>;
 
 export const TEST_SECRET = 'unit-test-email-token-secret-0123456789abcdef';
 
-/** The subset of the worker env the identity mail code reads. */
+/** The subset of the worker env the mail code (identity and users mailers) reads. */
 export function fakeConfig(overrides: Partial<WorkerEnv> = {}): WorkerConfigService {
   const env: Partial<WorkerEnv> = {
     EMAIL_TOKEN_SECRET: TEST_SECRET,
     STUDENT_APP_ORIGIN: 'http://localhost:3000',
+    INSTRUCTOR_APP_ORIGIN: 'http://localhost:3001',
+    MAIL_FROM: 'Udemy Clone <no-reply@udemy.local>',
     ...overrides,
   };
   return {

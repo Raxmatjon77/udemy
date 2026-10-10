@@ -7,6 +7,7 @@ import { IdentityMailModule } from './identity/identity-mail.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { MessagingModule } from './messaging';
 import { WorkerConfigModule, workerEnvSchema } from './shared/config';
+import { UsersMailModule } from './users/users-mail.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { WorkerConfigModule, workerEnvSchema } from './shared/config';
     MessagingModule,
     HandlersModule,
     IdentityMailModule,
+    UsersMailModule,
     MaintenanceModule,
     HealthModule,
   ],

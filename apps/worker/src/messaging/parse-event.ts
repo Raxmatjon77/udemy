@@ -1,12 +1,13 @@
 import type { EventDefinition, EventEnvelope, EventPayload } from '@udemy/contracts';
-import { NonRetryableError } from '../../messaging';
+import { NonRetryableError } from './non-retryable.error';
 
 /**
- * Validates an envelope against the v1 contract. Another version cannot be handled by this
- * code and goes to the DLQ (NonRetryableError) instead of being dropped silently; a payload
- * that breaks the contract throws a ZodError, which the dispatcher also dead-letters.
+ * Validates an envelope against the contract version a handler was written for. Another
+ * version cannot be handled by that code and goes to the DLQ (NonRetryableError) instead of
+ * being dropped silently; a payload that breaks the contract throws a ZodError, which the
+ * dispatcher also dead-letters.
  */
-export function parseIdentityEvent<TDef extends EventDefinition>(
+export function parseEvent<TDef extends EventDefinition>(
   definition: TDef,
   envelope: EventEnvelope,
 ): EventPayload<TDef> {

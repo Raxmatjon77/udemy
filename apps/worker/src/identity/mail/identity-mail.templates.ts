@@ -1,88 +1,16 @@
 /**
- * Identity emails (design §7): plain text plus a small HTML alternative. Every interpolated
- * value is escaped for HTML (text and attribute context); links carry the token in the URL
- * fragment, so it never reaches server logs, proxies or Referer headers.
+ * Identity emails (design §7), rendered with the shared worker layout (escaped HTML, http(s)
+ * links only). Token links carry the token in the URL fragment, so it never reaches server
+ * logs, proxies or Referer headers.
  */
+import {
+  renderMail as render,
+  type RenderedMail,
+  safeUrl,
+  utc,
+} from '../../shared/mail/mail-layout';
 
-export interface RenderedMail {
-  readonly subject: string;
-  readonly text: string;
-  readonly html: string;
-}
-
-const HTML_ESCAPES: Readonly<Record<string, string>> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
-
-/** Escapes text for HTML element content and quoted attribute values. */
-export function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => HTML_ESCAPES[char] ?? char);
-}
-
-/** Only http(s) links are ever rendered (origins are validated at startup; this is a backstop). */
-function safeUrl(url: string): string {
-  const parsed = new URL(url);
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new TypeError('Email links must be http(s) URLs');
-  }
-  return parsed.toString();
-}
-
-/** Display names are user input: no line breaks in the text part either. */
-function oneLine(value: string): string {
-  return value.replace(/[\r\n\t]+/g, ' ').trim();
-}
-
-function utc(date: Date): string {
-  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-}
-
-interface Layout {
-  readonly subject: string;
-  readonly greetingName: string;
-  readonly paragraphs: readonly string[];
-  readonly action?: { readonly label: string; readonly url: string };
-  readonly footnote?: string;
-}
-
-function render(layout: Layout): RenderedMail {
-  const name = oneLine(layout.greetingName);
-  const action =
-    layout.action === undefined ? undefined : { ...layout.action, url: safeUrl(layout.action.url) };
-
-  const text = [
-    `Hi ${name},`,
-    '',
-    ...layout.paragraphs.flatMap((p) => [p, '']),
-    ...(action === undefined ? [] : [`${action.label}: ${action.url}`, '']),
-    ...(layout.footnote === undefined ? [] : [layout.footnote, '']),
-    '— Udemy Clone',
-  ].join('\n');
-
-  const html = [
-    '<!doctype html>',
-    '<html><body style="font-family:sans-serif;line-height:1.5;color:#1c1d1f">',
-    `<p>Hi ${escapeHtml(name)},</p>`,
-    ...layout.paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`),
-    ...(action === undefined
-      ? []
-      : [
-          `<p><a href="${escapeHtml(action.url)}" style="background:#5624d0;color:#fff;padding:10px 16px;text-decoration:none;border-radius:4px">${escapeHtml(action.label)}</a></p>`,
-          `<p style="font-size:12px;color:#6a6f73">Or paste this link into your browser:<br>${escapeHtml(action.url)}</p>`,
-        ]),
-    ...(layout.footnote === undefined
-      ? []
-      : [`<p style="font-size:12px;color:#6a6f73">${escapeHtml(layout.footnote)}</p>`]),
-    '<p>— Udemy Clone</p>',
-    '</body></html>',
-  ].join('\n');
-
-  return { subject: layout.subject, text, html };
-}
+export { escapeHtml, type RenderedMail } from '../../shared/mail/mail-layout';
 
 /** `${origin}/verify-email#token=…` and `${origin}/reset-password#token=…` (design §7). */
 export function tokenLink(
@@ -184,5 +112,39 @@ export function sessionCompromiseMail(input: {
       "If you don't recognise this, reset your password.",
     ],
     action: { label: 'Reset your password', url: input.forgotPasswordUrl },
+  });
+}
+
+/** `UserBanned`: the reason (written by an admin) and where to ask about it. */
+export function userBannedMail(input: {
+  displayName: string;
+  reason: string;
+  bannedAt: Date;
+  supportEmail: string;
+}): RenderedMail {
+  return render({
+    subject: 'Your account has been suspended',
+    greetingName: input.displayName,
+    paragraphs: [
+      `On ${utc(input.bannedAt)} your Udemy Clone account was suspended, and you were signed out on every device. You can't sign in while the suspension is in place.`,
+      `Reason: ${input.reason.trim()}`,
+      `If you think this is a mistake, contact support at ${input.supportEmail}.`,
+    ],
+  });
+}
+
+/** `UserUnbanned`: access restored, with a link to sign in again. */
+export function userUnbannedMail(input: {
+  displayName: string;
+  liftedAt: Date;
+  loginUrl: string;
+}): RenderedMail {
+  return render({
+    subject: 'Your account access has been restored',
+    greetingName: input.displayName,
+    paragraphs: [
+      `On ${utc(input.liftedAt)} the suspension of your Udemy Clone account was lifted. You can sign in again.`,
+    ],
+    action: { label: 'Sign in', url: input.loginUrl },
   });
 }

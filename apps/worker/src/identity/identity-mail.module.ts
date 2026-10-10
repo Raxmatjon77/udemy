@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AccountExistsMailerHandler } from './handlers/account-exists-mailer.handler';
+import {
+  UserBannedMailerHandler,
+  UserUnbannedMailerHandler,
+} from './handlers/ban-notice-mailer.handlers';
 import { EmailVerificationMailerHandler } from './handlers/email-verification-mailer.handler';
 import { PasswordResetMailerHandler } from './handlers/password-reset-mailer.handler';
 import {
@@ -7,7 +11,7 @@ import {
   SessionCompromiseMailerHandler,
 } from './handlers/security-notice-mailer.handlers';
 import { IdentityLinks } from './mail/identity-links';
-import { UserContactReader } from './mail/user-contact.reader';
+import { UserContactReader } from '../shared/mail/user-contact.reader';
 import { IssueOneTimeToken } from './one-time-tokens/issue-one-time-token';
 import { KyselyOneTimeTokenStore } from './one-time-tokens/kysely-one-time-token.store';
 import { OneTimeTokenStore } from './one-time-tokens/one-time-token.store';
@@ -28,6 +32,8 @@ import { OneTimeTokenStore } from './one-time-tokens/one-time-token.store';
     AccountExistsMailerHandler,
     PasswordChangedMailerHandler,
     SessionCompromiseMailerHandler,
+    UserBannedMailerHandler,
+    UserUnbannedMailerHandler,
   ],
 })
 export class IdentityMailModule {}

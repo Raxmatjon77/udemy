@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
 import { NonRetryableError } from '../../messaging';
 import { IdentityLinks } from '../mail/identity-links';
-import { type UserContact, UserContactReader } from '../mail/user-contact.reader';
+import { type UserContact, UserContactReader } from '../../shared/mail/user-contact.reader';
 import { IssueOneTimeToken } from '../one-time-tokens/issue-one-time-token';
 import { deriveOneTimeToken } from '../one-time-tokens/one-time-token';
 import {

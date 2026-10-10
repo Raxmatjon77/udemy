@@ -5,11 +5,10 @@ import {
 } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { eventMessageId, Mailer } from '@udemy/nest-common/mail';
-import { EventHandler, type EventHandlerContract } from '../../messaging';
+import { EventHandler, type EventHandlerContract, parseEvent } from '../../messaging';
 import { emailVerificationMail } from '../mail/identity-mail.templates';
 import { IdentityLinks } from '../mail/identity-links';
 import { IssueOneTimeToken } from '../one-time-tokens/issue-one-time-token';
-import { parseIdentityEvent } from './parse-identity-event';
 
 /**
  * `EmailVerificationRequested` (SIGNUP or RESEND): IssueOneTimeToken, then the verification
@@ -28,7 +27,7 @@ export class EmailVerificationMailerHandler implements EventHandlerContract {
   ) {}
 
   async handle(envelope: EventEnvelope, trx: Transaction<DB>): Promise<void> {
-    const event = parseIdentityEvent(EmailVerificationRequested, envelope);
+    const event = parseEvent(EmailVerificationRequested, envelope);
     const issued = await this.issueToken.execute(trx, {
       eventId: envelope.eventId,
       userId: event.userId,
