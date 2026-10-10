@@ -181,28 +181,39 @@ BEGIN
     GRANT SELECT ON outbox.events TO udemy_debezium;
   END IF;
 
-  -- Transcoder: schema USAGE only for now. Without table grants it can connect but touch nothing.
-  -- TODO(P2-T1/P2-T4): finalise after migration 0003 (catalog_media) exists. Expected grants, all
-  -- explicit (the global default privileges cover udemy_app only, never this role):
-  --   media.transcode_jobs      SELECT, UPDATE           lease (FOR UPDATE SKIP LOCKED), heartbeat,
-  --                                                      complete / fail / requeue; never INSERT
-  --                                                      (the worker enqueues) or DELETE
-  --   media.transcode_attempts  SELECT, INSERT, UPDATE   append-only log: insert at start, set
-  --                                                      finished_at/outcome once (guard trigger)
-  --   media.assets              SELECT, UPDATE           status PROCESSING/READY/FAILED, duration,
-  --                                                      dims, output_prefix, failure_code,
-  --                                                      source_deleted_at (column-level UPDATE if
-  --                                                      the final DDL allows it)
-  --   media.asset_renditions    SELECT, INSERT           (final table name per P2-T1)
-  --   outbox.events             INSERT                   MediaReady / MediaFailed via insertOutboxEvent
-  --   EXECUTE on any function the lease/complete SQL calls (none expected; uuidv7() is built in)
-  --   LISTEN media_transcode needs no grant.
-  -- Explicitly NOT granted: anything in identity, users, access or catalog; DELETE anywhere.
+  -- Transcoder (docs/phase-2-schema-design.md §4): least privilege, all explicit (the global
+  -- default privileges above cover udemy_app only, never this role). Identical to the
+  -- `udemy_transcoder` block of migration 0003_catalog_media, so the per-object grants hold
+  -- whether this script ran before or after 0003 (same two-pass model as above).
+  --   - SELECT on the four media tables it works with.
+  --   - Column-level UPDATE on the lease/progress columns of transcode_jobs and the result
+  --     columns of assets: it can't touch owner_id, purged_at, unused_since, first_used_at
+  --     or usages. updated_at needs no grant (BEFORE trigger; only the SET list is checked).
+  --   - INSERT on renditions and attempts, plus the finish columns of attempts.
+  --   - INSERT + SELECT (id) on outbox.events (insertOutboxEvent uses RETURNING id).
+  --   - Nothing in catalog, identity, users or access; no DELETE/TRUNCATE anywhere; never
+  --     INSERT on transcode_jobs (the worker enqueues as udemy_app). Trigger functions need
+  --     no EXECUTE at fire time; LISTEN media_transcode needs no grant.
   IF to_regnamespace('media') IS NOT NULL THEN
     GRANT USAGE ON SCHEMA media TO udemy_transcoder;
   END IF;
   IF to_regnamespace('outbox') IS NOT NULL THEN
     GRANT USAGE ON SCHEMA outbox TO udemy_transcoder;
+  END IF;
+  IF to_regclass('media.transcode_jobs') IS NOT NULL THEN
+    GRANT SELECT ON media.assets, media.transcode_jobs, media.asset_renditions, media.transcode_attempts
+      TO udemy_transcoder;
+    GRANT UPDATE (status, attempts, lease_count, run_after, lease_owner, lease_expires_at, heartbeat_at,
+                  progress_pct, last_error_code, finished_at) ON media.transcode_jobs TO udemy_transcoder;
+    GRANT UPDATE (status, output_prefix, duration_ms, width, height, detected_format, failure_code,
+                  ready_at, failed_at, source_deleted_at) ON media.assets TO udemy_transcoder;
+    GRANT INSERT ON media.asset_renditions, media.transcode_attempts TO udemy_transcoder;
+    GRANT UPDATE (finished_at, outcome, error_code, error_detail) ON media.transcode_attempts
+      TO udemy_transcoder;
+  END IF;
+  IF to_regclass('outbox.events') IS NOT NULL THEN
+    GRANT INSERT ON outbox.events TO udemy_transcoder;
+    GRANT SELECT (id) ON outbox.events TO udemy_transcoder;
   END IF;
 
   -- Migration bookkeeping is owner-only, even though the global table default above grants DML.

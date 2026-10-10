@@ -10,6 +10,8 @@ export type Generated<T> =
     ? ColumnType<S, I | undefined, U>
     : ColumnType<T, T | undefined, T>;
 
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
 export type Json = JsonValue;
 
 export type JsonArray = JsonValue[];
@@ -60,6 +62,209 @@ export interface AccessUserRoles {
    */
   roleIsImplicit: Generated<boolean>;
   userId: string;
+}
+
+export interface CatalogCategories {
+  createdAt: Generated<Timestamp>;
+  depth: number;
+  id: Generated<string>;
+  /**
+   * false = hidden from browse and not assignable/submittable. Existing live revisions keep it.
+   */
+  isActive: Generated<boolean>;
+  name: string;
+  /**
+   * Generated FK helper (= depth - 1). Never written by the app. Makes the self-FK reject a parent of the wrong depth.
+   */
+  parentDepth: ColumnType<number, never, never>;
+  parentId: string | null;
+  /**
+   * Contiguous 0..n-1 among siblings; unique per parent (roots share parent NULL via NULLS NOT DISTINCT), deferred so a reorder can permute in one transaction.
+   */
+  position: number;
+  slug: string;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface CatalogCourseBullets {
+  courseId: string;
+  kind: string;
+  position: number;
+  text: string;
+}
+
+export interface CatalogCourseRevisions {
+  categoryDepth: Generated<number>;
+  categoryId: string;
+  /**
+   * SHA-256 of the canonical JSON snapshot (details, bullets, ordered sections/lectures, asset ids, article bodies). Equal to the live revision hash -> nothing_to_review.
+   */
+  contentHash: Buffer;
+  courseId: string;
+  descriptionMd: string;
+  id: Generated<string>;
+  /**
+   * INITIAL if the course had no live revision at submit, else UPDATE. Equals (SUBMIT.from_status = PUBLISHED); verified at COMMIT by course_revisions_submit_log_ck.
+   */
+  kind: string;
+  language: string;
+  level: string;
+  revisionNo: number;
+  /**
+   * Equals the SUBMIT transition occurred_at (same transaction now()); verified at COMMIT.
+   */
+  submittedAt: Generated<Timestamp>;
+  submitterNote: string | null;
+  subtitle: string;
+  thumbnailAssetId: string;
+  title: string;
+}
+
+export interface CatalogCourses {
+  /**
+   * Always 2. FK helper so the category FK only accepts depth-2 (leaf) categories.
+   */
+  categoryDepth: Generated<number>;
+  categoryId: string | null;
+  createdAt: Generated<Timestamp>;
+  /**
+   * Soft delete (never-published courses only). = occurred_at of the DELETE transition.
+   */
+  deletedAt: Timestamp | null;
+  descriptionMd: string | null;
+  /**
+   * = occurred_at of the first APPROVE transition. Freezes the slug; blocks hard-delete semantics (archive only).
+   */
+  firstPublishedAt: Timestamp | null;
+  id: Generated<string>;
+  language: string | null;
+  level: string | null;
+  ownerId: string;
+  /**
+   * Revision currently in review (at most one). = the SUBMIT revision with no decision transition.
+   */
+  pendingRevisionId: string | null;
+  /**
+   * Live revision. = revision of the APPROVE transition with the highest revision_no. Never returns to NULL once set.
+   */
+  publishedRevisionId: string | null;
+  /**
+   * Generated from the title; editable until first_published_at is set, then frozen (courses_slug_frozen_ck). Unique among non-deleted courses.
+   */
+  slug: string;
+  status: Generated<string>;
+  subtitle: string | null;
+  /**
+   * Soft reference to media.assets (no cross-schema FK, D12). Consistency via media.asset_usages(consumer_type=catalog.course_thumbnail). Nulled when the course is soft-deleted.
+   */
+  thumbnailAssetId: string | null;
+  title: string;
+  updatedAt: Generated<Timestamp>;
+  /**
+   * Optimistic-concurrency token; bumped by every mutating use case (expectedVersion).
+   */
+  version: Generated<number>;
+}
+
+export interface CatalogCourseTransitions {
+  action: string;
+  actorId: string;
+  courseId: string;
+  fromStatus: string | null;
+  id: Generated<string>;
+  occurredAt: Generated<Timestamp>;
+  /**
+   * Head of the chain at insert time (read under the course row lock). NULL only for CREATE.
+   */
+  prevTransitionId: string | null;
+  /**
+   * REJECT: required 10..2000. ARCHIVE: owner optional, admin takedown required >= 10 (trigger). APPROVE: optional admin note. WITHDRAW: NULL or the system marker ARCHIVED (auto-withdraw on archive).
+   */
+  reason: string | null;
+  /**
+   * Set for SUBMIT/WITHDRAW/APPROVE/REJECT. Each revision has one SUBMIT and at most one decision (APPROVE/REJECT/WITHDRAW).
+   */
+  revisionId: string | null;
+  toStatus: string;
+}
+
+export interface CatalogLectureArticles {
+  bodyMd: string;
+  createdAt: Generated<Timestamp>;
+  lectureId: string;
+  /**
+   * Always ARTICLE. FK helper only.
+   */
+  lectureType: Generated<string>;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface CatalogLectures {
+  /**
+   * Functionally determined by section_id (documented 3NF exception): kept for the composite FK that pins a lecture to its course and for cheap course-scoped child loads. Cannot drift (composite FK + immutable).
+   */
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  descriptionMd: string | null;
+  id: Generated<string>;
+  /**
+   * Free preview (VIDEO/ARTICLE only, <= 10 per course - app under course lock).
+   */
+  isPreview: Generated<boolean>;
+  /**
+   * Soft reference to media.assets. VIDEO -> LECTURE_VIDEO, RESOURCE -> LECTURE_RESOURCE (app + asset_usages purpose check). Mirrors exactly one media.asset_usages(catalog.lecture, id) row.
+   */
+  mediaAssetId: string | null;
+  position: number;
+  sectionId: string;
+  title: string;
+  type: string;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface CatalogRevisionBullets {
+  kind: string;
+  position: number;
+  revisionId: string;
+  text: string;
+}
+
+export interface CatalogRevisionLectures {
+  articleBodyMd: string | null;
+  descriptionMd: string | null;
+  /**
+   * Snapshot of media.assets.duration_ms/1000 at submit (READY assets are immutable, so this is a frozen fact, not a drifting copy).
+   */
+  durationSeconds: number | null;
+  isPreview: boolean;
+  lectureId: string;
+  mediaAssetId: string | null;
+  position: number;
+  revisionId: string;
+  sectionId: string;
+  title: string;
+  type: string;
+}
+
+export interface CatalogRevisionSections {
+  objective: string | null;
+  position: number;
+  revisionId: string;
+  /**
+   * Working sections.id at submit time (stable identity for diffs). Deliberately no FK.
+   */
+  sectionId: string;
+  title: string;
+}
+
+export interface CatalogSections {
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  objective: string | null;
+  position: number;
+  title: string;
+  updatedAt: Generated<Timestamp>;
 }
 
 export interface IdentityOneTimeTokens {
@@ -188,6 +393,146 @@ export interface IdentityUsers {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface MediaAssetRenditions {
+  assetId: string;
+  bandwidthBps: number | null;
+  codecs: string | null;
+  createdAt: Generated<Timestamp>;
+  height: number;
+  /**
+   * Determined by name (documented exception: query convenience for the master playlist; asset_renditions_kind_name_ck makes drift impossible).
+   */
+  kind: string;
+  name: string;
+  /**
+   * HLS: the variant .m3u8; IMAGE: the JPEG; SPRITE: the WebVTT index (tiles live under the same prefix).
+   */
+  objectKey: string;
+  width: number;
+}
+
+export interface MediaAssets {
+  createdAt: Generated<Timestamp>;
+  /**
+   * Browser-declared, advisory only (purpose allowlist enforced in the app/contracts; the transcoder proves the real type).
+   */
+  declaredContentType: string;
+  /**
+   * bigint -> string in TS. Quota counts this. CompleteUpload requires HeadObject size == this.
+   */
+  declaredSizeBytes: Int8;
+  detectedFormat: string | null;
+  durationMs: number | null;
+  failedAt: Timestamp | null;
+  failureCode: string | null;
+  /**
+   * Maintained by asset_usages triggers. NULL = never attached -> short grace (MEDIA_UNATTACHED_GRACE_HOURS).
+   */
+  firstUsedAt: Timestamp | null;
+  height: number | null;
+  id: Generated<string>;
+  /**
+   * Set after the source prefix and output prefix were deleted from S3; retried until set.
+   */
+  objectsDeletedAt: Timestamp | null;
+  /**
+   * Display only (sanitised by the app, emitted RFC 5987-encoded). Never used to build keys.
+   */
+  originalFilename: string;
+  /**
+   * assets/{id}/a{leaseNo}/ in udemy-media; set at READY.
+   */
+  outputPrefix: string | null;
+  ownerId: string;
+  /**
+   * Pinned to ceil(declared_size_bytes / part_size_bytes) by assets_part_count_ck.
+   */
+  partCount: number;
+  partSizeBytes: number;
+  /**
+   * Set once by the janitor (no usages, grace elapsed). Blocks any new usage (asset_usages_asset_usable_ck).
+   */
+  purgedAt: Timestamp | null;
+  purpose: string;
+  readyAt: Timestamp | null;
+  /**
+   * S3 multipart UploadId; present iff status = UPLOADING.
+   */
+  s3UploadId: string | null;
+  /**
+   * Original deleted: READY + MEDIA_SOURCE_RETENTION_DAYS (7; §13), immediately on FAILED, or at purge.
+   */
+  sourceDeletedAt: Timestamp | null;
+  /**
+   * Quarantine object key in udemy-uploads. Derivable from (owner_id, id) and pinned to that layout by CHECK (documented 3NF exception: lets cleanup SQL read keys without app code).
+   */
+  sourceKey: string;
+  status: Generated<string>;
+  /**
+   * Maintained by asset_usages triggers under the asset row lock: NULL iff at least one usage exists, else when the last usage went away (creation time if never used). Purge candidate selector. The app must never write it.
+   */
+  unusedSince: Generated<Timestamp | null>;
+  updatedAt: Generated<Timestamp>;
+  uploadedAt: Timestamp | null;
+  width: number | null;
+}
+
+export interface MediaAssetUsages {
+  assetId: string;
+  /**
+   * catalog.lecture -> lectures.id; catalog.course_thumbnail -> courses.id; catalog.course_revision -> course_revisions.id. Soft reference (D12).
+   */
+  consumerId: string;
+  consumerType: string;
+  createdAt: Generated<Timestamp>;
+}
+
+export interface MediaTranscodeAttempts {
+  assetId: string;
+  /**
+   * = transcode_jobs.lease_count at lease time (monotonic; graceful releases do not reuse numbers).
+   */
+  attemptNo: number;
+  errorCode: string | null;
+  errorDetail: string | null;
+  finishedAt: Timestamp | null;
+  /**
+   * RELEASED = graceful shutdown (not penalised). LEASE_LOST = lease expired (crash/OOM), closed by the reaper.
+   */
+  outcome: string | null;
+  startedAt: Generated<Timestamp>;
+  workerId: string;
+}
+
+export interface MediaTranscodeJobs {
+  assetId: string;
+  /**
+   * Penalised attempts (counted toward max_attempts). Graceful shutdown gives the attempt back (attempts - 1).
+   */
+  attempts: Generated<number>;
+  createdAt: Generated<Timestamp>;
+  finishedAt: Timestamp | null;
+  heartbeatAt: Timestamp | null;
+  lastErrorCode: string | null;
+  /**
+   * Total leases ever taken (never decremented). = transcode_attempts.attempt_no and the a{n} output prefix of the current lease; heartbeat/complete are fenced on it.
+   */
+  leaseCount: Generated<number>;
+  leaseExpiresAt: Timestamp | null;
+  leaseOwner: string | null;
+  maxAttempts: Generated<number>;
+  progressPct: number | null;
+  /**
+   * Not before this time (exponential backoff on retry: now() + 2^attempts minutes).
+   */
+  runAfter: Generated<Timestamp>;
+  /**
+   * CANCELLED = the asset was purged or no longer processable when leased.
+   */
+  status: Generated<string>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface OutboxEvents {
   aggregateId: string;
   aggregateType: string;
@@ -257,12 +602,28 @@ export interface DB {
   'access.roleChanges': AccessRoleChanges;
   'access.roles': AccessRoles;
   'access.userRoles': AccessUserRoles;
+  'catalog.categories': CatalogCategories;
+  'catalog.courseBullets': CatalogCourseBullets;
+  'catalog.courseRevisions': CatalogCourseRevisions;
+  'catalog.courses': CatalogCourses;
+  'catalog.courseTransitions': CatalogCourseTransitions;
+  'catalog.lectureArticles': CatalogLectureArticles;
+  'catalog.lectures': CatalogLectures;
+  'catalog.revisionBullets': CatalogRevisionBullets;
+  'catalog.revisionLectures': CatalogRevisionLectures;
+  'catalog.revisionSections': CatalogRevisionSections;
+  'catalog.sections': CatalogSections;
   'identity.oneTimeTokens': IdentityOneTimeTokens;
   'identity.refreshTokens': IdentityRefreshTokens;
   'identity.securityEvents': IdentitySecurityEvents;
   'identity.sessions': IdentitySessions;
   'identity.userBans': IdentityUserBans;
   'identity.users': IdentityUsers;
+  'media.assetRenditions': MediaAssetRenditions;
+  'media.assets': MediaAssets;
+  'media.assetUsages': MediaAssetUsages;
+  'media.transcodeAttempts': MediaTranscodeAttempts;
+  'media.transcodeJobs': MediaTranscodeJobs;
   'outbox.events': OutboxEvents;
   'outbox.processedEvents': OutboxProcessedEvents;
   'users.instructorApplications': UsersInstructorApplications;

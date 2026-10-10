@@ -23,10 +23,15 @@ What the script grants:
 - `udemy_transcoder` (Phase 2, design D5/§9) parses hostile media, so it gets least privilege:
   USAGE on the `media` and `outbox` schemas, a 30 s `statement_timeout` and a 60 s
   `idle_in_transaction_session_timeout`, and is never a member of `udemy_app` or `udemy_owner`.
-  **Pending (P2-T1/P2-T4):** its table grants are finalised once migration 0003 exists; the
-  expected list (lease/complete `media.transcode_jobs`, insert `media.transcode_attempts` and
-  renditions, update asset state, insert `outbox.events`) is the TODO in `roles.sql`. Until then
-  it can connect but cannot read or write any table.
+  Its table grants (docs/phase-2-schema-design.md §4, applied both by migration 0003 and by
+  `roles.sql` once `media.transcode_jobs` exists) are explicit: SELECT on `media.assets`,
+  `transcode_jobs`, `asset_renditions`, `transcode_attempts`; column-level UPDATE on the lease
+  columns of `transcode_jobs`, the result columns of `assets` and the finish columns of
+  `transcode_attempts`; INSERT on `asset_renditions` and `transcode_attempts`; INSERT and
+  `SELECT (id)` on `outbox.events`. Nothing in `catalog`/`identity`/`users`/`access`, no DELETE,
+  no INSERT on `transcode_jobs`, and no `purged_at`/`unused_since`/`owner_id` updates.
+- Because 0003 revokes renditions/attempts writes from `udemy_app`, the transcoder deployment
+  must connect as `udemy_transcoder` in prod (dev is a single superuser).
 
 ## When to run
 

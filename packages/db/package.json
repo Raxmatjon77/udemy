@@ -17,10 +17,13 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "migrate:latest": "tsx --env-file-if-exists=../../.env src/cli/migrate-latest.ts",
     "migrate:down": "tsx --env-file-if-exists=../../.env src/cli/migrate-down.ts",
     "migrate:make": "tsx src/cli/migrate-make.ts",
-    "codegen": "kysely-codegen --dialect postgres --camel-case --numeric-parser string --date-parser timestamp --env-file ../../.env --out-file src/generated/db.ts && prettier --write src/generated/db.ts"
+    "codegen": "kysely-codegen --dialect postgres --camel-case --numeric-parser string --date-parser timestamp --env-file ../../.env --overrides '{\"columns\":{\"catalog.categories.parent_depth\":\"ColumnType<number, never, never>\"}}' --out-file src/generated/db.ts && prettier --write src/generated/db.ts"
   },
   "dependencies": {
     "kysely": "0.29.6",
@@ -34,6 +37,7 @@
     "eslint": "10.12.0",
     "kysely-codegen": "0.20.0",
     "tsx": "4.23.15",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "5.0.3"
   }
 }
