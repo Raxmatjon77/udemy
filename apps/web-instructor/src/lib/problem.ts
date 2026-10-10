@@ -80,6 +80,50 @@ const MESSAGES: Partial<Record<ErrorCode, Message>> = {
   [ErrorCode.VersionConflict]:
     'Someone else changed this in the meantime. Review the latest version and try again.',
   [ErrorCode.SelfDecisionForbidden]: 'You cannot decide on your own application.',
+
+  // catalog (Phase 2)
+  [ErrorCode.CourseNotFound]: 'This course does not exist or is not yours.',
+  [ErrorCode.SectionNotFound]: 'This section no longer exists. The curriculum was reloaded.',
+  [ErrorCode.LectureNotFound]: 'This lecture no longer exists. The curriculum was reloaded.',
+  [ErrorCode.CategoryNotFound]: 'This category does not exist.',
+  [ErrorCode.CourseInReview]:
+    'The course is waiting for review and cannot be changed. Withdraw it from review to edit.',
+  [ErrorCode.CourseNotEditable]: 'This course cannot be changed in its current state.',
+  [ErrorCode.CourseNotReady]: 'The course is not ready for review yet. Fix the items listed.',
+  [ErrorCode.ReviewAlreadyPending]: 'This course is already waiting for review.',
+  [ErrorCode.NothingToReview]:
+    'Nothing changed since the published version, so there is nothing to review.',
+  [ErrorCode.SlugTaken]: 'This URL is already used by another course.',
+  [ErrorCode.SlugFrozen]: 'The course URL cannot change after the course was published.',
+  [ErrorCode.CoursePublishedCannotDelete]:
+    'A course that was published cannot be deleted. Archive it instead.',
+  [ErrorCode.RestoreForbidden]: 'Only a moderator can restore this course.',
+  [ErrorCode.CategoryInactive]: 'This category is no longer available. Choose another one.',
+  [ErrorCode.CategoryNotLeaf]: 'Choose a subcategory, not a top-level category.',
+  [ErrorCode.OrderMismatch]:
+    'The curriculum was changed somewhere else. We reloaded it; please try again.',
+  [ErrorCode.CurriculumLimitExceeded]: 'The curriculum has reached its maximum size.',
+  [ErrorCode.LectureTypeMismatch]: 'This does not fit the lecture type.',
+  [ErrorCode.PreviewNotAllowed]:
+    'This lecture cannot be a free preview (only videos and articles, at most 10 per course).',
+  [ErrorCode.MarkdownNotAllowed]:
+    'The text contains formatting that is not allowed (HTML, images or unsafe links).',
+  [ErrorCode.MediaNotReady]: 'The file is still being processed.',
+
+  // media (Phase 2)
+  [ErrorCode.MediaAssetNotFound]: 'This file does not exist (any more).',
+  [ErrorCode.MediaPurposeMismatch]: 'This file cannot be used here.',
+  [ErrorCode.MediaAssetUnusable]:
+    'This file can no longer be used (it failed, was cancelled or is used elsewhere). Upload it again.',
+  [ErrorCode.UnsupportedMediaType]: 'This file type is not supported here.',
+  [ErrorCode.UploadTooLarge]: 'This file is too large.',
+  [ErrorCode.QuotaExceeded]: 'Your storage quota is used up. Remove unused uploads first.',
+  [ErrorCode.TooManyUploads]: (error) =>
+    `You have too many uploads in progress. Finish or cancel one first. ${waitSuffix(error)}`,
+  [ErrorCode.UploadNotInProgress]: 'This upload is no longer in progress. Start it again.',
+  [ErrorCode.UploadIncomplete]: 'Some parts of the file did not arrive. Retrying them…',
+  [ErrorCode.UploadSizeMismatch]:
+    'The uploaded file does not match the size that was announced. Please upload it again.',
 };
 
 function byStatus(error: ProxyFetchError): string {
