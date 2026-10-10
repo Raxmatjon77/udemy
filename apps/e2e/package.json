@@ -1,0 +1,29 @@
+{
+  "name": "@udemy/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright end-to-end journeys across the three Next.js apps against the real stack.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:report": "playwright show-report .output/report",
+    "browsers:install": "playwright install chromium",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
+    "@udemy/eslint-config": "workspace:*",
+    "@udemy/tsconfig": "workspace:*",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "pg": "8.23.1",
+    "typescript": "~6.0.3"
+  }
+}

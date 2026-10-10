@@ -1,0 +1,14 @@
+{
+  "extends": "@udemy/tsconfig/base.json",
+  "compilerOptions": {
+    // Playwright transpiles the TypeScript itself; tsc only type-checks.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["playwright.config.ts", "src/**/*.ts", "tests/**/*.ts"]
+}

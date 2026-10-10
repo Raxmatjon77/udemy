@@ -26,6 +26,17 @@
       "cache": false,
       "persistent": true
     },
+    "e2e": {
+      "cache": false,
+      "dependsOn": [
+        "@udemy/api#build",
+        "@udemy/worker#build",
+        "@udemy/web-student#build",
+        "@udemy/web-instructor#build",
+        "@udemy/web-admin#build"
+      ],
+      "passThroughEnv": ["E2E_*", "CI", "HOME", "PLAYWRIGHT_*"]
+    },
     "lint": {
       "dependsOn": ["^build"]
     },
