@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createDatabase, type DB, type Kysely, sql } from '@udemy/db';
 import { afterAll, beforeAll } from 'vitest';
 
@@ -124,4 +125,102 @@ export function tokenFromMail(text: string, path: '/verify-email' | '/reset-pass
   const match = new RegExp(`${path}#token=([A-Za-z0-9_-]+)`).exec(text);
   if (match?.[1] === undefined) throw new Error(`No ${path} token link in the mail`);
   return match[1];
+}
+
+/** Deletes the Mailpit messages matching a search query (e.g. `subject:"..."`). */
+export async function deleteMailMatching(query: string): Promise<void> {
+  await fetch(`${itMailpitUrl()}/api/v1/search?query=${encodeURIComponent(query)}`, {
+    method: 'DELETE',
+  });
+}
+
+/** Mail to `address` must stay at exactly `count`: waits for them, then for stragglers. */
+export async function exactlyMails(address: string, count: number): Promise<MailpitMessage[]> {
+  if (count > 0) await waitForMail(address, { count });
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  if (count === 0) {
+    const res = await fetch(
+      `${itMailpitUrl()}/api/v1/search?query=${encodeURIComponent(`to:"${address}"`)}`,
+    );
+    const body = (await res.json()) as { messages: unknown[] };
+    if (body.messages.length !== 0) {
+      throw new Error(`Expected no mail to ${address}, got ${body.messages.length}`);
+    }
+    return [];
+  }
+  return waitForMail(address, { count });
+}
+
+/**
+ * Deletes everything integration tests committed for these users: their media assets (with
+ * jobs, attempts, renditions, usages), their courses with all catalog children and history,
+ * outbox rows of those aggregates, role grants, then the users. `session_replication_role =
+ * replica` disables the append-only triggers and FK checks for this transaction only; it needs a
+ * superuser, which the dev compose stack and CI connect as (same approach as `@udemy/db` tests).
+ */
+export async function deleteTestData(
+  db: Kysely<DB>,
+  userIds: readonly string[],
+  extraAggregateIds: readonly string[] = [],
+): Promise<void> {
+  const ids = [...new Set(userIds)];
+  if (ids.length === 0) return;
+  await db.transaction().execute(async (trx) => {
+    await sql`set local session_replication_role = replica`.execute(trx);
+    await sql`
+      DELETE FROM outbox.events
+       WHERE aggregate_id IN (SELECT id::text FROM media.assets WHERE owner_id = ANY(${ids}::uuid[]))
+          OR aggregate_id = ANY(${[...extraAggregateIds]}::text[])
+    `.execute(trx);
+    await sql`
+      WITH a AS (SELECT id FROM media.assets WHERE owner_id = ANY(${ids}::uuid[]))
+      , d1 AS (DELETE FROM media.transcode_attempts WHERE asset_id IN (SELECT id FROM a))
+      , d2 AS (DELETE FROM media.transcode_jobs WHERE asset_id IN (SELECT id FROM a))
+      , d3 AS (DELETE FROM media.asset_renditions WHERE asset_id IN (SELECT id FROM a))
+      , d4 AS (DELETE FROM media.asset_usages WHERE asset_id IN (SELECT id FROM a))
+      DELETE FROM media.assets WHERE id IN (SELECT id FROM a)
+    `.execute(trx);
+    await sql`
+      WITH c AS (SELECT id FROM catalog.courses WHERE owner_id = ANY(${ids}::uuid[]))
+      , r AS (SELECT id FROM catalog.course_revisions WHERE course_id IN (SELECT id FROM c))
+      , d1 AS (DELETE FROM catalog.course_transitions WHERE course_id IN (SELECT id FROM c))
+      , d2 AS (DELETE FROM catalog.revision_lectures WHERE revision_id IN (SELECT id FROM r))
+      , d3 AS (DELETE FROM catalog.revision_sections WHERE revision_id IN (SELECT id FROM r))
+      , d4 AS (DELETE FROM catalog.revision_bullets WHERE revision_id IN (SELECT id FROM r))
+      , d5 AS (DELETE FROM catalog.course_revisions WHERE id IN (SELECT id FROM r))
+      , d6 AS (DELETE FROM catalog.lecture_articles WHERE lecture_id IN
+                 (SELECT id FROM catalog.lectures WHERE course_id IN (SELECT id FROM c)))
+      , d7 AS (DELETE FROM catalog.lectures WHERE course_id IN (SELECT id FROM c))
+      , d8 AS (DELETE FROM catalog.sections WHERE course_id IN (SELECT id FROM c))
+      , d9 AS (DELETE FROM catalog.course_bullets WHERE course_id IN (SELECT id FROM c))
+      DELETE FROM catalog.courses WHERE id IN (SELECT id FROM c)
+    `.execute(trx);
+    await trx.deleteFrom('access.userRoles').where('userId', 'in', ids).execute();
+    await trx.deleteFrom('identity.users').where('id', 'in', ids).execute();
+  });
+}
+
+/** Inserts a user for integration tests; returns its id and (unique) address. */
+export async function insertTestUser(
+  db: Kysely<DB>,
+  options: { tag: string; displayName?: string; role?: 'ADMIN' | 'INSTRUCTOR' },
+): Promise<{ id: string; email: string }> {
+  const email = `it-worker-${options.tag}-${randomUUID()}@example.test`;
+  const row = await db
+    .insertInto('identity.users')
+    .values({
+      email,
+      displayName: options.displayName ?? 'Worker IT',
+      passwordHash: '$argon2id$v=19$m=19456,t=2,p=1$aW50ZWdyYXRpb24$aW50ZWdyYXRpb24',
+      passwordChangedAt: sql<Date>`now()`,
+    })
+    .returning('id')
+    .executeTakeFirstOrThrow();
+  if (options.role !== undefined) {
+    await db
+      .insertInto('access.userRoles')
+      .values({ userId: row.id, roleCode: options.role })
+      .execute();
+  }
+  return { id: row.id, email };
 }

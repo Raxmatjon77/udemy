@@ -1,0 +1,142 @@
+import { Module } from '@nestjs/common';
+import { AppConfigService } from '../../shared/config';
+import { MediaModule } from '../media';
+import { CatalogSettings } from './application/catalog-settings';
+import { CourseDetailAssembler } from './application/course-detail.assembler';
+import { CourseLocker } from './application/course-locker';
+import { CourseOwnership } from './application/course.ownership';
+import { CourseReadinessEvaluator } from './application/course-readiness.evaluator';
+import { CurriculumReader } from './application/curriculum-reader';
+import { CatalogEventPublisher } from './application/ports/catalog-event.publisher';
+import { CategoryRepository } from './application/ports/category.repository';
+import { CourseLifecycleRepository } from './application/ports/course-lifecycle.repository';
+import { CourseRepository } from './application/ports/course.repository';
+import { CurriculumRepository } from './application/ports/curriculum.repository';
+import { TransactionRunner } from './application/ports/transaction-runner';
+import {
+  LiveRevisionPresenceDetector,
+  UnpublishedChangesDetector,
+} from './application/ports/unpublished-changes.detector';
+import { AddLectureCommand } from './application/use-cases/add-lecture.command';
+import { AddSectionCommand } from './application/use-cases/add-section.command';
+import { AdminListCategoriesQuery } from './application/use-cases/admin-list-categories.query';
+import { AttachLectureMediaCommand } from './application/use-cases/attach-lecture-media.command';
+import { ClearCourseThumbnailCommand } from './application/use-cases/clear-course-thumbnail.command';
+import { CreateCategoryCommand } from './application/use-cases/create-category.command';
+import { CreateCourseCommand } from './application/use-cases/create-course.command';
+import { DeleteCategoryCommand } from './application/use-cases/delete-category.command';
+import { DeleteCourseCommand } from './application/use-cases/delete-course.command';
+import { DeleteLectureCommand } from './application/use-cases/delete-lecture.command';
+import { DeleteSectionCommand } from './application/use-cases/delete-section.command';
+import { DetachLectureMediaCommand } from './application/use-cases/detach-lecture-media.command';
+import { GetArticleQuery } from './application/use-cases/get-article.query';
+import { GetCourseQuery } from './application/use-cases/get-course.query';
+import { GetCurriculumQuery } from './application/use-cases/get-curriculum.query';
+import { ListCategoryTreeQuery } from './application/use-cases/list-category-tree.query';
+import { ListMyCoursesQuery } from './application/use-cases/list-my-courses.query';
+import { ReorderCategoriesCommand } from './application/use-cases/reorder-categories.command';
+import { ReorderCurriculumCommand } from './application/use-cases/reorder-curriculum.command';
+import { SaveArticleCommand } from './application/use-cases/save-article.command';
+import { SetCourseThumbnailCommand } from './application/use-cases/set-course-thumbnail.command';
+import { UpdateCategoryCommand } from './application/use-cases/update-category.command';
+import { UpdateCourseCommand } from './application/use-cases/update-course.command';
+import { UpdateLectureCommand } from './application/use-cases/update-lecture.command';
+import { UpdateSectionCommand } from './application/use-cases/update-section.command';
+import { KyselyCategoryRepository } from './infrastructure/kysely-category.repository';
+import { KyselyCourseLifecycleRepository } from './infrastructure/kysely-course-lifecycle.repository';
+import { KyselyCourseRepository } from './infrastructure/kysely-course.repository';
+import { KyselyCurriculumRepository } from './infrastructure/kysely-curriculum.repository';
+import { KyselyTransactionRunner } from './infrastructure/kysely-transaction-runner';
+import { OutboxCatalogEventPublisher } from './infrastructure/outbox-catalog-event.publisher';
+import { AdminCategoriesController } from './presentation/admin-categories.controller';
+import { CoursesController } from './presentation/courses.controller';
+import { CurriculumController } from './presentation/curriculum.controller';
+import { InstructorCoursesController } from './presentation/instructor-courses.controller';
+
+/** `CatalogSettings` from the validated env (`CATALOG_*`). */
+export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
+  return new CatalogSettings({
+    minLectures: config.get('CATALOG_SUBMIT_MIN_LECTURES'),
+    minVideoSeconds: config.get('CATALOG_SUBMIT_MIN_VIDEO_SECONDS'),
+  });
+}
+
+/**
+ * catalog (design §3–§8): categories, the course working copy (details, bullets, slug,
+ * thumbnail), curriculum, media attachment and deletion. P2-T9 ("catalog A").
+ *
+ * Depends on media through `MediaFacade` only (usages in catalog's own transaction), plus the
+ * global DatabaseModule, OutboxModule, AppConfigModule and AuthSupportModule.
+ * `CourseOwnership` is discovered by access's OwnershipRegistry for
+ * `@CheckPolicy({ resource: 'course' })`.
+ *
+ * Extension points for P2-T10 (lifecycle/moderation) and P2-T11 (public read/playback), which
+ * add their providers and controllers HERE: `CourseLocker` (per-course mutex),
+ * `CourseLifecycleRepository` (transition chain), `CourseReadinessEvaluator` (submit check),
+ * `CurriculumReader` / `CourseDetailAssembler` (views), `CatalogEventPublisher`,
+ * `TransactionRunner` (maps the §9 constraints incl. deferred ones at COMMIT), the
+ * `UnpublishedChangesDetector` binding (content-hash comparison) and `ListCategoryTreeQuery`
+ * (the public `GET /catalog/categories`).
+ */
+@Module({
+  imports: [MediaModule],
+  controllers: [
+    InstructorCoursesController,
+    CoursesController,
+    CurriculumController,
+    AdminCategoriesController,
+  ],
+  providers: [
+    // Configuration
+    { provide: CatalogSettings, inject: [AppConfigService], useFactory: catalogSettingsFrom },
+
+    // Persistence and events
+    { provide: TransactionRunner, useClass: KyselyTransactionRunner },
+    { provide: CourseRepository, useClass: KyselyCourseRepository },
+    { provide: CourseLifecycleRepository, useClass: KyselyCourseLifecycleRepository },
+    { provide: CurriculumRepository, useClass: KyselyCurriculumRepository },
+    { provide: CategoryRepository, useClass: KyselyCategoryRepository },
+    { provide: CatalogEventPublisher, useClass: OutboxCatalogEventPublisher },
+    // P2-T10 rebinds this to the working-copy content-hash comparison.
+    { provide: UnpublishedChangesDetector, useClass: LiveRevisionPresenceDetector },
+
+    // Application services
+    CourseOwnership,
+    CourseLocker,
+    CurriculumReader,
+    CourseReadinessEvaluator,
+    CourseDetailAssembler,
+
+    // Use cases: categories
+    AdminListCategoriesQuery,
+    ListCategoryTreeQuery,
+    CreateCategoryCommand,
+    UpdateCategoryCommand,
+    ReorderCategoriesCommand,
+    DeleteCategoryCommand,
+
+    // Use cases: course working copy
+    ListMyCoursesQuery,
+    CreateCourseCommand,
+    GetCourseQuery,
+    UpdateCourseCommand,
+    SetCourseThumbnailCommand,
+    ClearCourseThumbnailCommand,
+    DeleteCourseCommand,
+
+    // Use cases: curriculum
+    GetCurriculumQuery,
+    ReorderCurriculumCommand,
+    AddSectionCommand,
+    UpdateSectionCommand,
+    DeleteSectionCommand,
+    AddLectureCommand,
+    UpdateLectureCommand,
+    DeleteLectureCommand,
+    GetArticleQuery,
+    SaveArticleCommand,
+    AttachLectureMediaCommand,
+    DetachLectureMediaCommand,
+  ],
+})
+export class CatalogModule {}

@@ -1,0 +1,11 @@
+{
+  "extends": "@udemy/tsconfig/nestjs.json",
+  "compilerOptions": {
+    // nodenext + no "type" in package.json => CommonJS output (dist/main.js).
+    // Nest 12, Kysely 0.29 etc. are ESM-only and load through require(esm) (Node >= 22.12).
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src", "vitest.config.mts"]
+}

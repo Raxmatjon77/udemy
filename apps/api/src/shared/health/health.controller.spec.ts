@@ -11,6 +11,7 @@ import { setupApp } from '../../setup-app';
 import { AuthMetadataReader } from '../auth';
 import { REDIS, RedisHealthIndicator } from '../redis';
 import { HealthController } from './health.controller';
+import { S3HealthIndicator } from './s3-health.indicator';
 
 /** No real Postgres/Redis: clients are replaced, readiness is driven by stubbed indicators. */
 const fakeDatabase = { destroy: vi.fn(async () => undefined) };
@@ -21,6 +22,7 @@ const fakeRedis = {
 };
 const dbHealth = { check: vi.fn(async (key: string) => indicatorResult(key, 'up')) };
 const redisHealth = { check: vi.fn(async (key: string) => indicatorResult(key, 'up')) };
+const s3Health = { check: vi.fn(async (key: string) => indicatorResult(key, 'up')) };
 
 describe('Health endpoints (full AppModule, DB mocked)', () => {
   let app: INestApplication;
@@ -35,6 +37,8 @@ describe('Health endpoints (full AppModule, DB mocked)', () => {
       .useValue(fakeRedis)
       .overrideProvider(RedisHealthIndicator)
       .useValue(redisHealth)
+      .overrideProvider(S3HealthIndicator)
+      .useValue(s3Health)
       .compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ bufferLogs: true });
     setupApp(app as NestExpressApplication);
@@ -72,12 +76,25 @@ describe('Health endpoints (full AppModule, DB mocked)', () => {
     await request(app.getHttpServer()).get('/api/v1/health/live').expect(404);
   });
 
-  it('GET /api/health/ready answers 200 when the database and Redis are up', async () => {
+  it('GET /api/health/ready answers 200 when the database, Redis and S3 are up', async () => {
     const res = await request(app.getHttpServer()).get('/api/health/ready').expect(200);
 
     expect(res.body).toMatchObject({
       status: 'ok',
-      details: { database: { status: 'up' }, redis: { status: 'up' } },
+      details: { database: { status: 'up' }, redis: { status: 'up' }, s3: { status: 'up' } },
+    });
+  });
+
+  it('GET /api/health/ready answers 503 when object storage is down', async () => {
+    s3Health.check.mockImplementationOnce(async (key: string) =>
+      indicatorResult(key, 'down', { message: 'Object storage is unreachable' }),
+    );
+
+    const res = await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+
+    expect(res.body).toMatchObject({
+      status: 503,
+      details: { database: { status: 'up' }, redis: { status: 'up' }, s3: { status: 'down' } },
     });
   });
 

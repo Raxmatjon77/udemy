@@ -60,6 +60,15 @@ describe('apiEnvSchema', () => {
     ],
     ['CLIENT_INSTRUCTOR_SECRET_HASH', 'abc123'],
     ['CLIENT_ADMIN_SECRET_HASH', `${'0'.repeat(63)}g`],
+    ['S3_ENDPOINT', 'localhost:9000'],
+    ['S3_ENDPOINT', 'http://minio:9000/bucket'],
+    ['S3_PUBLIC_ENDPOINT', 'ftp://127.0.0.1:9000'],
+    ['S3_BUCKET_MEDIA', 'Bad_Bucket'],
+    ['S3_FORCE_PATH_STYLE', 'maybe'],
+    ['MEDIA_PART_URL_TTL_S', '0'],
+    ['MEDIA_PLAYBACK_URL_TTL_S', '604801'],
+    ['MEDIA_MAX_VIDEO_BYTES', '0'],
+    ['MEDIA_MAX_CONCURRENT_UPLOADS', '0'],
   ])('rejects an invalid %s (%s) and names the variable', (key, value) => {
     const run = (): unknown => validateEnv(apiEnvSchema, { ...validEnv, [key]: value });
 
@@ -97,6 +106,33 @@ describe('apiEnvSchema', () => {
         CLIENT_ADMIN_SECRET_HASH: TEST_ENV.CLIENT_STUDENT_SECRET_HASH,
       }),
     ).toThrow(/CLIENT_ADMIN_SECRET_HASH/);
+  });
+
+  it('applies the media defaults and parses large byte counts', () => {
+    const env = validateEnv(apiEnvSchema, validEnv);
+    expect(env).toMatchObject({
+      S3_FORCE_PATH_STYLE: true,
+      MEDIA_PART_URL_TTL_S: 900,
+      MEDIA_PLAYBACK_URL_TTL_S: 3600,
+      MEDIA_IMAGE_URL_TTL_S: 3600,
+      MEDIA_DOWNLOAD_URL_TTL_S: 300,
+      MEDIA_MAX_VIDEO_BYTES: 4 * 1024 ** 3,
+      MEDIA_MAX_IMAGE_BYTES: 5 * 1024 ** 2,
+      MEDIA_MAX_RESOURCE_BYTES: 100 * 1024 ** 2,
+      MEDIA_QUOTA_BYTES_PER_OWNER: 100 * 1024 ** 3,
+      MEDIA_MAX_CONCURRENT_UPLOADS: 5,
+    });
+    expect(env.S3_PUBLIC_ENDPOINT).toBeUndefined();
+    expect(
+      validateEnv(apiEnvSchema, { ...validEnv, MEDIA_QUOTA_BYTES_PER_OWNER: '10737418240' })
+        .MEDIA_QUOTA_BYTES_PER_OWNER,
+    ).toBe(10_737_418_240);
+  });
+
+  it('refuses one bucket for both roles', () => {
+    expect(() =>
+      validateEnv(apiEnvSchema, { ...validEnv, S3_BUCKET_MEDIA: TEST_ENV.S3_BUCKET_UPLOADS }),
+    ).toThrow(/S3_BUCKET_MEDIA/);
   });
 
   it('refuses a pepper equal to the login HMAC key', () => {

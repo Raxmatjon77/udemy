@@ -5,6 +5,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { DbHealthIndicator } from '@udemy/nest-common';
 import { NoClientAuth, Public } from '../auth';
 import { RedisHealthIndicator } from '../redis';
+import { S3HealthIndicator } from './s3-health.indicator';
 
 /**
  * Kubernetes probes. VERSION_NEUTRAL keeps them at /api/health/* (no /v1), because
@@ -20,6 +21,7 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly db: DbHealthIndicator,
     private readonly redis: RedisHealthIndicator,
+    private readonly s3: S3HealthIndicator,
   ) {}
 
   /** Liveness: the process is up and the event loop answers. No dependencies on purpose. */
@@ -31,11 +33,16 @@ export class HealthController {
 
   /**
    * Readiness: dependencies are reachable, so the pod may receive traffic. 503 otherwise.
-   * Redis is included because authenticated requests fail closed without it (design D11).
+   * Redis is included because authenticated requests fail closed without it (design D11);
+   * S3 because uploads, playlists and signed media URLs cannot work without it.
    */
   @Get('ready')
   @HealthCheck()
   ready(): Promise<HealthCheckResult> {
-    return this.health.check([() => this.db.check('database'), () => this.redis.check('redis')]);
+    return this.health.check([
+      () => this.db.check('database'),
+      () => this.redis.check('redis'),
+      () => this.s3.check('s3'),
+    ]);
   }
 }

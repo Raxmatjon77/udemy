@@ -12,6 +12,12 @@ const validEnv = {
   STUDENT_APP_ORIGIN: 'http://localhost:3000',
   INSTRUCTOR_APP_ORIGIN: 'http://localhost:3001',
   ADMIN_APP_ORIGIN: 'http://localhost:3002',
+  S3_ENDPOINT: 'http://localhost:9000',
+  S3_REGION: 'us-east-1',
+  S3_ACCESS_KEY: 'minio',
+  S3_SECRET_KEY: 'minio12345',
+  S3_BUCKET_UPLOADS: 'udemy-uploads',
+  S3_BUCKET_MEDIA: 'udemy-media',
 };
 
 describe('workerEnvSchema (Phase 1 variables)', () => {
@@ -61,4 +67,62 @@ describe('workerEnvSchema (Phase 1 variables)', () => {
       }),
     ).not.toThrow();
   });
+});
+
+describe('workerEnvSchema (Phase 2 storage and media cleanup)', () => {
+  it('applies the design defaults (A-D, batches, S3 path style)', () => {
+    const env = validateEnv(workerEnvSchema, validEnv);
+    expect(env).toMatchObject({
+      S3_FORCE_PATH_STYLE: true,
+      MEDIA_CLEANUP_ENABLED: true,
+      MEDIA_CLEANUP_INTERVAL_MS: 3_600_000,
+      MEDIA_CLEANUP_INITIAL_DELAY_MS: 120_000,
+      MEDIA_CLEANUP_BATCH_SIZE: 100,
+      MEDIA_CLEANUP_MAX_BATCHES_PER_RUN: 50,
+      MEDIA_UPLOAD_TTL_HOURS: 24,
+      MEDIA_UNATTACHED_GRACE_HOURS: 24,
+      MEDIA_UNUSED_GRACE_DAYS: 7,
+      MEDIA_SOURCE_RETENTION_DAYS: 7,
+    });
+  });
+
+  it('accepts the .env.example media values (dev retention of 1 day, path style off)', () => {
+    const env = validateEnv(workerEnvSchema, {
+      ...validEnv,
+      S3_PUBLIC_ENDPOINT: 'http://127.0.0.1:9000',
+      S3_FORCE_PATH_STYLE: 'false',
+      MEDIA_CLEANUP_ENABLED: 'false',
+      MEDIA_SOURCE_RETENTION_DAYS: '1',
+    });
+    expect(env).toMatchObject({
+      S3_PUBLIC_ENDPOINT: 'http://127.0.0.1:9000',
+      S3_FORCE_PATH_STYLE: false,
+      MEDIA_CLEANUP_ENABLED: false,
+      MEDIA_SOURCE_RETENTION_DAYS: 1,
+    });
+  });
+
+  it.each([
+    ['S3_ENDPOINT', 'ftp://localhost:9000'],
+    ['S3_ENDPOINT', 'http://localhost:9000/bucket'],
+    ['S3_BUCKET_UPLOADS', 'Bad_Bucket'],
+    ['MEDIA_CLEANUP_BATCH_SIZE', '0'],
+    ['MEDIA_CLEANUP_INTERVAL_MS', '1000'],
+    ['MEDIA_UPLOAD_TTL_HOURS', '0'],
+    ['MEDIA_UNUSED_GRACE_DAYS', '4000'],
+    ['MEDIA_SOURCE_RETENTION_DAYS', '-1'],
+  ])('rejects an invalid %s (%s)', (key, value) => {
+    expect(() => validateEnv(workerEnvSchema, { ...validEnv, [key]: value })).toThrow(
+      new RegExp(key),
+    );
+  });
+
+  it.each(['S3_ENDPOINT', 'S3_REGION', 'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'S3_BUCKET_MEDIA'])(
+    'requires %s',
+    (key) => {
+      const env: Record<string, string> = { ...validEnv };
+      delete env[key];
+      expect(() => validateEnv(workerEnvSchema, env)).toThrow(new RegExp(key));
+    },
+  );
 });

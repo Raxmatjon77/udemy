@@ -24,6 +24,17 @@ const appOrigin = z
     'Expected an origin without path or trailing slash',
   );
 
+/** An S3 endpoint origin (`http(s)://host[:port]`); `@udemy/storage` validates it again. */
+const s3Endpoint = z
+  .url({ protocol: /^https?$/ })
+  .refine(
+    (value) => new URL(value).origin === value.replace(/\/+$/, ''),
+    'Expected an origin without path',
+  );
+
+/** S3 bucket naming rules (as checked by `@udemy/storage`). */
+const bucketName = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'Invalid bucket name');
+
 /** Everything the worker reads from the environment. Validated once at startup. */
 export const workerEnvSchema = baseEnvSchema
   .extend({
@@ -73,6 +84,48 @@ export const workerEnvSchema = baseEnvSchema
     IDENTITY_CLEANUP_SECURITY_EVENT_BATCH_SIZE: envInt.min(1).max(50_000).default(5_000),
     /** Upper bound of batches per statement and run, so one run can never loop forever. */
     IDENTITY_CLEANUP_MAX_BATCHES_PER_RUN: envInt.min(1).default(200),
+
+    // ---- Phase 2: object storage (design §3 `@udemy/storage`, §14). The worker only lists,
+    // aborts and deletes (MediaCleanupJob); it never presigns.
+    /** Server-to-server S3/MinIO endpoint (origin only). */
+    S3_ENDPOINT: s3Endpoint,
+    /** Endpoint presigned URLs are signed for. Unused by the worker; defaults to S3_ENDPOINT. */
+    S3_PUBLIC_ENDPOINT: s3Endpoint.optional(),
+    S3_REGION: z.string().trim().min(1),
+    S3_ACCESS_KEY: z.string().trim().min(1),
+    S3_SECRET_KEY: z.string().trim().min(1),
+    /** Quarantine bucket of raw uploads (`uploads/{owner}/{asset}/source`). */
+    S3_BUCKET_UPLOADS: bucketName,
+    /** Processed outputs (`assets/{asset}/a{n}/...`). */
+    S3_BUCKET_MEDIA: bucketName,
+    /** Mandatory for MinIO (design §14). */
+    S3_FORCE_PATH_STYLE: envBoolean.default(true),
+
+    // ---- Phase 2: media cleanup (design §5 MediaCleanupJob A-D, schema doc §8.2)
+    /** Run the scheduled media cleanup in this replica (an advisory lock still makes runs exclusive). */
+    MEDIA_CLEANUP_ENABLED: envBoolean.default(true),
+    /** Time between two media cleanup runs. */
+    MEDIA_CLEANUP_INTERVAL_MS: envInt.min(10_000).default(60 * 60 * 1000),
+    /** Delay of the first run after startup. */
+    MEDIA_CLEANUP_INITIAL_DELAY_MS: envInt.default(120_000),
+    /** Rows per batch transaction. Small: every purged asset also costs S3 deletes. */
+    MEDIA_CLEANUP_BATCH_SIZE: envInt.min(1).max(1_000).default(100),
+    /** Upper bound of batches per step and run. */
+    MEDIA_CLEANUP_MAX_BATCHES_PER_RUN: envInt.min(1).default(50),
+    /** A. UPLOADING assets older than this become ABORTED (multipart aborted in S3). */
+    MEDIA_UPLOAD_TTL_HOURS: envInt
+      .min(1)
+      .max(24 * 3650)
+      .default(24),
+    /** C. Purge grace for never-attached assets. */
+    MEDIA_UNATTACHED_GRACE_HOURS: envInt
+      .min(1)
+      .max(24 * 3650)
+      .default(24),
+    /** C. Purge grace after the last usage was released. */
+    MEDIA_UNUSED_GRACE_DAYS: envInt.min(1).max(3650).default(7),
+    /** D. Delete the uploaded original this many days after READY (decision Q5: 7; 1 in dev). */
+    MEDIA_SOURCE_RETENTION_DAYS: envInt.min(0).max(3650).default(7),
   })
   // Refuse the `change-me` dev placeholders from .env.example when NODE_ENV=production.
   .superRefine(refuseDevPlaceholdersInProduction());

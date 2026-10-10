@@ -1365,7 +1365,7 @@ describe('§8 endpoint sweep (real AppModule, guards, Postgres, Redis)', () => {
 
   describe('GET /api/docs-json (Swagger)', () => {
     /** Every §8 route as an OpenAPI path + method. */
-    const SECTION_8: readonly (readonly [string, HttpMethod])[] = [
+    const SECTION_8: readonly (readonly [string, HttpMethod | 'put'])[] = [
       ['/.well-known/jwks.json', 'get'],
       [`${V1}/auth/signup`, 'post'],
       [`${V1}/auth/login`, 'post'],
@@ -1394,6 +1394,39 @@ describe('§8 endpoint sweep (real AppModule, guards, Postgres, Redis)', () => {
       [`${V1}/admin/users/{userId}`, 'get'],
       [`${V1}/admin/users/{userId}/ban`, 'post'],
       [`${V1}/admin/users/{userId}/unban`, 'post'],
+      // Phase 2 media (catalog-media design §8); covered by modules/media/media.e2e.spec.ts.
+      [`${V1}/media/uploads`, 'post'],
+      [`${V1}/media/uploads/{assetId}`, 'get'],
+      [`${V1}/media/uploads/{assetId}`, 'delete'],
+      [`${V1}/media/uploads/{assetId}/part-urls`, 'post'],
+      [`${V1}/media/uploads/{assetId}/complete`, 'post'],
+      [`${V1}/media/assets`, 'get'],
+      [`${V1}/media/assets/{assetId}`, 'get'],
+      // Phase 2 catalog A (P2-T9); covered by modules/catalog/catalog.e2e.spec.ts.
+      [`${V1}/instructor/courses`, 'get'],
+      [`${V1}/instructor/courses`, 'post'],
+      [`${V1}/courses/{courseId}`, 'get'],
+      [`${V1}/courses/{courseId}`, 'patch'],
+      [`${V1}/courses/{courseId}`, 'delete'],
+      [`${V1}/courses/{courseId}/thumbnail`, 'put'],
+      [`${V1}/courses/{courseId}/thumbnail`, 'delete'],
+      [`${V1}/courses/{courseId}/curriculum`, 'get'],
+      [`${V1}/courses/{courseId}/curriculum/order`, 'put'],
+      [`${V1}/courses/{courseId}/sections`, 'post'],
+      [`${V1}/courses/{courseId}/sections/{sectionId}`, 'patch'],
+      [`${V1}/courses/{courseId}/sections/{sectionId}`, 'delete'],
+      [`${V1}/courses/{courseId}/sections/{sectionId}/lectures`, 'post'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}`, 'patch'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}`, 'delete'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/article`, 'get'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/article`, 'put'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/media`, 'put'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/media`, 'delete'],
+      [`${V1}/admin/categories`, 'get'],
+      [`${V1}/admin/categories`, 'post'],
+      [`${V1}/admin/categories/order`, 'put'],
+      [`${V1}/admin/categories/{id}`, 'patch'],
+      [`${V1}/admin/categories/{id}`, 'delete'],
     ];
 
     it('documents exactly the §8 operations (plus health probes)', async (ctx) => {

@@ -3,10 +3,12 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { createConfigModule, createLoggerModule, DatabaseModule } from '@udemy/nest-common';
 import { AccessModule, PoliciesGuard } from './modules/access';
+import { CatalogModule } from './modules/catalog';
 import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identity';
+import { MediaModule } from './modules/media';
 import { UsersModule } from './modules/users';
 import { AuthSupportModule } from './shared/auth';
-import { apiEnvSchema, AppConfigModule } from './shared/config';
+import { apiEnvSchema, AppConfigModule, ObjectStorageModule } from './shared/config';
 import { CourseEntitlementsModule, DenyAllCourseEntitlements } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
@@ -23,6 +25,8 @@ import { ValidationModule } from './shared/validation';
     createLoggerModule({ serviceName: 'udemy-api' }),
     DatabaseModule.forRoot({ applicationName: 'udemy-api' }),
     RedisModule,
+    // The single ObjectStorage (S3/MinIO) client: media + the readiness probe (design §14).
+    ObjectStorageModule,
     // Cross-cutting HTTP concerns.
     ErrorsModule,
     ValidationModule,
@@ -38,6 +42,8 @@ import { ValidationModule } from './shared/validation';
     AccessModule,
     IdentityModule,
     UsersModule,
+    MediaModule,
+    CatalogModule,
   ],
   providers: [
     // Global guards, in this exact order (design §1). Nest runs APP_GUARDs in registration

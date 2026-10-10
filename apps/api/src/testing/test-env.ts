@@ -15,6 +15,13 @@ export const TEST_ENV = {
   CLIENT_STUDENT_SECRET_HASH: 'a53f56679c9a171d127e55ee0d0a5b4a37c713317c0c21a6144f26c4044ec441',
   CLIENT_INSTRUCTOR_SECRET_HASH: '3b7bb27be45a70680b0543f97491aa95dc64d9833e963bb31915d2510021d86a',
   CLIENT_ADMIN_SECRET_HASH: '139b0f73465c6df0c15b5b6b0d73e462984e5312bfb71020049aca12efd3cb82',
+  // Phase 2 object storage: the dev compose MinIO (only the media tests actually call it).
+  S3_ENDPOINT: 'http://localhost:9000',
+  S3_REGION: 'us-east-1',
+  S3_ACCESS_KEY: 'minio',
+  S3_SECRET_KEY: 'minio12345',
+  S3_BUCKET_UPLOADS: 'udemy-uploads',
+  S3_BUCKET_MEDIA: 'udemy-media',
 } as const satisfies Record<string, string>;
 
 /** Production-safe replacements for every dev placeholder in TEST_ENV. */

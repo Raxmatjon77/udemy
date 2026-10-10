@@ -1,5 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
-import type { ClientApp } from '@udemy/contracts';
+import { type ClientApp, COURSE_SUBMISSION_DEFAULTS } from '@udemy/contracts';
 import {
   baseEnvSchema,
   envBoolean,
@@ -18,6 +18,21 @@ const sha256Hex = z
 
 /** HMAC keys / peppers: high-entropy secrets (`openssl rand -base64 32` gives 44 chars). */
 const hmacSecret = z.string().min(32, 'Must be at least 32 characters');
+
+/** An http(s) origin without path, query or credentials (SigV4 binds the host). */
+const s3Endpoint = z.url({ protocol: /^https?$/ }).refine((value) => {
+  const url = new URL(value);
+  return url.pathname === '/' && url.search === '' && url.username === '' && url.hash === '';
+}, 'Expected an origin (scheme://host[:port]) without path or credentials');
+
+/** S3 bucket naming rules (lowercase, 3-63 chars). */
+const bucketName = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'Invalid bucket name');
+
+/** Presigned URL lifetime in seconds: SigV4 allows at most 7 days. */
+const presignTtl = envInt.min(1).max(604_800);
+
+/** A positive byte count that stays a safe integer. */
+const byteCount = envInt.min(1).max(Number.MAX_SAFE_INTEGER);
 
 /**
  * `ed25519-YYYY-MM`, optionally with a suffix for a second key in the same month
@@ -77,6 +92,47 @@ export const apiEnvSchema = baseEnvSchema
     CLIENT_STUDENT_SECRET_HASH: sha256Hex,
     CLIENT_INSTRUCTOR_SECRET_HASH: sha256Hex,
     CLIENT_ADMIN_SECRET_HASH: sha256Hex,
+
+    // ---- Phase 2: object storage (S3 / MinIO), read by @udemy/storage (design §3, §14)
+    /** Server-to-server S3 endpoint (origin only). */
+    S3_ENDPOINT: s3Endpoint,
+    /** Endpoint browsers call; presigned URLs are signed for it. Defaults to S3_ENDPOINT. */
+    S3_PUBLIC_ENDPOINT: s3Endpoint.optional(),
+    S3_REGION: z.string().trim().min(1),
+    S3_ACCESS_KEY: z.string().trim().min(1),
+    S3_SECRET_KEY: z.string().trim().min(1),
+    /** Quarantine bucket for raw uploads (never presigned for GET). */
+    S3_BUCKET_UPLOADS: bucketName,
+    /** Processed outputs served through presigned GETs. */
+    S3_BUCKET_MEDIA: bucketName,
+    /** Mandatory for MinIO (no MINIO_DOMAIN, design §14). */
+    S3_FORCE_PATH_STYLE: envBoolean.default(true),
+
+    // ---- Phase 2: media (design §4, §9)
+    MEDIA_PART_URL_TTL_S: presignTtl.default(900),
+    MEDIA_PLAYBACK_URL_TTL_S: presignTtl.default(3600),
+    MEDIA_IMAGE_URL_TTL_S: presignTtl.default(3600),
+    MEDIA_DOWNLOAD_URL_TTL_S: presignTtl.default(300),
+    /** Max declared size per purpose (bytes); can only lower the contracts' MEDIA_PURPOSE_RULES. */
+    MEDIA_MAX_VIDEO_BYTES: byteCount.default(4 * 1024 ** 3),
+    MEDIA_MAX_IMAGE_BYTES: byteCount.default(5 * 1024 ** 2),
+    MEDIA_MAX_RESOURCE_BYTES: byteCount.default(100 * 1024 ** 2),
+    /** Σ declared sizes of an owner's live assets. */
+    MEDIA_QUOTA_BYTES_PER_OWNER: byteCount.default(100 * 1024 ** 3),
+    /** Max UPLOADING assets per owner. */
+    MEDIA_MAX_CONCURRENT_UPLOADS: envInt.min(1).max(100).default(5),
+
+    // ---- Phase 2: catalog readiness thresholds (design §4 invariant 6, §13 Q6; dev/e2e: 1 / 0)
+    /** Minimum number of lectures a course needs before it can be submitted. */
+    CATALOG_SUBMIT_MIN_LECTURES: envInt
+      .min(0)
+      .max(500)
+      .default(COURSE_SUBMISSION_DEFAULTS.minLectures),
+    /** Minimum total READY video duration (seconds) before submission. */
+    CATALOG_SUBMIT_MIN_VIDEO_SECONDS: envInt
+      .min(0)
+      .max(1_000_000)
+      .default(COURSE_SUBMISSION_DEFAULTS.minVideoSeconds),
   })
   .superRefine((env, ctx) => {
     // Shared secrets would silently couple unrelated security properties.
@@ -85,6 +141,14 @@ export const apiEnvSchema = baseEnvSchema
         code: 'custom',
         path: ['LOGIN_EMAIL_HMAC_KEY'],
         message: 'Must differ from REFRESH_TOKEN_PEPPER',
+      });
+    }
+    // "Never presign GET on uploads" is enforced per bucket role; one bucket would defeat it.
+    if (env.S3_BUCKET_UPLOADS === env.S3_BUCKET_MEDIA) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['S3_BUCKET_MEDIA'],
+        message: 'Must differ from S3_BUCKET_UPLOADS',
       });
     }
     // Two BFFs with the same secret could act as each other's app, breaking app confinement (D6).
