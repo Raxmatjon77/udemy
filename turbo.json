@@ -31,7 +31,9 @@
         "LOGIN_EMAIL_HMAC_KEY",
         "EMAIL_TOKEN_SECRET",
         "CLIENT_*_SECRET_HASH",
-        "NODE_ENV"
+        "NODE_ENV",
+        "IT_*",
+        "CI"
       ]
     }
   }

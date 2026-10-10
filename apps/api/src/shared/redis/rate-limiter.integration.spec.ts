@@ -1,50 +1,34 @@
 import { randomUUID } from 'node:crypto';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { useIntegrationRedis } from '../../testing/integration';
 import { RateLimiter } from './rate-limiter';
 
 /**
- * Runs the real Lua scripts against the dev Redis (REDIS_URL, default: the compose port
- * 56379). Every test skips cleanly when Redis is unreachable.
+ * Runs the real Lua scripts against the integration Redis (IT_REDIS_URL, default: the dev
+ * compose port 56379; see src/testing/integration.ts: skipped locally when unreachable, a
+ * failure with CI=true).
  */
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:56379';
-
 describe('RateLimiter (integration, real Redis)', () => {
+  const itRedis = useIntegrationRedis();
   let redis: Redis;
   let limiter: RateLimiter;
-  let reachable = false;
   const prefix = `test:rl:${randomUUID()}`;
 
-  beforeAll(async () => {
-    redis = new Redis(REDIS_URL, {
-      lazyConnect: true,
-      enableOfflineQueue: false,
-      connectTimeout: 1_000,
-      maxRetriesPerRequest: 0,
-      retryStrategy: () => null,
-    });
-    redis.on('error', () => undefined);
-    try {
-      await redis.connect();
-      reachable = (await redis.ping()) === 'PONG';
-    } catch {
-      reachable = false;
-    }
+  beforeAll(() => {
+    if (!itRedis.available) return;
+    redis = itRedis.redis;
     limiter = new RateLimiter(redis);
   });
 
   afterAll(async () => {
-    if (reachable) {
-      const keys = await redis.keys(`${prefix}:*`);
-      if (keys.length > 0) await redis.del(...keys);
-      await redis.quit();
-    } else {
-      redis.disconnect();
-    }
+    if (!itRedis.available) return;
+    const keys = await redis.keys(`${prefix}:*`);
+    if (keys.length > 0) await redis.del(...keys);
   });
 
   it('counts atomically under concurrency and sets the TTL once', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     const key = `${prefix}:concurrent`;
 
     const results = await Promise.all(
@@ -61,7 +45,7 @@ describe('RateLimiter (integration, real Redis)', () => {
   });
 
   it('does not extend the window on later hits', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     const key = `${prefix}:window`;
 
     await limiter.hit(key, { limit: 5, windowMs: 400 });
@@ -74,7 +58,7 @@ describe('RateLimiter (integration, real Redis)', () => {
   });
 
   it('repairs a counter that lost its TTL', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     const key = `${prefix}:no-ttl`;
     await redis.set(key, '7');
 
@@ -85,7 +69,7 @@ describe('RateLimiter (integration, real Redis)', () => {
   });
 
   it('peeks and resets', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     const key = `${prefix}:peek`;
 
     expect(await limiter.peek(key, { limit: 2 })).toEqual({ count: 0, ttlMs: 0, limited: false });
@@ -98,7 +82,7 @@ describe('RateLimiter (integration, real Redis)', () => {
   });
 
   it('recovers from an empty script cache (EVALSHA -> NOSCRIPT -> EVAL)', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     // SCRIPT FLUSH is safe on the dev Redis: callers reload scripts on NOSCRIPT, as this does.
     await redis.script('FLUSH');
 

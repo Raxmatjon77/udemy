@@ -28,7 +28,7 @@ import {
 import { apiEnvSchema, AppConfigModule } from '../../shared/config';
 import { ErrorsModule } from '../../shared/errors';
 import { OutboxModule } from '../../shared/outbox';
-import { REDIS } from '../../shared/redis';
+import { RateLimiter, REDIS } from '../../shared/redis';
 import { TEST_ENV } from '../../testing/test-env';
 import { AccessTokenIssuer } from './application/ports/access-token-issuer';
 import { ClientAuthGuard, IDENTITY_PREFIX_EXCLUSIONS, IdentityModule, JwtAuthGuard } from './index';
@@ -58,8 +58,10 @@ const fakeDatabase = {};
   providers: [
     { provide: REDIS, useValue: fakeRedis },
     { provide: DATABASE, useValue: fakeDatabase },
+    // Only the session use cases (not exercised here) use it.
+    { provide: RateLimiter, useValue: {} },
   ],
-  exports: [REDIS, DATABASE],
+  exports: [REDIS, DATABASE, RateLimiter],
 })
 class FakeInfrastructureModule {}
 

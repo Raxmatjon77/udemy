@@ -1,50 +1,37 @@
 import { randomUUID } from 'node:crypto';
-import { createDatabase, type DB, type Kysely, sql, type Transaction } from '@udemy/db';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { DB, Transaction } from '@udemy/db';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { OutboxPublisher } from '../../../shared/outbox';
+import { useIntegrationDatabase } from '../../../testing/integration';
 import { AccessFacade } from '../application/access.facade';
 import { RoleNotAssignable, UserNotFound } from '../domain/access.errors';
 import { KyselyUserRoleRepository } from './kysely-user-role.repository';
 import { OutboxRoleEventPublisher } from './outbox-role-event.publisher';
 
 /**
- * Runs against the dev Postgres (port 55432; override with ACCESS_IT_DATABASE_URL). Every
- * test runs in a transaction that is always rolled back: role_changes is append-only and
- * cannot be truncated. Skips cleanly when Postgres is unreachable.
+ * Runs against the integration Postgres (IT_DATABASE_URL, default: the dev compose port 55432;
+ * see src/testing/integration.ts: skipped locally when unreachable, a failure with CI=true).
+ * Every test runs in a transaction that is always rolled back: role_changes is append-only.
  */
-const DATABASE_URL =
-  process.env.ACCESS_IT_DATABASE_URL ?? 'postgres://udemy:udemy@localhost:55432/udemy';
-
 class Rollback extends Error {}
 
 describe('access (integration, real Postgres)', () => {
-  let db: Kysely<DB>;
+  const pg = useIntegrationDatabase({ max: 2 });
   let facade: AccessFacade;
-  let reachable = false;
 
-  beforeAll(async () => {
-    db = createDatabase({ connectionString: DATABASE_URL, max: 2 });
-    try {
-      await sql`select 1 from access.roles limit 1`.execute(db);
-      reachable = true;
-    } catch {
-      reachable = false;
-    }
+  beforeAll(() => {
+    if (!pg.available) return;
     facade = new AccessFacade(
-      new KyselyUserRoleRepository(db),
+      new KyselyUserRoleRepository(pg.db),
       new OutboxRoleEventPublisher(new OutboxPublisher()),
     );
-  });
-
-  afterAll(async () => {
-    await db.destroy();
   });
 
   /** Runs `fn` in a transaction and always rolls it back. */
   async function inRolledBackTransaction(
     fn: (trx: Transaction<DB>) => Promise<void>,
   ): Promise<void> {
-    await db
+    await pg.db
       .transaction()
       .execute(async (trx) => {
         await fn(trx);
@@ -88,7 +75,7 @@ describe('access (integration, real Postgres)', () => {
       .execute();
 
   it('grantRole is idempotent: one user_roles row, one history row, one outbox event', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const admin = await createUser(trx);
       const user = await createUser(trx);
@@ -125,7 +112,7 @@ describe('access (integration, real Postgres)', () => {
   });
 
   it('records the CLI bootstrap grant with a null actor', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const user = await createUser(trx);
       await facade.grantRole(trx, {
@@ -142,7 +129,7 @@ describe('access (integration, real Postgres)', () => {
   });
 
   it('granting STUDENT is rejected with RoleNotAssignable and writes nothing', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const admin = await createUser(trx);
       const user = await createUser(trx);
@@ -161,10 +148,10 @@ describe('access (integration, real Postgres)', () => {
   });
 
   it('the database itself refuses STUDENT rows (mapped to RoleNotAssignable)', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const user = await createUser(trx);
-      const repo = new KyselyUserRoleRepository(db);
+      const repo = new KyselyUserRoleRepository(pg.db);
       await expect(
         repo.insertUserRole(trx, user, 'STUDENT' as unknown as 'ADMIN'),
       ).rejects.toBeInstanceOf(RoleNotAssignable);
@@ -172,7 +159,7 @@ describe('access (integration, real Postgres)', () => {
   });
 
   it('grant to an unknown user is UserNotFound', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const admin = await createUser(trx);
       await expect(
@@ -188,7 +175,7 @@ describe('access (integration, real Postgres)', () => {
   });
 
   it('revokeRole writes history and RoleRevoked only when a role was removed', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const admin = await createUser(trx);
       const user = await createUser(trx);
@@ -217,7 +204,7 @@ describe('access (integration, real Postgres)', () => {
   });
 
   it('getRolesForUsers covers users without explicit roles', async (ctx) => {
-    if (!reachable) ctx.skip();
+    pg.skipIfUnavailable(ctx);
     await inRolledBackTransaction(async (trx) => {
       const admin = await createUser(trx);
       const plain = await createUser(trx);

@@ -43,6 +43,23 @@ describe('Argon2PasswordHasher', () => {
     await expect(hasher.verify(hash, '')).resolves.toBe(false);
   });
 
+  it('normalises (NFKC) before hashing and before verifying', async () => {
+    const fullwidth = 'ｃｏｒｒｅｃｔ ｈｏｒｓｅ ｂａｔｔｅｒｙ';
+    const fromFullwidth = await hasher.hash(PlainPassword.create(fullwidth, { email }));
+    const fromAscii = await hasher.hash(password);
+
+    await expect(hasher.verify(fromFullwidth, 'correct horse battery')).resolves.toBe(true);
+    await expect(hasher.verify(fromAscii, fullwidth)).resolves.toBe(true);
+    // NFKC never folds case.
+    await expect(hasher.verify(fromAscii, 'CORRECT HORSE BATTERY')).resolves.toBe(false);
+  });
+
+  it('rehashVerified produces a current-parameter hash of the normalised password', async () => {
+    const rehashed = await hasher.rehashVerified('ｓｈｏｒｔ');
+    expect(hasher.needsRehash(rehashed)).toBe(false);
+    await expect(hasher.verify(rehashed, 'short')).resolves.toBe(true);
+  });
+
   it('returns false (does not throw) for a malformed stored hash', async () => {
     await expect(hasher.verify('not-a-hash', 'correct horse battery')).resolves.toBe(false);
   });

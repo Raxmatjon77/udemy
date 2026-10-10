@@ -11,6 +11,7 @@ import { REQUEST_ID_HEADER } from '@udemy/nest-common';
 import { DependencyUnavailableError } from '@udemy/nest-common/errors';
 import type { Request, Response } from 'express';
 import { AppConfigService } from '../config/app-config.service';
+import { RateLimitedError } from './rate-limited.error';
 import { toProblemDetails } from './to-problem-details';
 
 /** pino-http assigns `req.id`; it is the id we log, so it is the id we hand to clients. */
@@ -50,6 +51,9 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     this.log(exception, problem);
 
     if (res.headersSent) return;
+    if (exception instanceof RateLimitedError) {
+      res.setHeader('Retry-After', String(exception.retryAfterSeconds));
+    }
     res.status(problem.status).type(PROBLEM_JSON_CONTENT_TYPE).json(problem);
   }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Email } from '../email';
 import { WeakPassword } from '../identity.errors';
 import { commonPasswordCount, isCommonPassword } from './common-passwords';
-import { PlainPassword } from './plain-password';
+import { normalizePassword, PlainPassword } from './plain-password';
 
 const email = Email.parse('jane.doe.smith@example.com');
 
@@ -23,8 +23,23 @@ describe('PlainPassword', () => {
     expect(reasonOf('x'.repeat(128))).toBeUndefined();
   });
 
-  it('never alters the value (no trimming)', () => {
+  it('never trims the value', () => {
     expect(PlainPassword.create('  spaced out pw  ', { email }).value).toBe('  spaced out pw  ');
+  });
+
+  it('stores the NFKC form, so compatibility-equivalent input is the same password', () => {
+    const fullwidth = 'ｃｏｒｒｅｃｔ ｈｏｒｓｅ ｂａｔｔｅｒｙ';
+    expect(PlainPassword.create(fullwidth, { email }).value).toBe('correct horse battery');
+    // Decomposed e + combining acute -> precomposed é; the ﬁ ligature -> "fi".
+    expect(PlainPassword.create('cafe\u0301 ﬁxture 42', { email }).value).toBe('café fixture 42');
+    expect(normalizePassword('Ｐａｓｓ ｗｏｒｄ')).toBe('Pass word');
+    // Case is preserved (NFKC does not fold case).
+    expect(normalizePassword('MiXeD Case')).toBe('MiXeD Case');
+  });
+
+  it('applies the policy to the normalised value', () => {
+    // Fullwidth digits are the common password "1234567890" after NFKC.
+    expect(reasonOf('１２３４５６７８９０')).toBe('common');
   });
 
   it('enforces the length in code points', () => {

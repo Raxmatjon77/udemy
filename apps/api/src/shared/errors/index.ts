@@ -2,5 +2,6 @@
 export * from '@udemy/nest-common/errors';
 export * from './errors.module';
 export * from './problem-details.filter';
+export * from './rate-limited.error';
 export * from './request-validation.exception';
 export * from './to-problem-details';

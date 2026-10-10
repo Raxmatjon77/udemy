@@ -1,10 +1,28 @@
+// Public facade of the identity context: the only file other modules may import.
 export { IdentityModule } from './identity.module';
-// TODO(T8): export { IdentityFacade } from './application/identity.facade';
+export {
+  IdentityFacade,
+  type BanUserCommand,
+  type ChangeDisplayNameCommand,
+  type ProvisionAccountCommand,
+  type RevokeAllSessionsCommand,
+  type UnbanUserCommand,
+} from './application/identity.facade';
+export type {
+  AccountStatus,
+  AccountStatusView,
+  BanRecord,
+  BulkRevokeReason,
+  UserSearchPage,
+  UserSearchParams,
+  UserSummary,
+} from './application/dto';
+export { AccountNotFound, AlreadyBanned, CannotBanSelf, NotBanned } from './domain/identity.errors';
 
 // Global guards, for AppModule only: `{ provide: APP_GUARD, useExisting: ClientAuthGuard }`.
 export { ClientAuthGuard } from './presentation/guards/client-auth.guard';
 export { JwtAuthGuard } from './presentation/guards/jwt-auth.guard';
-// For main.ts/setupApp: routes served outside the global `api` prefix (JWKS).
+// For setupApp: routes served outside the global `api` prefix (JWKS).
 export { IDENTITY_PREFIX_EXCLUSIONS, JWKS_PATH } from './presentation/jwks.controller';
 
 // Access-token revocation (logout, ban); also exported by IdentityModule.

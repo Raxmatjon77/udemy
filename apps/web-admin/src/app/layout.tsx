@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 
 import '@udemy/ui/globals.css';
 
+import { SiteHeader } from '@/components/site-header';
+
 import { Providers } from './providers';
 
 // The CSS variables are consumed by the --font-sans / --font-mono tokens in @udemy/ui.
@@ -31,8 +33,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${fontSans.variable} ${fontMono.variable}`}>
-      <body className="min-h-dvh">
-        <Providers>{children}</Providers>
+      <body className="flex min-h-dvh flex-col">
+        <Providers>
+          <SiteHeader />
+          <div className="flex flex-1 flex-col">{children}</div>
+        </Providers>
       </body>
     </html>
   );

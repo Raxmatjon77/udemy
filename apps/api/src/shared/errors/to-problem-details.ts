@@ -7,6 +7,7 @@ import {
   type DomainErrorKind,
 } from '@udemy/nest-common/errors';
 import { ZodError } from 'zod';
+import { RateLimitedError } from './rate-limited.error';
 import { RequestValidationException } from './request-validation.exception';
 
 export interface ProblemMappingOptions {
@@ -109,7 +110,16 @@ function fromHttpException(exception: HttpException): ProblemDetails {
     problem.code = 'validation_failed';
     problem.errors = [...exception.errors];
   }
+  // e.g. the global ThrottlerGuard's ThrottlerException (it sets Retry-After itself).
+  if (status === Number(HttpStatus.TOO_MANY_REQUESTS) && problem.code === undefined) {
+    problem.code = ErrorCode.RateLimited;
+  }
   return problem;
+}
+
+/** Per-route limits (login, signup, ...). The filter adds the Retry-After header. */
+function fromRateLimited(error: RateLimitedError): ProblemDetails {
+  return { ...baseProblem(HttpStatus.TOO_MANY_REQUESTS, error.message), code: error.code };
 }
 
 function fromUnknown(error: unknown, options: ProblemMappingOptions): ProblemDetails {
@@ -130,6 +140,7 @@ export function toProblemDetails(
 ): ProblemDetails {
   if (exception instanceof DomainError) return fromDomainError(exception);
   if (exception instanceof DependencyUnavailableError) return fromDependencyUnavailable();
+  if (exception instanceof RateLimitedError) return fromRateLimited(exception);
   if (exception instanceof HttpException) return fromHttpException(exception);
   if (exception instanceof ZodError) return fromZodError(exception);
   return fromUnknown(exception, options);

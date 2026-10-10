@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { type Algorithm, hash, parseOptions, verify, type Version } from '@node-rs/argon2';
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { PasswordHasher } from '../../application/ports/password-hasher';
-import type { PlainPassword } from '../../domain/password/plain-password';
+import { normalizePassword, type PlainPassword } from '../../domain/password/plain-password';
 
 /** Argon2id cost parameters (design D2). */
 export interface Argon2Params {
@@ -63,13 +63,18 @@ export class Argon2PasswordHasher extends PasswordHasher implements OnModuleInit
     await this.dummy();
   }
 
+  /** `password.value` is already NFKC (PlainPassword). */
   async hash(password: PlainPassword): Promise<string> {
     return this.hashRaw(password.value);
   }
 
+  async rehashVerified(password: string): Promise<string> {
+    return this.hashRaw(normalizePassword(password));
+  }
+
   async verify(encodedHash: string, password: string): Promise<boolean> {
     try {
-      return await verify(encodedHash, password);
+      return await verify(encodedHash, normalizePassword(password));
     } catch (error) {
       // A malformed/unsupported stored hash is a data problem, not a reason to log in or to 500.
       this.logger.error({ err: error }, 'Stored password hash could not be verified');
@@ -94,6 +99,7 @@ export class Argon2PasswordHasher extends PasswordHasher implements OnModuleInit
   }
 
   async dummyVerify(password: string): Promise<false> {
+    // verify() normalises too, so this path costs exactly what a real verification costs.
     await this.verify(await this.dummy(), password);
     return false;
   }

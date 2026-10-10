@@ -5,17 +5,16 @@ import {
   QueryClientProvider,
   defaultShouldDehydrateQuery,
   isServer,
+  useQueryClient,
 } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { onLogoutBroadcast } from '@udemy/web-auth/client';
+import { useEffect, type ReactNode } from 'react';
+
+import { isApiError } from '@/lib/problem';
 
 /*
- * Client-side providers for the whole app.
- *
- * Roadmap:
- * - Phase 1: an auth/session provider. The refresh token lives in an httpOnly cookie and is
- *   exchanged through a BFF route handler (src/app/api/auth/...); the access token stays in memory.
- * - Once apps/api exposes OpenAPI, the generated @udemy/api-client (orval + TanStack Query
- *   hooks) will use this QueryClient.
+ * Client-side providers for the whole app: TanStack Query (all data goes through the BFF's
+ * /api/proxy, see src/lib/api.ts) and the cross-tab logout listener.
  */
 
 function makeQueryClient(): QueryClient {
@@ -25,8 +24,11 @@ function makeQueryClient(): QueryClient {
         // With SSR, avoid refetching immediately on the client right after hydration.
         staleTime: 60 * 1000,
         refetchOnWindowFocus: false,
-        retry: 1,
+        // A 4xx will not get better by retrying; network errors and 5xx get one retry.
+        retry: (failureCount, error) =>
+          failureCount < 1 && !(isApiError(error) && error.status < 500),
       },
+      mutations: { retry: false },
       dehydrate: {
         // Also hand pending queries to the client so server-started prefetches can stream in.
         shouldDehydrateQuery: (query) =>
@@ -50,8 +52,30 @@ function getQueryClient(): QueryClient {
   return browserQueryClient;
 }
 
+/**
+ * Another tab logged out (BroadcastChannel('auth')): drop every cached user's data and reload.
+ * proxy.ts then sends protected pages to the login page, and public pages render signed out.
+ */
+function LogoutBroadcastListener() {
+  const queryClient = useQueryClient();
+  useEffect(
+    () =>
+      onLogoutBroadcast(() => {
+        queryClient.clear();
+        window.location.reload();
+      }),
+    [queryClient],
+  );
+  return null;
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   const queryClient = getQueryClient();
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <LogoutBroadcastListener />
+      {children}
+    </QueryClientProvider>
+  );
 }

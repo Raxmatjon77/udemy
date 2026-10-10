@@ -1,49 +1,32 @@
 import { randomUUID } from 'node:crypto';
-import { Redis } from 'ioredis';
+import type { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { useIntegrationRedis } from '../../../../testing/integration';
 import { RedisSessionRevocationStore, revokedSessionKey } from './redis-session-revocation.store';
 
 /**
- * Against the dev Redis (REDIS_URL, default: the compose port 56379). Every test skips
- * cleanly when Redis is unreachable.
+ * Against the integration Redis (IT_REDIS_URL, default: the dev compose port 56379; see
+ * src/testing/integration.ts: skipped locally when unreachable, a failure with CI=true).
  */
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:56379';
-
 describe('RedisSessionRevocationStore (integration, real Redis)', () => {
+  const itRedis = useIntegrationRedis();
   let redis: Redis;
   let store: RedisSessionRevocationStore;
-  let reachable = false;
   const sids = [randomUUID(), randomUUID(), randomUUID()];
 
-  beforeAll(async () => {
-    redis = new Redis(REDIS_URL, {
-      lazyConnect: true,
-      enableOfflineQueue: false,
-      connectTimeout: 1_000,
-      maxRetriesPerRequest: 0,
-      retryStrategy: () => null,
-    });
-    redis.on('error', () => undefined);
-    try {
-      await redis.connect();
-      reachable = (await redis.ping()) === 'PONG';
-    } catch {
-      reachable = false;
-    }
+  beforeAll(() => {
+    if (!itRedis.available) return;
+    redis = itRedis.redis;
     store = new RedisSessionRevocationStore(redis);
   });
 
   afterAll(async () => {
-    if (reachable) {
-      await redis.del(...sids.map(revokedSessionKey));
-      await redis.quit();
-    } else {
-      redis.disconnect();
-    }
+    if (!itRedis.available) return;
+    await redis.del(...sids.map(revokedSessionKey));
   });
 
   it('revokes one session with a 960 s TTL', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     const [sid = ''] = sids;
 
     expect(await store.isRevoked(sid)).toBe(false);
@@ -56,7 +39,7 @@ describe('RedisSessionRevocationStore (integration, real Redis)', () => {
   });
 
   it('revokes many sessions atomically', async (ctx) => {
-    if (!reachable) ctx.skip();
+    itRedis.skipIfUnavailable(ctx);
     const [, a = '', b = ''] = sids;
 
     await store.revokeMany([a, b]);

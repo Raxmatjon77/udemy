@@ -10,9 +10,18 @@ export abstract class PasswordHasher {
 
   /**
    * Constant-time comparison of `password` with an encoded hash. Returns false (never throws)
-   * for a wrong password and for a malformed hash.
+   * for a wrong password and for a malformed hash. The raw input is NFKC-normalised first
+   * (`normalizePassword`), exactly like `hash` did, so equivalent spellings verify.
    */
   abstract verify(encodedHash: string, password: string): Promise<boolean>;
+
+  /**
+   * Hashes a password that was just verified against the stored hash (login rehash when
+   * `needsRehash`). Bypasses the new-password policy on purpose: the user already owns this
+   * password, and a tightened policy must not lock anybody out. Never call it with an
+   * unverified password; new passwords go through `hash(PlainPassword)`.
+   */
+  abstract rehashVerified(password: string): Promise<string>;
 
   /**
    * True when the hash was made with other parameters (or another algorithm/version) than the

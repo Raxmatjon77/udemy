@@ -74,16 +74,21 @@ test:
     POSTGRES_PASSWORD: udemy
     DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
     REDIS_URL: redis://redis:6379
+    # api integration tests (apps/api/src/testing/integration.ts). GitLab sets CI=true, which
+    # makes an unreachable Postgres/Redis FAIL the tests instead of skipping them.
+    IT_DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
+    IT_REDIS_URL: redis://redis:6379
     NODE_ENV: test
     API_PUBLIC_URL: http://localhost:4000
     JWT_AUDIENCE: udemy-api
     JWT_KEYS_DIR: $CI_PROJECT_DIR/apps/api/.secrets/jwt
   before_script:
     - *pnpm-setup
-    # Ephemeral Ed25519 signing key (PKCS8 PEM), valid for this job only; never stored anywhere.
-    - export JWT_ACTIVE_KID="ed25519-ci-${CI_PIPELINE_ID}"
-    - mkdir -p "$JWT_KEYS_DIR"
-    - openssl genpkey -algorithm ed25519 -out "$JWT_KEYS_DIR/${JWT_ACTIVE_KID}.pem"
+    # Ephemeral Ed25519 signing key (PKCS8 PEM, 0600), valid for this job only; never stored
+    # anywhere. keys:generate writes <JWT_KEYS_DIR>/<kid>.pem (JWT_KEYS_DIR from the job
+    # variables above). The kid must match the api's format ed25519-YYYY-MM[-suffix].
+    - export JWT_ACTIVE_KID="ed25519-$(date -u +%Y-%m)-ci${CI_PIPELINE_ID}"
+    - pnpm --filter @udemy/api keys:generate --kid "$JWT_ACTIVE_KID"
     # Ephemeral API/worker secrets: random per job, so nothing secret lives in this file.
     - export REFRESH_TOKEN_PEPPER="$(openssl rand -base64 32)"
     - export LOGIN_EMAIL_HMAC_KEY="$(openssl rand -base64 32)"

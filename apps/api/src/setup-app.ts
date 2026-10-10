@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { attachLogger } from '@udemy/nest-common';
 import helmet from 'helmet';
+import { IDENTITY_PREFIX_EXCLUSIONS } from './modules/identity';
 import { AppConfigService } from './shared/config';
 
 export const GLOBAL_PREFIX = 'api';
@@ -24,7 +25,8 @@ export function setupApp(app: NestExpressApplication): void {
   app.enableCors({ origin: config.get('CORS_ORIGINS'), credentials: true });
 
   // /api/v1/... by default; a controller can opt into other versions or VERSION_NEUTRAL.
-  app.setGlobalPrefix(GLOBAL_PREFIX);
+  // Exclusions: well-known URIs served at the root (GET /.well-known/jwks.json).
+  app.setGlobalPrefix(GLOBAL_PREFIX, { exclude: [...IDENTITY_PREFIX_EXCLUSIONS] });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 
   if (config.get('SWAGGER_ENABLED')) {

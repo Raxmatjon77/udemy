@@ -17,6 +17,9 @@ const securityHeaders = [
   { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
 ];
 
+const NO_REFERRER_PATHS = ['/verify-email', '/reset-password'];
+const noReferrer = [{ key: 'Referrer-Policy', value: 'no-referrer' }];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -24,10 +27,16 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   // Trace files from the monorepo root so workspace packages end up in the standalone output.
   outputFileTracingRoot: path.join(import.meta.dirname, '../..'),
-  // @udemy/ui ships TypeScript source; let Next compile it.
-  transpilePackages: ['@udemy/ui'],
+  // @udemy/ui and @udemy/web-auth ship TypeScript source; let Next compile them.
+  transpilePackages: ['@udemy/ui', '@udemy/web-auth'],
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }];
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      // Email links carry a one-time token in the fragment: never leak even the page URL in a
+      // Referer (design §9). Listed AFTER the catch-all on purpose: for the same key, the last
+      // matching entry wins.
+      ...NO_REFERRER_PATHS.map((source) => ({ source, headers: noReferrer })),
+    ];
   },
 };
 

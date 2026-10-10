@@ -53,7 +53,7 @@ export const apiEnvSchema = baseEnvSchema
     SWAGGER_ENABLED: envBoolean.default(true),
     /** Global rate limit: THROTTLE_LIMIT requests per THROTTLE_TTL_MS per client IP. */
     THROTTLE_TTL_MS: envInt.min(1).default(60_000),
-    THROTTLE_LIMIT: envInt.min(1).default(120),
+    THROTTLE_LIMIT: envInt.min(1).default(300),
 
     // ---- Phase 1: identity & access (design §9)
     /** Revocation keys, rate-limit counters. Fail-closed dependency (design D11). */

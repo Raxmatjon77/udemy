@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { createConfigModule, createLoggerModule, DatabaseModule } from '@udemy/nest-common';
+import { AccessModule, PoliciesGuard } from './modules/access';
+import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identity';
 import { AuthSupportModule } from './shared/auth';
 import { apiEnvSchema, AppConfigModule } from './shared/config';
 import { ErrorsModule } from './shared/errors';
@@ -24,7 +28,21 @@ import { ValidationModule } from './shared/validation';
     OutboxModule,
     AuthSupportModule,
     HealthModule,
-    // Bounded contexts (src/modules/*) are added here, one import per module facade.
+    // Bounded contexts (src/modules/*), one import per module facade.
+    AccessModule,
+    IdentityModule,
+  ],
+  providers: [
+    // Global guards, in this exact order (design §1). Nest runs APP_GUARDs in registration
+    // order, so they are all registered here and nowhere else:
+    // 1. which BFF is calling (sets the trusted end-user IP/UA),
+    // 2. per-client-IP rate limit (needs 1 for the trusted IP),
+    // 3. which user (Bearer token bound to the BFF's app),
+    // 4. what that user may do (route markers; RouteSecurityAuditor checks them at boot).
+    { provide: APP_GUARD, useExisting: ClientAuthGuard },
+    { provide: APP_GUARD, useExisting: ThrottlerGuard },
+    { provide: APP_GUARD, useExisting: JwtAuthGuard },
+    { provide: APP_GUARD, useExisting: PoliciesGuard },
   ],
 })
 export class AppModule {}
