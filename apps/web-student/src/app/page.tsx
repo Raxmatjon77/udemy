@@ -6,6 +6,7 @@ import { CourseGrid } from '@/components/catalog/course-card';
 import { getSession } from '@/lib/auth/session';
 import { categoryHref } from '@/lib/catalog/categories';
 import { browseCourses, getCategoryTree, settle } from '@/lib/catalog/server';
+import { pricesForPage } from '@/lib/commerce/server';
 
 /** How many of the newest courses the home page shows (two rows on wide screens). */
 const NEWEST_COUNT = 8;
@@ -20,6 +21,7 @@ export default async function HomePage() {
     settle(browseCourses({}, { limit: NEWEST_COUNT })),
     settle(getCategoryTree()),
   ]);
+  const prices = await pricesForPage(newest);
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-14 px-4 py-12 sm:px-6">
@@ -67,7 +69,12 @@ export default async function HomePage() {
             The first published courses will show up here.
           </EmptyState>
         ) : (
-          <CourseGrid courses={newest.data.items} priorityCount={4} label="Newest courses" />
+          <CourseGrid
+            courses={newest.data.items}
+            prices={prices}
+            priorityCount={4}
+            label="Newest courses"
+          />
         )}
       </section>
 

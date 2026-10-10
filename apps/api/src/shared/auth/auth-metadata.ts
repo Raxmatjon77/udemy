@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import type { ClientApp, Permission } from '@udemy/contracts';
 import type { PolicyResource, PolicySpec } from './policy';
+import type { WebhookProvider } from './webhook-provider';
 
 /**
  * Reflect-metadata keys written by the shared/auth decorators. Read them only through
@@ -15,6 +16,10 @@ export const AUTH_METADATA = {
   noClientAuth: 'udemy:auth:no-client-auth',
   allowClients: 'udemy:auth:allow-clients',
   ownershipResource: 'udemy:auth:ownership-resource',
+  /** On a route: public provider ingress (`@WebhookIngress`). */
+  webhookIngress: 'udemy:auth:webhook-ingress',
+  /** On a guard class: it verifies this provider's signature (`@VerifiesWebhookSignature`). */
+  webhookSignatureVerifier: 'udemy:auth:webhook-signature-verifier',
 } as const;
 
 /** The value type stored under each key. */
@@ -26,6 +31,8 @@ export interface AuthMetadataValues {
   [AUTH_METADATA.noClientAuth]: true;
   [AUTH_METADATA.allowClients]: readonly ClientApp[];
   [AUTH_METADATA.ownershipResource]: PolicyResource;
+  [AUTH_METADATA.webhookIngress]: WebhookProvider;
+  [AUTH_METADATA.webhookSignatureVerifier]: WebhookProvider;
 }
 
 export type AuthMetadataKey = keyof AuthMetadataValues;

@@ -46,8 +46,8 @@ export function VerifyEmailBanner() {
     <Alert variant="warning" className="rounded-none border-x-0 border-t-0">
       <AlertDescription className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-2 px-2">
         <span>
-          Please verify your email address (<strong>{me.data.email}</strong>) to apply as an
-          instructor.
+          Please verify your email address (<strong>{me.data.email}</strong>) to buy courses and to
+          apply as an instructor.
         </span>
         <Link href="/verify-email/pending" className="font-medium underline underline-offset-4">
           Resend the link

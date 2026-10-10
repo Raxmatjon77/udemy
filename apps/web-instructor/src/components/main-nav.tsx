@@ -4,7 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@udemy/ui/lib/utils';
 
-const LINKS = [{ href: '/courses', label: 'Courses' }] as const;
+const LINKS = [
+  { href: '/courses', label: 'Courses' },
+  { href: '/sales', label: 'Sales' },
+] as const;
 
 export function MainNav() {
   const pathname = usePathname();

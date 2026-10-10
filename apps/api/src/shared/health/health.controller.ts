@@ -1,10 +1,10 @@
 import { Controller, Get, VERSION_NEUTRAL } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { HealthCheck, type HealthCheckResult, HealthCheckService } from '@nestjs/terminus';
-import { SkipThrottle } from '@nestjs/throttler';
 import { DbHealthIndicator } from '@udemy/nest-common';
 import { NoClientAuth, Public } from '../auth';
 import { RedisHealthIndicator } from '../redis';
+import { SkipGlobalThrottle } from '../throttler/skip-global-throttle';
 import { S3HealthIndicator } from './s3-health.indicator';
 
 /**
@@ -14,7 +14,7 @@ import { S3HealthIndicator } from './s3-health.indicator';
 @ApiTags('health')
 @Public()
 @NoClientAuth() // called by kubelet, not through a BFF
-@SkipThrottle()
+@SkipGlobalThrottle() // probes must never be rate limited (a bare @SkipThrottle() was a no-op)
 @Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(

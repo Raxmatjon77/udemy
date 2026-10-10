@@ -12,7 +12,7 @@ describe('permission catalog', () => {
     expect(permission).toMatch(PERMISSION_FORMAT);
   });
 
-  it('contains exactly the Phase 1 and Phase 2 entries', () => {
+  it('contains exactly the Phase 1, 2 and 4 entries', () => {
     expect([...PERMISSIONS].sort()).toEqual(
       [
         'profile:read:own',
@@ -41,6 +41,22 @@ describe('permission catalog', () => {
         'course:moderate:any',
         'category:manage',
         'media_asset:read:any',
+        // Phase 4: STUDENT
+        'cart:manage',
+        'order:create',
+        'order:read:own',
+        'order:refund:own',
+        'enrollment:create',
+        'enrollment:read:own',
+        // Phase 4: INSTRUCTOR
+        'sales:read:own',
+        // Phase 4: ADMIN
+        'order:read:any',
+        'order:refund:any',
+        'refund:review:any',
+        'platform_coupon:manage',
+        'enrollment:read:any',
+        'enrollment:grant:any',
       ].sort(),
     );
   });
@@ -52,6 +68,16 @@ describe('permission catalog', () => {
     expect(isPermission('section:update:own')).toBe(false);
     expect(PermissionSchema.safeParse('user:ban:own').success).toBe(false);
     expect(PermissionSchema.safeParse('media_asset:upload:any').success).toBe(false);
+  });
+
+  it('knows the Phase 4 commerce and enrollment permissions (design §8)', () => {
+    expect(isPermission('order:refund:own')).toBe(true);
+    expect(isPermission('platform_coupon:manage')).toBe(true);
+    // pricing and coupons go through the course policy; there is no own-scoped coupon permission
+    expect(isPermission('coupon:manage:own')).toBe(false);
+    expect(isPermission('order:create:any')).toBe(false);
+    expect(isPermission('sales:read:any')).toBe(false);
+    expect(PermissionSchema.safeParse('enrollment:grant:own').success).toBe(false);
   });
 });
 

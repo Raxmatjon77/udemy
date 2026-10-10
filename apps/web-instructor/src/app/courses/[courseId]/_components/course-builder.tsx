@@ -13,6 +13,7 @@ import { CourseBadge } from '@/components/course-badge';
 import { QueryError } from '@/components/query-error';
 import { catalogApi } from '@/lib/catalog-api';
 import { catalogKeys, setCourseData, useCourse, useCurriculum } from '@/lib/catalog-queries';
+import { useCoursePricing } from '@/lib/commerce-queries';
 import type { BuilderTarget } from '@/lib/labels';
 import { hasCode, problemMessage } from '@/lib/problem';
 
@@ -21,17 +22,22 @@ import { CurriculumTab } from './curriculum-tab';
 import { DetailsTab } from './details-tab';
 import { LectureDrawer } from './lecture-drawer';
 import { LockBanner } from './lock-banner';
+import { PricingTab } from './pricing-tab';
+import { PromotionsTab } from './promotions-tab';
 import { ReviewTab } from './review-tab';
 
 const TAB_LABELS: Record<BuilderTab, string> = {
   details: 'Details',
   curriculum: 'Curriculum',
+  pricing: 'Pricing',
+  promotions: 'Promotions',
   review: 'Review',
 };
 
 /**
- * The course builder (design §10): Details, Curriculum and Review tabs over one course. While a
- * submission is pending (D2) or the course is archived, every tab is read-only.
+ * The course builder (design §10): Details, Curriculum, Pricing, Promotions and Review tabs over
+ * one course. While a submission is pending (D2) or the course is archived, the catalog tabs are
+ * read-only; pricing and coupons are commerce data and stay editable (Phase 4 D2).
  */
 export function CourseBuilder({
   courseId,
@@ -43,11 +49,14 @@ export function CourseBuilder({
   const queryClient = useQueryClient();
   const course = useCourse(courseId);
   const curriculum = useCurriculum(courseId);
+  const pricing = useCoursePricing(courseId);
   const [tab, setTab] = useState<BuilderTab>(initialTab);
   const [openLectureId, setOpenLectureId] = useState<string | null>(null);
   const tabRefs = useRef<Record<BuilderTab, HTMLButtonElement | null>>({
     details: null,
     curriculum: null,
+    pricing: null,
+    promotions: null,
     review: null,
   });
 
@@ -156,6 +165,24 @@ export function CourseBuilder({
         </div>
       </div>
 
+      {pricing.data?.price === null ? (
+        <Alert role="status">
+          <AlertTitle>Set a price</AlertTitle>
+          <AlertDescription>
+            <p>
+              This course has no price, so students cannot buy or enroll in it yet.{' '}
+              <button
+                type="button"
+                onClick={() => setTab('pricing')}
+                className="font-medium underline underline-offset-4"
+              >
+                Choose a price
+              </button>
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <LockBanner
         course={data}
         onWithdraw={() => withdraw.mutate()}
@@ -224,6 +251,22 @@ export function CourseBuilder({
             onOpenLecture={setOpenLectureId}
           />
         )}
+      </div>
+      <div
+        role="tabpanel"
+        id="panel-pricing"
+        aria-labelledby="tab-pricing"
+        hidden={tab !== 'pricing'}
+      >
+        {tab === 'pricing' ? <PricingTab courseId={courseId} /> : null}
+      </div>
+      <div
+        role="tabpanel"
+        id="panel-promotions"
+        aria-labelledby="tab-promotions"
+        hidden={tab !== 'promotions'}
+      >
+        {tab === 'promotions' ? <PromotionsTab courseId={courseId} /> : null}
       </div>
       <div role="tabpanel" id="panel-review" aria-labelledby="tab-review" hidden={tab !== 'review'}>
         <ReviewTab

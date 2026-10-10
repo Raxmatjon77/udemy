@@ -8,6 +8,7 @@ import { CATALOG_COURSE_EVENTS } from '@udemy/contracts';
 import { findLeakedUsages, sql } from '@udemy/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module';
+import { API_APP_OPTIONS } from '../../setup-app';
 import { useIntegrationDatabase, useIntegrationRedis } from '../../testing/integration';
 import { RevisionRepository } from './application/ports/revision.repository';
 import { TransactionRunner } from './application/ports/transaction-runner';
@@ -70,7 +71,10 @@ describe('catalog lifecycle (integration: real AppModule, Postgres)', () => {
   beforeAll(async () => {
     if (!available()) return;
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      ...API_APP_OPTIONS,
+      logger: false,
+    });
     await app.init();
     const group = await get(CreateCategoryCommand).execute({ name: `Lifecycle IT ${tag}` });
     const leaf = await get(CreateCategoryCommand).execute({

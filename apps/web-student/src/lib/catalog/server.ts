@@ -57,13 +57,17 @@ function discard(response: Response): void {
   response.body?.cancel().catch(() => undefined);
 }
 
-async function getJson<T>(
+/**
+ * An anonymous GET of a public API route (catalog, public prices), parsed with its contract.
+ * Also used by lib/commerce/server.ts.
+ */
+export async function getJson<T>(
   path: string,
   schema: z.ZodType<T>,
   options: { notFoundAsNull: true },
 ): Promise<T | null>;
-async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T>;
-async function getJson<T>(
+export async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T>;
+export async function getJson<T>(
   path: string,
   schema: z.ZodType<T>,
   options: { notFoundAsNull?: boolean } = {},

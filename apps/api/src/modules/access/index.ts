@@ -10,6 +10,7 @@ export type {
 } from './application/access.types';
 export { PoliciesGuard } from './presentation/policies.guard'; // for AppModule only
 export {
+  type NonBffRoute,
   RouteSecurityAuditor,
   RouteSecurityError,
   type RouteSecurityFinding,

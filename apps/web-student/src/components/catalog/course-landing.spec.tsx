@@ -19,6 +19,14 @@ import { renderWithQuery } from '@/test/render';
 
 import { CourseLandingView } from './course-landing';
 
+// The PurchaseBox (Phase 4) is a client island with a router; its own spec covers it.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
+}));
+
+/** A signed-out visitor of a course without a price (the PurchaseBox shows "not for sale"). */
+const GUEST = { price: null, signedIn: false } as const;
+
 /** What the fake player reports on mount (a refused master playlist), or null. */
 const playerOutcome: { error: HlsPlayerError | null } = { error: null };
 beforeEach(() => {
@@ -49,7 +57,7 @@ const server = setupMswServer();
 
 describe('<CourseLandingView>', () => {
   it('renders the course header, outcomes, requirements and the sanitized description', () => {
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(
       'Modern TypeScript </script> & more',
@@ -83,7 +91,7 @@ describe('<CourseLandingView>', () => {
   });
 
   it('shows the curriculum totals, per-section totals and lecture durations', () => {
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     expect(screen.getByTestId('curriculum-totals').textContent).toBe(
       '2 sections · 4 lectures · 1h 06m total length',
     );
@@ -101,7 +109,7 @@ describe('<CourseLandingView>', () => {
   });
 
   it('marks only preview lectures with a Preview badge and button', () => {
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     expect(screen.getAllByText('Preview', { selector: '[data-slot="badge"]' })).toHaveLength(2);
     expect(
       screen.getAllByRole('button', { name: /free preview/ }).map((b) => b.textContent),
@@ -113,29 +121,36 @@ describe('<CourseLandingView>', () => {
   });
 
   it('shows the instructor card, and hides it when the API hides the instructor', () => {
-    const { unmount } = renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    const { unmount } = renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     expect(within(screen.getByTestId('instructor-card')).getByText('Ada Lovelace')).toBeTruthy();
     expect(screen.getByText(/Created by/)).toBeTruthy();
     unmount();
 
-    renderWithQuery(<CourseLandingView landing={courseLanding({ instructor: null })} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding({ instructor: null })} {...GUEST} />);
     expect(screen.queryByTestId('instructor-card')).toBeNull();
     expect(screen.queryByText(/Created by/)).toBeNull();
     expect(screen.queryByText('Ada Lovelace')).toBeNull();
   });
 
-  it('offers no purchase: the CTA says enrollment opens soon and is disabled', () => {
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
-    const cta = screen.getByRole('button', { name: 'Enrollment opens soon' }) as HTMLButtonElement;
+  it('puts the PurchaseBox in the enrollment aside, or says the price could not be loaded', () => {
+    const { unmount } = renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
+    const aside = screen.getByRole('complementary', { name: 'Enrollment' });
+    expect(within(aside).getByTestId('purchase-box').dataset.state).toBe('not_for_sale');
+    unmount();
+
+    renderWithQuery(
+      <CourseLandingView landing={courseLanding()} price={undefined} signedIn={false} />,
+    );
+    const cta = screen.getByRole('button', { name: 'Enrollment unavailable' }) as HTMLButtonElement;
     expect(cta.disabled).toBe(true);
-    expect(screen.queryByText(/\$|price/i, { selector: 'button' })).toBeNull();
+    expect(screen.queryByTestId('purchase-box')).toBeNull();
   });
 });
 
 describe('preview modal', () => {
   it('plays a video preview from the public master playlist through the BFF', async () => {
     const user = userEvent.setup();
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
 
     const trigger = screen.getByRole('button', { name: /^Welcome/ });
     await user.click(trigger);
@@ -162,7 +177,7 @@ describe('preview modal', () => {
         HttpResponse.json(previewArticle),
       ),
     );
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
 
     await user.click(screen.getByRole('button', { name: /^Course notes/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Course notes' });
@@ -179,7 +194,9 @@ describe('preview modal', () => {
 
   it('requests no poster when the course has no thumbnail', async () => {
     const user = userEvent.setup();
-    renderWithQuery(<CourseLandingView landing={courseLanding({ hasThumbnail: false })} />);
+    renderWithQuery(
+      <CourseLandingView landing={courseLanding({ hasThumbnail: false })} {...GUEST} />,
+    );
     // The sidebar shows the placeholder without an image request.
     expect(document.querySelector('[data-slot="course-thumbnail"] img')).toBeNull();
     expect(document.querySelector('[data-slot="thumbnail-placeholder"]')).not.toBeNull();
@@ -190,7 +207,9 @@ describe('preview modal', () => {
   });
 
   it('renders the thumbnail image when the API says there is one', () => {
-    renderWithQuery(<CourseLandingView landing={courseLanding({ hasThumbnail: true })} />);
+    renderWithQuery(
+      <CourseLandingView landing={courseLanding({ hasThumbnail: true })} {...GUEST} />,
+    );
     const img = document.querySelector('[data-slot="course-thumbnail"] img')!;
     const src = new URL(img.getAttribute('src')!, 'http://localhost:3000');
     expect(`${src.pathname}${src.search}`).toBe(
@@ -211,7 +230,7 @@ describe('preview modal', () => {
       ),
     );
     playerOutcome.error = { reason: 'forbidden', httpStatus: 403 };
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     await user.click(screen.getByRole('button', { name: /^Welcome/ }));
     const dialog = await screen.findByRole('dialog');
     await waitFor(() =>
@@ -236,7 +255,7 @@ describe('preview modal', () => {
       ),
     );
     playerOutcome.error = { reason: 'network', httpStatus: 429 };
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     await user.click(screen.getByRole('button', { name: /^Welcome/ }));
     const dialog = await screen.findByRole('dialog');
     await waitFor(() =>
@@ -250,7 +269,7 @@ describe('preview modal', () => {
   });
 
   it('offers no preview (and no download) for a RESOURCE lecture', () => {
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     expect(screen.queryByRole('button', { name: /^Cheat sheet/ })).toBeNull();
     expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
   });
@@ -265,7 +284,7 @@ describe('preview modal', () => {
         ),
       ),
     );
-    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     await user.click(screen.getByRole('button', { name: /^Course notes/ }));
     const dialog = await screen.findByRole('dialog');
     expect((await within(dialog).findByRole('alert')).textContent).toBe(

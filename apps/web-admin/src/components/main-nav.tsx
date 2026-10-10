@@ -10,6 +10,9 @@ const LINKS = [
   { href: '/categories', label: 'Categories' },
   { href: '/instructor-applications', label: 'Instructor applications' },
   { href: '/users', label: 'Users' },
+  { href: '/orders', label: 'Orders' },
+  { href: '/refunds', label: 'Refunds' },
+  { href: '/coupons', label: 'Coupons' },
 ] as const;
 
 export function MainNav() {

@@ -1,4 +1,4 @@
-import { VersioningType } from '@nestjs/common';
+import { type NestApplicationOptions, VersioningType } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { attachLogger } from '@udemy/nest-common';
@@ -7,6 +7,23 @@ import { IDENTITY_PREFIX_EXCLUSIONS } from './modules/identity';
 import { AppConfigService } from './shared/config';
 
 export const GLOBAL_PREFIX = 'api';
+
+/**
+ * Options for creating the HTTP app, shared by `main.ts`, the e2e harness and every HTTP test
+ * that creates the app (`NestFactory.create(AppModule, API_APP_OPTIONS)` /
+ * `moduleRef.createNestApplication(API_APP_OPTIONS)`). `setupApp` cannot switch these on: they
+ * are read when the app is created.
+ *
+ * `rawBody`: Nest's built-in JSON/urlencoded parsers also keep the exact request bytes in
+ * `req.rawBody` (a Buffer). Provider webhooks verify their signature over those bytes
+ * (commerce & enrollment design D10, §9), so prod and tests must parse bodies identically, or
+ * verification passes in one and fails in the other. Parsing is otherwise unchanged: `req.body`
+ * is still the parsed JSON for the zod validation pipe, and the body-parser default limit
+ * (100 kB) still applies. No middleware may re-serialize or rewrite the body before the guard.
+ */
+export const API_APP_OPTIONS = Object.freeze({
+  rawBody: true,
+} as const satisfies NestApplicationOptions);
 
 /**
  * Everything that configures the HTTP app but is not a module: middleware, prefix,

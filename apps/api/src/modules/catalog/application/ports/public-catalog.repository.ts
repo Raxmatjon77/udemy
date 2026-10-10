@@ -19,6 +19,11 @@ export interface LiveCourseRecord {
   readonly liveSince: Date;
 }
 
+/** A live course with its live revision's title (`CatalogFacade.getCourseSummaries`). */
+export interface LiveCourseSummaryRecord extends LiveCourseRecord {
+  readonly title: string;
+}
+
 /** One lecture as frozen in a revision (live or under review). */
 export interface SnapshotLectureRecord {
   readonly revisionId: string;
@@ -76,6 +81,15 @@ export abstract class PublicCatalogRepository {
 
   /** A PUBLISHED or ARCHIVED course with a live revision. */
   abstract findLiveCourse(courseId: string, ex?: Executor): Promise<LiveCourseRecord | null>;
+
+  /**
+   * The PUBLISHED or ARCHIVED courses among `courseIds` (valid uuids), with their live title,
+   * in one query. Ids without a live revision (draft, deleted, unknown) are absent; no order.
+   */
+  abstract findLiveCourseSummaries(
+    courseIds: readonly string[],
+    ex?: Executor,
+  ): Promise<LiveCourseSummaryRecord[]>;
 
   /**
    * The live course and the lecture in its live revision (lecture null when the id is not in

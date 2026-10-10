@@ -13,13 +13,21 @@ import CoursePage, { generateMetadata } from './page';
 const NONCE = 'dGVzdC1ub25jZS0xMjM0NTY3OA==';
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'x-nonce': NONCE, 'user-agent': 'Vitest' }),
+  // Signed out: the session cookies are absent.
+  cookies: async () => ({ get: () => undefined, getAll: () => [], has: () => false }),
+}));
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
 }));
 
 const server = setupMswServer();
 const ORIGIN = 'http://localhost:3000';
 
+/** The landing, and no price for it (not for sale) unless a test serves one. */
 function serveLanding(landing = courseLanding()) {
   server.use(
+    http.get(`${API}/commerce/prices`, () => HttpResponse.json({ items: [] })),
     http.get(`${API}/catalog/courses/by-slug/:slug`, ({ params }) =>
       params.slug === landing.slug
         ? HttpResponse.json(landing)
@@ -131,7 +139,32 @@ describe('/course/[slug] page', () => {
       about: 'Web Development',
       timeRequired: 'PT1H6M',
     });
-    expect(html).toContain('Enrollment opens soon');
+    expect(html).toContain('data-state="not_for_sale"');
+  });
+
+  it('shows the price from the public prices endpoint in the PurchaseBox', async () => {
+    let asked: string | null = null;
+    serveLanding();
+    server.use(
+      http.get(`${API}/commerce/prices`, ({ request }) => {
+        asked = new URL(request.url).searchParams.get('courseIds');
+        return HttpResponse.json({
+          items: [{ courseId: COURSE_ID, amount: '24.99', currency: 'USD', isFree: false }],
+        });
+      }),
+    );
+    const html = await renderPage('modern-typescript');
+    expect(asked).toBe(COURSE_ID);
+    expect(html).toContain('$24.99');
+    expect(html).toContain('data-state="add_to_cart"');
+  });
+
+  it('says the price could not be loaded when the prices endpoint fails', async () => {
+    serveLanding();
+    server.use(http.get(`${API}/commerce/prices`, () => HttpResponse.error()));
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+    const html = await renderPage('modern-typescript');
+    expect(html).toContain('Enrollment unavailable');
   });
 
   it('leaves the instructor out of the page and the JSON-LD when the API hides them', async () => {

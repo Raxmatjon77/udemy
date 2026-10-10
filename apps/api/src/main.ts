@@ -2,12 +2,15 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import { setupApp } from './setup-app';
+import { API_APP_OPTIONS, setupApp } from './setup-app';
 import { AppConfigService } from './shared/config';
 
 async function bootstrap(): Promise<void> {
   // bufferLogs: hold bootstrap logs until pino is attached in setupApp.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    ...API_APP_OPTIONS,
+    bufferLogs: true,
+  });
   setupApp(app);
 
   const port = app.get(AppConfigService).get('PORT');

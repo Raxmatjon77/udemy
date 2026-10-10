@@ -7,9 +7,10 @@ import { DATABASE, DbHealthIndicator, indicatorResult } from '@udemy/nest-common
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../../app.module';
-import { setupApp } from '../../setup-app';
+import { API_APP_OPTIONS, setupApp } from '../../setup-app';
 import { AuthMetadataReader } from '../auth';
 import { REDIS, RedisHealthIndicator } from '../redis';
+import { GLOBAL_THROTTLER } from '../throttler';
 import { HealthController } from './health.controller';
 import { S3HealthIndicator } from './s3-health.indicator';
 
@@ -40,7 +41,10 @@ describe('Health endpoints (full AppModule, DB mocked)', () => {
       .overrideProvider(S3HealthIndicator)
       .useValue(s3Health)
       .compile();
-    app = moduleRef.createNestApplication<NestExpressApplication>({ bufferLogs: true });
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      ...API_APP_OPTIONS,
+      bufferLogs: true,
+    });
     setupApp(app as NestExpressApplication);
     await app.init();
   });
@@ -60,8 +64,13 @@ describe('Health endpoints (full AppModule, DB mocked)', () => {
     expect(route).toEqual({
       security: { kind: 'public', level: 'controller' },
       client: { kind: 'none', level: 'controller' },
+      ingress: { kind: 'default' },
       problems: [],
     });
+  });
+
+  it('is exempt from the global per-IP throttler (named, so a bare @SkipThrottle() is not enough)', () => {
+    expect(Reflect.getMetadata(`THROTTLER:SKIP${GLOBAL_THROTTLER}`, HealthController)).toBe(true);
   });
 
   it('GET /api/health/live answers 200 without touching the database', async () => {

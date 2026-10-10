@@ -1,8 +1,9 @@
-import type { CourseLanding, PublicProfile } from '@udemy/contracts';
+import type { CourseLanding, PublicPrice, PublicProfile } from '@udemy/contracts';
 import { MarkdownView } from '@udemy/markdown/react';
 import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
 
+import { PurchaseBox } from '@/components/commerce/purchase-box';
 import { categoryHref } from '@/lib/catalog/categories';
 import { formatTotalDuration, languageLabel, levelLabel, pluralize } from '@/lib/catalog/format';
 import { formatDate } from '@/lib/format';
@@ -13,9 +14,19 @@ import { CurriculumOutline } from './curriculum-outline';
 
 /**
  * The course landing page body (design §10): everything comes from the live revision the API
- * returns. Rendered on the server; the curriculum (preview dialog) is the only client island.
+ * returns. Rendered on the server; the curriculum (preview dialog) and the `PurchaseBox`
+ * (Phase 4) are the client islands.
  */
-export function CourseLandingView({ landing }: { landing: CourseLanding }) {
+export function CourseLandingView({
+  landing,
+  price,
+  signedIn,
+}: {
+  landing: CourseLanding;
+  /** From `GET /commerce/prices`: null = no price (not for sale), undefined = not loaded. */
+  price: PublicPrice | null | undefined;
+  signedIn: boolean;
+}) {
   const level = levelLabel(landing.level);
   const language = languageLabel(landing.language);
   const { totals } = landing;
@@ -154,7 +165,15 @@ export function CourseLandingView({ landing }: { landing: CourseLanding }) {
               sizes="(min-width: 1024px) 20rem, 100vw"
             />
             <div className="flex flex-col gap-3 p-5">
-              <EnrollmentCta />
+              {price === undefined ? (
+                <PricingUnavailable />
+              ) : (
+                <PurchaseBox
+                  course={{ id: landing.id, slug: landing.slug, title: landing.title }}
+                  price={price}
+                  signedIn={signedIn}
+                />
+              )}
               <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
                 <li>{pluralize(totals.lectureCount, 'lecture')}</li>
                 {totals.videoSeconds > 0 ? (
@@ -170,15 +189,15 @@ export function CourseLandingView({ landing }: { landing: CourseLanding }) {
   );
 }
 
-/** No prices or checkout before Phase 4 (design D4): a disabled CTA that says so. */
-export function EnrollmentCta() {
+/** The price could not be loaded (API trouble): say so instead of guessing "not for sale". */
+export function PricingUnavailable() {
   return (
     <div className="flex flex-col gap-2">
       <Button size="lg" disabled aria-describedby="enrollment-note" className="w-full">
-        Enrollment opens soon
+        Enrollment unavailable
       </Button>
       <p id="enrollment-note" className="text-xs text-muted-foreground">
-        Enrollment and pricing are not available yet. You can already watch the free previews.
+        We could not load the price right now. Refresh the page in a moment.
       </p>
     </div>
   );

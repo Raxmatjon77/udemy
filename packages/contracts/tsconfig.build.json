@@ -1,5 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": false },
-  "exclude": ["dist", "node_modules", "**/*.spec.ts", "**/*.test.ts"]
+  // src/testing (fixtures + MSW handlers) IS built, as ESM (.mts -> dist/testing/*.mjs), for the
+  // `@udemy/contracts/testing` subpath. The main entry (src/index.ts) never imports it.
+  "exclude": ["dist", "node_modules", "**/*.spec.ts", "**/*.spec.mts", "**/*.test.ts"]
 }

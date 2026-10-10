@@ -20,6 +20,7 @@ import {
   IDS,
   lockedCourse,
 } from '@/test/fixtures';
+import { installCommerce } from '@/test/commerce';
 import { problem, proxy, server, setupMockApi } from '@/test/msw';
 import { renderWithClient } from '@/test/render';
 
@@ -39,6 +40,7 @@ function builderApi({
   curr = () => curriculum(),
 }: { course?: (n: number) => CourseDetail; curr?: (n: number) => Curriculum } = {}): Counters {
   const counters: Counters = { course: 0, curriculum: 0 };
+  installCommerce();
   server.use(
     http.get(proxy(`/courses/${IDS.course}`), () => {
       counters.course += 1;

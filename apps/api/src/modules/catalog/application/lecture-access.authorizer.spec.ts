@@ -17,6 +17,7 @@ import type { CurriculumRepository, LectureRecord } from './ports/curriculum.rep
 import {
   type BrowseRecord,
   type LiveCourseRecord,
+  type LiveCourseSummaryRecord,
   type LiveLectureLookup,
   PublicCatalogRepository,
   type LiveTotals,
@@ -114,6 +115,9 @@ class InMemoryPublicCatalog extends PublicCatalogRepository {
     return Promise.resolve(
       this.revisions.get(revisionId)?.lectures.find((l) => l.lectureId === lectureId) ?? null,
     );
+  }
+  findLiveCourseSummaries(): Promise<LiveCourseSummaryRecord[]> {
+    throw new Error('not used');
   }
   listLiveLectureIds(): Promise<string[]> {
     throw new Error('not used');

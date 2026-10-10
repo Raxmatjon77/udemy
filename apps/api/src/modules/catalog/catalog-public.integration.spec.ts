@@ -8,6 +8,7 @@ import { HLS_PLAYLIST_CONTENT_TYPE } from '@udemy/contracts';
 import { sql } from '@udemy/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module';
+import { API_APP_OPTIONS } from '../../setup-app';
 import { useIntegrationDatabase, useIntegrationRedis } from '../../testing/integration';
 import { MediaNotReady, RenditionNotFound } from '../media';
 import { deleteMediaTestData, useIntegrationS3 } from '../media/testing/media-it';
@@ -78,7 +79,10 @@ describe('public catalog and playback (integration: AppModule, Postgres, Redis, 
   beforeAll(async () => {
     if (!available()) return;
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      ...API_APP_OPTIONS,
+      logger: false,
+    });
     await app.init();
     const group = await get(CreateCategoryCommand).execute({ name: `Public IT ${tag}` });
     groupSlug = group.slug;
@@ -605,5 +609,94 @@ describe('public catalog and playback (integration: AppModule, Postgres, Redis, 
       c.previewArticleId,
       c.resourceId,
     ]);
+  });
+
+  it('CatalogFacade.getCourseSummaries: live title, status and thumbnail; omits the rest', async (ctx) => {
+    skip(ctx);
+    const a = await publishedCourse('summary-a');
+    const b = await publishedCourse('summary-b');
+    await get(ArchiveCourseCommand).execute({
+      actorId: b.ownerId,
+      courseId: b.courseId,
+      byAdmin: false,
+    });
+    // An edit of the working copy is not live until a new revision is approved.
+    await get(UpdateCourseCommand).execute({
+      actorId: a.ownerId,
+      courseId: a.courseId,
+      changes: { title: `Renamed summary-a ${tag}` },
+    });
+    const draft = await get(CreateCourseCommand).execute({
+      ownerId: a.ownerId,
+      title: `Draft summary ${tag}`,
+    });
+    const facade = get(CatalogFacade);
+
+    const summaries = await facade.getCourseSummaries([
+      b.courseId,
+      draft.id,
+      randomUUID(),
+      'not-a-uuid',
+      a.courseId,
+      b.courseId,
+    ]);
+
+    // Order of first occurrence; draft, unknown and malformed ids are omitted.
+    expect(summaries).toEqual([
+      {
+        id: b.courseId,
+        slug: b.slug,
+        ownerId: b.ownerId,
+        status: 'ARCHIVED',
+        liveRevisionId: b.revisionId,
+        title: `Public summary-b ${tag}`,
+        hasThumbnail: true,
+      },
+      {
+        id: a.courseId,
+        slug: a.slug,
+        ownerId: a.ownerId,
+        status: 'PUBLISHED',
+        liveRevisionId: a.revisionId,
+        title: `Public summary-a ${tag}`,
+        hasThumbnail: true,
+      },
+    ]);
+
+    // Inside the caller's transaction (commerce snapshots order lines this way).
+    await pg.db.transaction().execute(async (trx) => {
+      const inTrx = await facade.getCourseSummaries([a.courseId], trx);
+      expect(inTrx.map((s) => s.title)).toEqual([`Public summary-a ${tag}`]);
+    });
+
+    // A live thumbnail that can no longer be served (its w750 rendition is gone).
+    const { thumbnailAssetId } = await pg.db
+      .selectFrom('catalog.courseRevisions')
+      .select('thumbnailAssetId')
+      .where('id', '=', a.revisionId)
+      .executeTakeFirstOrThrow();
+    await pg.db.transaction().execute(async (trx) => {
+      await sql`set local session_replication_role = replica`.execute(trx);
+      await trx
+        .deleteFrom('media.assetRenditions')
+        .where('assetId', '=', thumbnailAssetId)
+        .where('name', '=', 'w750')
+        .execute();
+    });
+    expect(await facade.getCourseSummaries([a.courseId])).toEqual([
+      expect.objectContaining({ id: a.courseId, hasThumbnail: false }),
+    ]);
+
+    expect(await facade.getCourseSummaries([])).toEqual([]);
+    expect(await facade.getCourseSummaries(['nope'])).toEqual([]);
+    await expect(
+      facade.getCourseSummaries(Array.from({ length: 101 }, () => randomUUID())),
+    ).rejects.toBeInstanceOf(RangeError);
+    // Duplicates count once against the limit.
+    await expect(
+      facade.getCourseSummaries([...Array.from({ length: 100 }, () => randomUUID()), a.courseId]),
+    ).rejects.toBeInstanceOf(RangeError);
+    const hundred = [a.courseId, ...Array.from({ length: 99 }, () => randomUUID()), a.courseId];
+    expect((await facade.getCourseSummaries(hundred)).map((s) => s.id)).toEqual([a.courseId]);
   });
 });

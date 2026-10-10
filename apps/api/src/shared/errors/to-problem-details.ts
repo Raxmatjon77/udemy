@@ -117,6 +117,19 @@ function fromHttpException(exception: HttpException): ProblemDetails {
   return problem;
 }
 
+/**
+ * Client errors raised by the body parsers before any handler runs (`http-errors` with
+ * `expose: true`, e.g. `entity.too.large` -> 413, `encoding.unsupported` -> 415). Their message
+ * is meant for the client; everything else stays a 500.
+ */
+function bodyParserClientError(error: unknown): { status: number; message: string } | undefined {
+  if (!(error instanceof Error) || !isRecord(error)) return undefined;
+  const { status, expose, type } = error as Record<string, unknown>;
+  if (expose !== true || typeof type !== 'string') return undefined;
+  if (typeof status !== 'number' || status < 400 || status > 499) return undefined;
+  return { status, message: error.message };
+}
+
 /** Per-route limits (login, signup, ...). The filter adds the Retry-After header. */
 function fromRateLimited(error: RateLimitedError): ProblemDetails {
   return { ...baseProblem(HttpStatus.TOO_MANY_REQUESTS, error.message), code: error.code };
@@ -143,5 +156,7 @@ export function toProblemDetails(
   if (exception instanceof RateLimitedError) return fromRateLimited(exception);
   if (exception instanceof HttpException) return fromHttpException(exception);
   if (exception instanceof ZodError) return fromZodError(exception);
+  const bodyError = bodyParserClientError(exception);
+  if (bodyError !== undefined) return baseProblem(bodyError.status, bodyError.message);
   return fromUnknown(exception, options);
 }

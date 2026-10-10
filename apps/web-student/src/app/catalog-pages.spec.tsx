@@ -34,7 +34,15 @@ const search = (query: Record<string, string> = {}) => Promise.resolve(query);
 describe('catalog pages', () => {
   it('/courses renders the first page and the filters from the URL', async () => {
     let browse: URL | undefined;
+    let prices: string | null = null;
+    const first = coursePage(1, 3, null).items[0]!.id;
     server.use(
+      http.get(`${API}/commerce/prices`, ({ request }) => {
+        prices = new URL(request.url).searchParams.get('courseIds');
+        return HttpResponse.json({
+          items: [{ courseId: first, amount: '19.99', currency: 'USD', isFree: false }],
+        });
+      }),
       http.get(`${API}/catalog/categories`, () => HttpResponse.json(categoryTree)),
       http.get(`${API}/catalog/courses`, ({ request }) => {
         browse = new URL(request.url);
@@ -54,6 +62,10 @@ describe('catalog pages', () => {
     });
     expect(out.match(/data-testid="course-card"/g)).toHaveLength(3);
     expect(out).toContain('Load more courses');
+    // One batched price request for the page; a course without a price is "not available".
+    expect(prices!.split(',')).toEqual(coursePage(1, 3, null).items.map((c) => c.id));
+    const shown = [...out.matchAll(/data-testid="price"[^>]*>([^<]*)</g)].map((m) => m[1]);
+    expect(shown).toEqual(['$19.99', 'Not available yet', 'Not available yet']);
   });
 
   it('/courses stays up with an error state when the API is down', async () => {
@@ -73,6 +85,7 @@ describe('catalog pages', () => {
 
   it('/ shows the newest courses and the category entry points, or degrades per section', async () => {
     server.use(
+      http.get(`${API}/commerce/prices`, () => HttpResponse.json({ items: [] })),
       http.get(`${API}/catalog/categories`, () => HttpResponse.json(categoryTree)),
       http.get(`${API}/catalog/courses`, ({ request }) => {
         expect(new URL(request.url).searchParams.get('limit')).toBe('8');
@@ -93,6 +106,7 @@ describe('catalog pages', () => {
   it('/categories/[leaf] filters by the leaf, with a breadcrumb and sibling chips', async () => {
     let browse: URL | undefined;
     server.use(
+      http.get(`${API}/commerce/prices`, () => HttpResponse.json({ items: [] })),
       http.get(`${API}/catalog/categories`, () => HttpResponse.json(categoryTree)),
       http.get(`${API}/catalog/courses`, ({ request }) => {
         browse = new URL(request.url);

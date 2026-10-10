@@ -90,6 +90,16 @@ const MESSAGES: Partial<Record<ErrorCode, Message>> = {
   [ErrorCode.OrderMismatch]:
     'The list changed in the meantime. The latest order is now shown; try again.',
   [ErrorCode.MediaNotReady]: 'This media is still being processed.',
+
+  [ErrorCode.OrderNotFound]: 'This order does not exist.',
+  [ErrorCode.RefundNotFound]: 'This refund does not exist.',
+  [ErrorCode.RefundAlreadyRequested]:
+    'One of these lines already has a refund in progress. The order was refreshed.',
+  [ErrorCode.RefundNotApplicable]: 'This line cannot be refunded (it was not paid, or is free).',
+  [ErrorCode.RefundWindowClosed]: 'The refund window for this order has closed.',
+  [ErrorCode.CouponCodeTaken]: 'Another platform coupon already uses this code.',
+  [ErrorCode.EnrollmentNotFound]: 'This enrollment does not exist.',
+  [ErrorCode.AlreadyEnrolled]: 'This user is already enrolled in that course.',
 };
 
 function byStatus(error: ProxyFetchError): string {

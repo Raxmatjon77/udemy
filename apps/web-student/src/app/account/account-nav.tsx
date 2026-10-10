@@ -7,6 +7,7 @@ import { cn } from '@udemy/ui/lib/utils';
 const LINKS = [
   { href: '/account/profile', label: 'Profile' },
   { href: '/account/sessions', label: 'Sessions & security' },
+  { href: '/account/orders', label: 'Orders & receipts' },
 ] as const;
 
 export function AccountNav() {
@@ -15,7 +16,7 @@ export function AccountNav() {
     <nav aria-label="Account settings">
       <ul className="flex gap-1 md:flex-col">
         {LINKS.map((link) => {
-          const active = pathname === link.href;
+          const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
           return (
             <li key={link.href}>
               <Link

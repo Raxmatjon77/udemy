@@ -105,6 +105,74 @@ export const ErrorCode = {
   /** Parts are missing; the problem carries `missingParts[]` (`UploadIncompleteProblem`). */
   UploadIncomplete: 'upload_incomplete',
   UploadSizeMismatch: 'upload_size_mismatch',
+
+  // commerce: pricing and purchase eligibility (Phase 4, design §4, §5)
+  /** The amount is not one of the `PRICE_TIERS` of the platform currency (422). */
+  PriceNotAllowed: 'price_not_allowed',
+  /** Not PUBLISHED, or no price row (D16) (409). */
+  CourseNotForSale: 'course_not_for_sale',
+  /** The course costs 0.00: use `POST /me/free-enrollments` instead (409). */
+  CourseIsFree: 'course_is_free',
+  /** Free enrolment on a paid course (409). */
+  CourseNotFree: 'course_not_free',
+  CannotPurchaseOwnCourse: 'cannot_purchase_own_course',
+  AlreadyEnrolled: 'already_enrolled',
+
+  // commerce: cart and quote
+  /** More than `CART_LIMITS.maxItems` items (422). */
+  CartFull: 'cart_full',
+  CartEmpty: 'cart_empty',
+  /** A cart line became unavailable; the problem carries `quote` (`CartChangedProblem`, 409). */
+  CartChanged: 'cart_changed',
+  /** The total differs from `expectedTotal`; carries `quote` (`PriceChangedProblem`, 409). */
+  PriceChanged: 'price_changed',
+
+  // commerce: coupons
+  /** Unknown code, or no line in the cart it applies to: one generic code on purpose (§9). */
+  CouponInvalid: 'coupon_invalid',
+  CouponExpired: 'coupon_expired',
+  CouponNotStarted: 'coupon_not_started',
+  CouponExhausted: 'coupon_exhausted',
+  /** One redemption per user per coupon (D5). */
+  CouponAlreadyUsed: 'coupon_already_used',
+  CouponCodeTaken: 'coupon_code_taken',
+  /** More than `COUPON_LIMITS.maxActivePerCourse` active coupons (422). */
+  CouponLimitExceeded: 'coupon_limit_exceeded',
+
+  // commerce: checkout, orders and payments
+  /**
+   * The user already has a PENDING_PAYMENT order (D15, 409); the problem carries `orderId` and
+   * `checkoutUrl` (`CheckoutInProgressProblem`).
+   */
+  CheckoutInProgress: 'checkout_in_progress',
+  /** `POST /me/checkout` without an `Idempotency-Key` header (400). */
+  IdempotencyKeyRequired: 'idempotency_key_required',
+  /** The same key with a different cart fingerprint (422). */
+  IdempotencyKeyReused: 'idempotency_key_reused',
+  /** Order total in (0, 0.50): below Stripe's minimum charge (422). */
+  AmountBelowMinimum: 'amount_below_minimum',
+  /** Stripe could not be reached; retrying with the same key resumes (503). */
+  PaymentProviderUnavailable: 'payment_provider_unavailable',
+  OrderNotFound: 'order_not_found',
+  /** The Checkout Session already completed; the webhook will mark the order PAID (409). */
+  OrderNotCancelable: 'order_not_cancelable',
+  /** A receipt was requested for an order that was never paid (409). */
+  OrderNotPaid: 'order_not_paid',
+
+  // commerce: refunds
+  RefundWindowClosed: 'refund_window_closed',
+  /** E.g. a 0.00 line, or an order that is not paid (422). */
+  RefundNotApplicable: 'refund_not_applicable',
+  /** The line already has a live refund (409). */
+  RefundAlreadyRequested: 'refund_already_requested',
+  RefundNotFound: 'refund_not_found',
+
+  // enrollment
+  EnrollmentNotFound: 'enrollment_not_found',
+
+  // webhooks
+  /** Stripe-Signature missing, malformed, stale or wrong (400, no detail). */
+  WebhookSignatureInvalid: 'webhook_signature_invalid',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

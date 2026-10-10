@@ -13,6 +13,13 @@ const STUDENT_PERMS: Permission[] = [
   'instructor_application:create:own',
   'instructor_application:read:own',
   'instructor_application:withdraw:own',
+  // Phase 4 (commerce & enrollment design §8)
+  'cart:manage',
+  'order:create',
+  'order:read:own',
+  'order:refund:own',
+  'enrollment:create',
+  'enrollment:read:own',
 ];
 const ADMIN_PERMS: Permission[] = [
   'user:read:any',
@@ -25,8 +32,15 @@ const ADMIN_PERMS: Permission[] = [
   'course:moderate:any',
   'category:manage',
   'media_asset:read:any',
+  // Phase 4 (commerce & enrollment design §8)
+  'order:read:any',
+  'order:refund:any',
+  'refund:review:any',
+  'platform_coupon:manage',
+  'enrollment:read:any',
+  'enrollment:grant:any',
 ];
-/** Phase 2 (catalog & media design §8). */
+/** Phase 2 (catalog & media design §8) and Phase 4 (commerce & enrollment design §8). */
 const INSTRUCTOR_PERMS: Permission[] = [
   'course:create',
   'course:read:own',
@@ -37,6 +51,7 @@ const INSTRUCTOR_PERMS: Permission[] = [
   'media_asset:create',
   'media_asset:read:own',
   'media_asset:upload:own',
+  'sales:read:own',
 ];
 const BASE: Permission[] = ['profile:read:own', 'profile:update:own', 'session:manage:own'];
 
@@ -51,7 +66,10 @@ const HOLDINGS: readonly (readonly Role[])[] = [
   ['STUDENT', 'INSTRUCTOR', 'ADMIN'],
 ];
 
-/** The full matrix (design §4 + D6, Phase 2 §8), written out by hand rather than derived. */
+/**
+ * The full matrix (design §4 + D6, Phase 2 §8, Phase 4 §8), written out by hand rather than
+ * derived.
+ */
 const MATRIX: Record<string, Record<ClientApp, { perms: Permission[]; login: boolean }>> = {
   STUDENT: {
     student: { perms: expected(BASE, STUDENT_PERMS), login: true },
@@ -80,7 +98,7 @@ describe('access permission policy', () => {
     expect([...BASELINE].sort()).toEqual(expected(BASE));
   });
 
-  it('maps every role to the Phase 1 + Phase 2 catalog', () => {
+  it('maps every role to the Phase 1, 2 and 4 catalog', () => {
     expect([...ROLE_PERMISSIONS.STUDENT].sort()).toEqual(expected(STUDENT_PERMS));
     expect([...ROLE_PERMISSIONS.INSTRUCTOR].sort()).toEqual(expected(INSTRUCTOR_PERMS));
     expect([...ROLE_PERMISSIONS.ADMIN].sort()).toEqual(expected(ADMIN_PERMS));
@@ -150,6 +168,47 @@ describe('access permission policy', () => {
     expect(perms.has('category:manage')).toBe(true);
     expect(perms.has('media_asset:read:any')).toBe(true);
     for (const p of INSTRUCTOR_PERMS) expect(perms.has(p)).toBe(false);
+  });
+
+  it('buying (cart, checkout, orders, free enrolment) works only in the student app', () => {
+    const buyer: Permission[] = [
+      'cart:manage',
+      'order:create',
+      'order:read:own',
+      'order:refund:own',
+      'enrollment:create',
+      'enrollment:read:own',
+    ];
+    const everyone: Role[] = ['STUDENT', 'INSTRUCTOR', 'ADMIN'];
+    for (const p of buyer) {
+      expect(effectivePermissions(everyone, 'student').has(p)).toBe(true);
+      expect(effectivePermissions(everyone, 'instructor').has(p)).toBe(false);
+      expect(effectivePermissions(everyone, 'admin').has(p)).toBe(false);
+    }
+  });
+
+  it('money movements and manual grants by staff exist only in the admin app', () => {
+    const staff: Permission[] = [
+      'order:read:any',
+      'order:refund:any',
+      'refund:review:any',
+      'platform_coupon:manage',
+      'enrollment:read:any',
+      'enrollment:grant:any',
+    ];
+    const everyone: Role[] = ['STUDENT', 'INSTRUCTOR', 'ADMIN'];
+    for (const p of staff) {
+      expect(effectivePermissions(everyone, 'admin').has(p)).toBe(true);
+      expect(effectivePermissions(everyone, 'student').has(p)).toBe(false);
+      expect(effectivePermissions(everyone, 'instructor').has(p)).toBe(false);
+    }
+  });
+
+  it('instructor sales are owner-scoped and only in the instructor app', () => {
+    const roles: Role[] = ['STUDENT', 'INSTRUCTOR'];
+    expect(effectivePermissions(roles, 'instructor').has('sales:read:own')).toBe(true);
+    expect(effectivePermissions(roles, 'student').has('sales:read:own')).toBe(false);
+    expect(effectivePermissions(['STUDENT', 'ADMIN'], 'admin').has('sales:read:own')).toBe(false);
   });
 
   it('a user holding INSTRUCTOR+ADMIN never gets both sets in one app', () => {

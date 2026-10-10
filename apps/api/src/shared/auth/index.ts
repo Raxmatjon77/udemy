@@ -8,3 +8,5 @@ export * from './current-principal.decorator';
 export * from './ownership-resolver';
 export type * from './policy';
 export type * from './principal';
+export * from './webhook-ingress.decorators';
+export * from './webhook-provider';

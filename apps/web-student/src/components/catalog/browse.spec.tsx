@@ -87,6 +87,50 @@ describe('<BrowseFilters>', () => {
 });
 
 describe('<BrowseResults>', () => {
+  // Later pages ask for their prices (Phase 4); none by default.
+  beforeEach(() => {
+    server.use(http.get(`${PROXY}/commerce/prices`, () => HttpResponse.json({ items: [] })));
+  });
+
+  it('shows the prices: page one from the server, later pages in one batch each', async () => {
+    const user = userEvent.setup();
+    const priceRequests: string[] = [];
+    const card = (n: number) => coursePage(n, 1, null).items[0]!.id;
+    server.use(
+      http.get(`${PROXY}/catalog/courses`, () => HttpResponse.json(coursePage(3, 2, null))),
+      http.get(`${PROXY}/commerce/prices`, ({ request }) => {
+        priceRequests.push(new URL(request.url).searchParams.get('courseIds')!);
+        return HttpResponse.json({
+          items: [{ courseId: card(3), amount: '0.00', currency: 'USD', isFree: true }],
+        });
+      }),
+    );
+    renderWithQuery(
+      <BrowseResults
+        filters={{}}
+        initialPage={coursePage(1, 2, CURSOR_PAGE_2)}
+        initialPrices={{
+          [card(1)]: { courseId: card(1), amount: '19.99', currency: 'USD', isFree: false },
+        }}
+        limit={2}
+      />,
+    );
+    const prices = () => screen.getAllByTestId('price').map((p) => p.textContent);
+    expect(prices()).toEqual(['$19.99', 'Not available yet']);
+    expect(priceRequests).toEqual([]);
+
+    await user.click(screen.getByRole('button', { name: 'Load more courses' }));
+    await waitFor(() =>
+      expect(prices()).toEqual(['$19.99', 'Not available yet', 'Free', 'Not available yet']),
+    );
+    expect(priceRequests).toEqual([`${card(3)},${card(4)}`]);
+  });
+
+  it('shows no price line when the prices could not be loaded', () => {
+    renderWithQuery(<BrowseResults filters={{}} initialPage={coursePage(1, 2, null)} limit={2} />);
+    expect(screen.queryAllByTestId('price')).toEqual([]);
+  });
+
   it('renders the server page, then loads the next keyset page with the exact cursor', async () => {
     const user = userEvent.setup();
     const requests: URL[] = [];

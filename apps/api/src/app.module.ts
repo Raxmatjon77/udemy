@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import { createConfigModule, createLoggerModule, DatabaseModule } from '@udemy/nest-common';
+import { createConfigModule, DatabaseModule } from '@udemy/nest-common';
 import { AccessModule, PoliciesGuard } from './modules/access';
 import { CatalogModule } from './modules/catalog';
 import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identity';
@@ -12,6 +13,7 @@ import { apiEnvSchema, AppConfigModule, ObjectStorageModule } from './shared/con
 import { CourseEntitlementsModule, DenyAllCourseEntitlements } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
+import { createApiLoggerModule } from './shared/logging';
 import { OutboxModule } from './shared/outbox';
 import { RedisModule } from './shared/redis';
 import { ThrottlingModule } from './shared/throttler';
@@ -22,7 +24,8 @@ import { ValidationModule } from './shared/validation';
     // Infrastructure (order: config first, everything else reads from it).
     createConfigModule(apiEnvSchema),
     AppConfigModule,
-    createLoggerModule({ serviceName: 'udemy-api' }),
+    // nest-common's pino logger + the payment redactions (Stripe signature, checkout URLs).
+    createApiLoggerModule(),
     DatabaseModule.forRoot({ applicationName: 'udemy-api' }),
     RedisModule,
     // The single ObjectStorage (S3/MinIO) client: media + the readiness probe (design §14).
@@ -32,6 +35,10 @@ import { ValidationModule } from './shared/validation';
     ValidationModule,
     ThrottlingModule,
     OutboxModule,
+    // Timers for in-process jobs (Phase 4: the CommerceJobs refund dispatcher and reconciler,
+    // which call Stripe and therefore live in the API, design D9). Jobs guard themselves with
+    // advisory locks, so running on every replica is safe.
+    ScheduleModule.forRoot(),
     AuthSupportModule,
     HealthModule,
     // COURSE_ENTITLEMENTS (catalog asks "may this user watch this course?"). Phase 2 has no

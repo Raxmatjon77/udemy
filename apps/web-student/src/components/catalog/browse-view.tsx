@@ -8,6 +8,7 @@ import {
   type BrowseFilterKey,
   type BrowseFilters as Filters,
 } from '@/lib/catalog/browse-params';
+import type { PriceMap } from '@/components/commerce/price-tag';
 import type { Loaded } from '@/lib/catalog/server';
 
 import { BrowseFilters } from './browse-filters';
@@ -31,6 +32,7 @@ export function BrowseView({
   apiFilters,
   categories,
   result,
+  prices,
   limit,
   ignored = [],
 }: {
@@ -43,6 +45,8 @@ export function BrowseView({
   /** Shown as a category select when given (the all-courses page). */
   categories?: readonly CategoryNode[] | undefined;
   result: Loaded<CourseCardPage>;
+  /** The first page's prices; undefined when they could not be loaded. */
+  prices?: PriceMap | undefined;
   limit: number;
   /** URL filters dropped as invalid, to tell the user. */
   ignored?: readonly BrowseFilterKey[];
@@ -85,6 +89,7 @@ export function BrowseView({
           key={JSON.stringify(apiFilters)}
           filters={apiFilters}
           initialPage={result.data}
+          initialPrices={prices}
           limit={limit}
         />
       )}

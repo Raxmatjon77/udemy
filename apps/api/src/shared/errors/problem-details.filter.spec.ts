@@ -139,4 +139,27 @@ describe('toProblemDetails', () => {
       errors: [{ path: 'title', message: expect.any(String) }],
     });
   });
+
+  it('maps exposed body-parser client errors to their status, and nothing else', () => {
+    const tooLarge = Object.assign(new Error('request entity too large'), {
+      status: 413,
+      expose: true,
+      type: 'entity.too.large',
+    });
+    const internal = Object.assign(new Error('stream not readable'), {
+      status: 500,
+      expose: false,
+      type: 'stream.not.readable',
+    });
+    const unexposed = Object.assign(new Error('secret detail'), { status: 400, type: 'x' });
+
+    expect(toProblemDetails(tooLarge, { exposeInternals: false })).toEqual({
+      type: 'about:blank',
+      title: 'Payload Too Large',
+      status: 413,
+      detail: 'request entity too large',
+    });
+    expect(toProblemDetails(internal, { exposeInternals: false }).status).toBe(500);
+    expect(toProblemDetails(unexposed, { exposeInternals: false }).status).toBe(500);
+  });
 });

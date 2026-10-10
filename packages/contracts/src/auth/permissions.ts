@@ -16,6 +16,11 @@ import { z } from 'zod';
  * Phase 2 (catalog & media design §8) adds `course:*`, `category:manage` and `media_asset:*`.
  * Sections and lectures have no permissions of their own: they are reached through nested
  * course routes and checked with the course policy (design finding 2, Q7).
+ *
+ * Phase 4 (commerce & enrollment design §8) adds `cart:manage`, `order:*`, `enrollment:*`,
+ * `refund:review:any`, `platform_coupon:manage` and `sales:read:own`. Course pricing and
+ * coupons reuse `course:read:own` / `course:update:own` through the course policy.
+ * `enrollment:create` is the free enrolment (D14).
  */
 export const PERMISSIONS = [
   // Baseline: every authenticated principal, in any app.
@@ -47,6 +52,22 @@ export const PERMISSIONS = [
   'course:moderate:any',
   'category:manage',
   'media_asset:read:any',
+  // STUDENT (Phase 4)
+  'cart:manage',
+  'order:create',
+  'order:read:own',
+  'order:refund:own',
+  'enrollment:create',
+  'enrollment:read:own',
+  // INSTRUCTOR (Phase 4)
+  'sales:read:own',
+  // ADMIN (Phase 4)
+  'order:read:any',
+  'order:refund:any',
+  'refund:review:any',
+  'platform_coupon:manage',
+  'enrollment:read:any',
+  'enrollment:grant:any',
 ] as const;
 
 /** Compile-time guard: every catalog entry must follow `resource:action[:own|:any]`. */

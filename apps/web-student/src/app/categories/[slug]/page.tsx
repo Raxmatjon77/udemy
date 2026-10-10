@@ -8,6 +8,7 @@ import { Breadcrumbs, CategoryChips } from '@/components/catalog/category-nav';
 import { parseBrowseFilters, type BrowseFilters } from '@/lib/catalog/browse-params';
 import { categoryHref, findCategory } from '@/lib/catalog/categories';
 import { browseCourses, getCategoryTree, isPlausibleSlug, settle } from '@/lib/catalog/server';
+import { pricesForPage } from '@/lib/commerce/server';
 
 /**
  * `/categories/{slug}`: a depth-1 group (its courses include every child's) or a depth-2 leaf,
@@ -53,6 +54,7 @@ export default async function CategoryPage({
   const apiFilters: BrowseFilters = { ...urlFilters, category: slug };
   const limit = BROWSE_COURSES_PAGE_LIMIT_DEFAULT;
   const page = await settle(browseCourses(apiFilters, { limit }));
+  const prices = await pricesForPage(page);
 
   const { group, leaf } = match;
   const current = leaf ?? group;
@@ -85,6 +87,7 @@ export default async function CategoryPage({
         urlFilters={urlFilters}
         apiFilters={apiFilters}
         result={page}
+        prices={prices}
         limit={limit}
         ignored={ignored.filter((key) => key !== 'category')}
       />

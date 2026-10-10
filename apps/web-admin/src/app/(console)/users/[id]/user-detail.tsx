@@ -35,11 +35,14 @@ import {
 
 import { QueryError } from '@/components/query-error';
 import { ReasonDialog } from '@/components/reason-dialog';
+import { Tabs } from '@/components/tabs';
 import { api } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { ACCOUNT_STATUS_LABEL, ROLE_LABEL } from '@/lib/labels';
 import { hasCode } from '@/lib/problem';
 import { queryKeys } from '@/lib/queries';
+
+import { UserEnrollments } from './user-enrollments';
 
 const UnbanFormSchema = z.object({
   reason: z
@@ -217,6 +220,12 @@ export function UserDetail({ id, currentUserId }: { id: string; currentUserId: s
           </Badge>
         </h1>
         <p className="text-sm text-muted-foreground">{user.email}</p>
+        <Link
+          href={`/orders?userId=${encodeURIComponent(user.id)}`}
+          className="w-fit text-sm text-primary underline-offset-4 hover:underline"
+        >
+          View orders
+        </Link>
       </div>
 
       {banned ? (
@@ -227,50 +236,70 @@ export function UserDetail({ id, currentUserId }: { id: string; currentUserId: s
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle asChild>
-            <h2>Account</h2>
-          </CardTitle>
-          <CardDescription>
-            Joined <time dateTime={user.createdAt}>{formatDate(user.createdAt)}</time>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid gap-3 text-sm sm:grid-cols-[12rem_1fr]">
-            <dt className="font-medium">Email</dt>
-            <dd className="text-muted-foreground">
-              {user.emailVerified ? 'Verified' : 'Not verified'}
-            </dd>
-            <dt className="font-medium">Roles</dt>
-            <dd className="flex flex-wrap gap-1">
-              {roles.map((role) => (
-                <Badge key={role} variant={role === 'STUDENT' ? 'outline' : 'secondary'}>
-                  {ROLE_LABEL[role]}
-                </Badge>
-              ))}
-            </dd>
-            <dt className="font-medium">Active sessions</dt>
-            <dd className="text-muted-foreground">{activeSessionCount}</dd>
-            <dt className="font-medium">User id</dt>
-            <dd className="font-mono text-xs break-all text-muted-foreground">{user.id}</dd>
-          </dl>
-        </CardContent>
-        <CardFooter className="border-t pt-6">
-          <BanActions detail={detail.data} currentUserId={currentUserId} />
-        </CardFooter>
-      </Card>
+      <Tabs
+        label="User sections"
+        items={[
+          {
+            id: 'account',
+            label: 'Account',
+            content: (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle asChild>
+                      <h2>Account</h2>
+                    </CardTitle>
+                    <CardDescription>
+                      Joined <time dateTime={user.createdAt}>{formatDate(user.createdAt)}</time>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="grid gap-3 text-sm sm:grid-cols-[12rem_1fr]">
+                      <dt className="font-medium">Email</dt>
+                      <dd className="text-muted-foreground">
+                        {user.emailVerified ? 'Verified' : 'Not verified'}
+                      </dd>
+                      <dt className="font-medium">Roles</dt>
+                      <dd className="flex flex-wrap gap-1">
+                        {roles.map((role) => (
+                          <Badge key={role} variant={role === 'STUDENT' ? 'outline' : 'secondary'}>
+                            {ROLE_LABEL[role]}
+                          </Badge>
+                        ))}
+                      </dd>
+                      <dt className="font-medium">Active sessions</dt>
+                      <dd className="text-muted-foreground">{activeSessionCount}</dd>
+                      <dt className="font-medium">User id</dt>
+                      <dd className="font-mono text-xs break-all text-muted-foreground">
+                        {user.id}
+                      </dd>
+                    </dl>
+                  </CardContent>
+                  <CardFooter className="border-t pt-6">
+                    <BanActions detail={detail.data} currentUserId={currentUserId} />
+                  </CardFooter>
+                </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle asChild>
-            <h2>Ban history</h2>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <BanHistory bans={bans} currentUserId={currentUserId} />
-        </CardContent>
-      </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle asChild>
+                      <h2>Ban history</h2>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <BanHistory bans={bans} currentUserId={currentUserId} />
+                  </CardContent>
+                </Card>
+              </>
+            ),
+          },
+          {
+            id: 'enrollments',
+            label: 'Enrollments',
+            content: <UserEnrollments userId={user.id} userName={user.displayName} />,
+          },
+        ]}
+      />
     </div>
   );
 }

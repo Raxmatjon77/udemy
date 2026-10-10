@@ -12,6 +12,8 @@ import { serverEnv } from '../env';
  * - `/media/*`: the signed-redirect image routes (thumbnails). Route handlers outside `/api/`
  *   go through proxy.ts too, so without this an anonymous visitor's `<img>` would be
  *   redirected to the login page (design §14).
+ * - `/cart`: the guest cart (Phase 4 D4); checking out sends a visitor to the login page.
+ *   `/checkout/*`, `/my-learning` and `/account/*` are NOT listed: they need a session.
  */
 export const PUBLIC_PATHS = [
   '/',
@@ -20,6 +22,7 @@ export const PUBLIC_PATHS = [
   '/categories/*',
   '/course/*',
   '/media/*',
+  '/cart',
 ];
 
 /**

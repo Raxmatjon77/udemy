@@ -1,15 +1,17 @@
 'use client';
 
-import { useInfiniteQuery, type InfiniteData } from '@tanstack/react-query';
-import type { CourseCard as CourseCardData, CourseCardPage } from '@udemy/contracts';
+import { useInfiniteQuery, useQueries, type InfiniteData } from '@tanstack/react-query';
+import type { CourseCard as CourseCardData, CourseCardPage, PublicPrice } from '@udemy/contracts';
 import { Alert, AlertDescription } from '@udemy/ui/components/alert';
 import { Button } from '@udemy/ui/components/button';
 import { Spinner } from '@udemy/ui/components/spinner';
 import { useMemo } from 'react';
 
+import { toPriceMap, type PriceMap } from '@/components/commerce/price-tag';
 import type { BrowseFilters } from '@/lib/catalog/browse-params';
 import { catalogQueryKeys, fetchCoursePage } from '@/lib/catalog/client';
 import { pluralize } from '@/lib/catalog/format';
+import { commerceKeys, fetchPublicPrices } from '@/lib/commerce/client';
 import { problemMessage } from '@/lib/problem';
 
 import { CourseGrid } from './course-card';
@@ -23,11 +25,14 @@ import { CourseGrid } from './course-card';
 export function BrowseResults({
   filters,
   initialPage,
+  initialPrices,
   limit,
 }: {
   /** The API filters (a category page adds its category here). */
   filters: BrowseFilters;
   initialPage: CourseCardPage;
+  /** Page one's prices (rendered by the server); undefined when they could not be loaded. */
+  initialPrices?: PriceMap | undefined;
   limit: number;
 }) {
   const query = useInfiniteQuery<
@@ -45,6 +50,33 @@ export function BrowseResults({
     // The server just rendered page one; do not refetch it on mount.
     staleTime: 60_000,
   });
+
+  // Later pages: one batched `GET /commerce/prices` per page (public, cached for 60 s).
+  const laterPages = query.data?.pages.slice(1) ?? [];
+  const laterPrices = useQueries({
+    queries: laterPages.map((page) => {
+      const ids = page.items.map((course) => course.id);
+      return {
+        queryKey: commerceKeys.prices(ids),
+        queryFn: ({ signal }: { signal: AbortSignal }) => fetchPublicPrices(ids, signal),
+        staleTime: 60_000,
+      };
+    }),
+  });
+
+  // Per course: a price, null (no price: not for sale) or undefined (its page's prices did not
+  // load, so the card shows no price line rather than a wrong "Not available yet").
+  const priceOf = useMemo(() => {
+    const known = new Map<string, PublicPrice | null>();
+    const pages = query.data?.pages ?? [];
+    pages.forEach((page, index) => {
+      const later = index === 0 ? undefined : laterPrices[index - 1]?.data;
+      const map = index === 0 ? initialPrices : later && toPriceMap(later);
+      if (map === undefined) return;
+      for (const course of page.items) known.set(course.id, map[course.id] ?? null);
+    });
+    return (courseId: string) => known.get(courseId);
+  }, [initialPrices, laterPrices, query.data]);
 
   const courses = useMemo(() => {
     const seen = new Set<string>();
@@ -69,7 +101,7 @@ export function BrowseResults({
       </p>
 
       {courses.length > 0 ? (
-        <CourseGrid courses={courses} priorityCount={4} label="Courses" />
+        <CourseGrid courses={courses} priceOf={priceOf} priorityCount={4} label="Courses" />
       ) : null}
 
       {query.isFetchNextPageError ? (

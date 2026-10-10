@@ -56,8 +56,10 @@ export function CheckPolicy<R extends PolicyResource>(
 
 /**
  * Skip client (BFF) authentication: only for routes that are not called through a BFF
- * (health probes, JWKS, future webhooks). Implies the route cannot be authenticated, because
- * access tokens are bound to a client app; combine it with @Public only.
+ * (health probes, JWKS, provider webhooks). Implies the route cannot be authenticated, because
+ * access tokens are bound to a client app; combine it with @Public only. On an unsafe method
+ * (POST/PUT/PATCH/DELETE) it is only accepted together with `@WebhookIngress` and a signature
+ * guard (`webhook-ingress.decorators.ts`); the route auditor fails boot otherwise.
  */
 export const NoClientAuth = (): ClassDecorator & MethodDecorator =>
   authMetadataDecorator(AUTH_METADATA.noClientAuth, () => true);

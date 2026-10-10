@@ -77,8 +77,23 @@ describe('shared/auth decorators', () => {
 
   it('@CheckPolicy only accepts resource/action pairs that have scoped permissions', () => {
     expectTypeOf<PolicyResource>().toEqualTypeOf<
-      'profile' | 'session' | 'instructor_application' | 'user' | 'role' | 'course' | 'media_asset'
+      | 'profile'
+      | 'session'
+      | 'instructor_application'
+      | 'user'
+      | 'role'
+      | 'course'
+      | 'media_asset'
+      // Phase 4 (commerce & enrollment design §8)
+      | 'order'
+      | 'refund'
+      | 'enrollment'
+      | 'sales'
     >();
+    expectTypeOf<PolicyAction<'order'>>().toEqualTypeOf<'read' | 'refund'>();
+    expectTypeOf<PolicyAction<'enrollment'>>().toEqualTypeOf<'read' | 'grant'>();
+    expectTypeOf<PolicyAction<'refund'>>().toEqualTypeOf<'review'>();
+    expectTypeOf<PolicyAction<'sales'>>().toEqualTypeOf<'read'>();
     expectTypeOf<PolicyAction<'course'>>().toEqualTypeOf<
       'read' | 'update' | 'delete' | 'submit' | 'archive' | 'moderate'
     >();

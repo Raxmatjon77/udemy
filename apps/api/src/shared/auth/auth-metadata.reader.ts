@@ -1,7 +1,10 @@
-import { type ExecutionContext, Injectable } from '@nestjs/common';
+import { type ExecutionContext, Injectable, RequestMethod } from '@nestjs/common';
+import { GUARDS_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import type { ClientApp, Permission } from '@udemy/contracts';
 import { AUTH_METADATA, getAuthMetadata } from './auth-metadata';
 import type { PolicySpec } from './policy';
+import { webhookSignatureProviderOf } from './webhook-ingress.decorators';
+import type { WebhookProvider } from './webhook-provider';
 
 /** Where the effective markers were found. */
 export type MetadataLevel = 'handler' | 'controller';
@@ -44,9 +47,23 @@ export type ClientAccess =
   /** @NoClientAuth together with @AllowClients on one level. Guards must deny. */
   | { readonly kind: 'conflict'; readonly level: MetadataLevel };
 
+/** How a request reaches the route. */
+export type RouteIngress =
+  /** Through a BFF (the default), or a public `@NoClientAuth` read (health, JWKS). */
+  | { readonly kind: 'default' }
+  /** `@WebhookIngress(provider)`: the provider calls the API directly. */
+  | {
+      readonly kind: 'webhook';
+      readonly level: MetadataLevel;
+      readonly provider: WebhookProvider;
+      /** Names of the `@UseGuards` guards tagged `@VerifiesWebhookSignature(provider)`. */
+      readonly signatureGuards: readonly string[];
+    };
+
 export interface RouteAuthDescriptor {
   readonly security: RouteSecurity;
   readonly client: ClientAccess;
+  readonly ingress: RouteIngress;
   /** Human-readable misconfigurations; non-empty => the route auditor fails startup. */
   readonly problems: readonly string[];
 }
@@ -115,7 +132,53 @@ export function resolveClientAccess(handler: object, controller: object): Client
   return clientAt(handler, 'handler') ?? clientAt(controller, 'controller') ?? { kind: 'any' };
 }
 
-function problemsOf(security: RouteSecurity, client: ClientAccess): string[] {
+function guardsOf(target: object): readonly unknown[] {
+  const guards: unknown = Reflect.getMetadata(GUARDS_METADATA, target);
+  return Array.isArray(guards) ? guards : [];
+}
+
+function guardName(guard: unknown): string {
+  if (typeof guard === 'function') return guard.name;
+  if (typeof guard === 'object' && guard !== null) return guard.constructor.name;
+  return String(guard);
+}
+
+/** Resolves the route's ingress: handler `@WebhookIngress` replaces the controller's. */
+export function resolveIngress(handler: object, controller: object): RouteIngress {
+  const onHandler = getAuthMetadata(AUTH_METADATA.webhookIngress, handler);
+  const onController = getAuthMetadata(AUTH_METADATA.webhookIngress, controller);
+  const provider = onHandler ?? onController;
+  if (provider === undefined) return { kind: 'default' };
+  // `@UseGuards` guards run from the controller and the handler alike.
+  const signatureGuards = [...guardsOf(controller), ...guardsOf(handler)]
+    .filter((guard) => webhookSignatureProviderOf(guard) === provider)
+    .map(guardName);
+  return {
+    kind: 'webhook',
+    level: onHandler !== undefined ? 'handler' : 'controller',
+    provider,
+    signatureGuards,
+  };
+}
+
+/** The handler's HTTP method; undefined when it is not a route handler. */
+function httpMethodOf(handler: object): RequestMethod | undefined {
+  const method: unknown = Reflect.getMetadata(METHOD_METADATA, handler);
+  return typeof method === 'number' ? (method as RequestMethod) : undefined;
+}
+
+const SAFE_METHODS: ReadonlySet<RequestMethod> = new Set([
+  RequestMethod.GET,
+  RequestMethod.HEAD,
+  RequestMethod.OPTIONS,
+]);
+
+function problemsOf(
+  security: RouteSecurity,
+  client: ClientAccess,
+  ingress: RouteIngress,
+  method: RequestMethod | undefined,
+): string[] {
   const problems: string[] = [];
   if (security.kind === 'missing') {
     problems.push(
@@ -139,6 +202,24 @@ function problemsOf(security: RouteSecurity, client: ClientAccess): string[] {
       '@NoClientAuth on a route that needs a user: access tokens are bound to a client app',
     );
   }
+  if (ingress.kind === 'webhook') {
+    const marker = `@WebhookIngress('${ingress.provider}')`;
+    if (security.kind !== 'public' || client.kind !== 'none') {
+      problems.push(`${marker} needs @Public and @NoClientAuth: providers send no user or BFF`);
+    }
+    if (method !== undefined && method !== RequestMethod.POST) {
+      problems.push(`${marker} on a ${RequestMethod[method]} route: webhooks must be POST`);
+    }
+    if (ingress.signatureGuards.length === 0) {
+      problems.push(
+        `${marker} without a signature guard: add @UseGuards(<guard tagged @VerifiesWebhookSignature('${ingress.provider}')>)`,
+      );
+    }
+  } else if (client.kind === 'none' && method !== undefined && !SAFE_METHODS.has(method)) {
+    problems.push(
+      `@NoClientAuth on a ${RequestMethod[method]} route: an unauthenticated write must be @WebhookIngress with a signature guard`,
+    );
+  }
   return problems;
 }
 
@@ -146,7 +227,9 @@ function problemsOf(security: RouteSecurity, client: ClientAccess): string[] {
 export function describeRoute(handler: object, controller: object): RouteAuthDescriptor {
   const security = resolveRouteSecurity(handler, controller);
   const client = resolveClientAccess(handler, controller);
-  return { security, client, problems: problemsOf(security, client) };
+  const ingress = resolveIngress(handler, controller);
+  const problems = problemsOf(security, client, ingress, httpMethodOf(handler));
+  return { security, client, ingress, problems };
 }
 
 /**

@@ -70,6 +70,51 @@ describe('ErrorCode', () => {
     }
   });
 
+  it('includes every Phase 4 commerce & enrollment code (design §5)', () => {
+    for (const code of [
+      'price_not_allowed',
+      'course_not_for_sale',
+      'course_is_free',
+      'course_not_free',
+      'cannot_purchase_own_course',
+      'already_enrolled',
+      'cart_full',
+      'cart_empty',
+      'cart_changed',
+      'price_changed',
+      'coupon_invalid',
+      'coupon_expired',
+      'coupon_not_started',
+      'coupon_exhausted',
+      'coupon_already_used',
+      'coupon_code_taken',
+      'coupon_limit_exceeded',
+      'checkout_in_progress',
+      'idempotency_key_required',
+      'idempotency_key_reused',
+      'amount_below_minimum',
+      'payment_provider_unavailable',
+      'order_not_found',
+      'order_not_cancelable',
+      'order_not_paid',
+      'refund_window_closed',
+      'refund_not_applicable',
+      'refund_already_requested',
+      'refund_not_found',
+      'enrollment_not_found',
+      'webhook_signature_invalid',
+      // reused
+      'email_not_verified',
+      'course_not_found',
+      'invalid_state_transition',
+      'rate_limited',
+      'validation_failed',
+    ]) {
+      expect(isErrorCode(code), code).toBe(true);
+    }
+    expect(ErrorCode.EmailNotVerified).toBe('email_not_verified');
+  });
+
   it('is accepted by ProblemDetails, which still allows unknown codes', () => {
     const known: ProblemDetails = {
       type: 'about:blank',

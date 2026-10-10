@@ -1,7 +1,8 @@
-import type { CourseCard as CourseCardData } from '@udemy/contracts';
+import type { CourseCard as CourseCardData, PublicPrice } from '@udemy/contracts';
 import { Badge } from '@udemy/ui/components/badge';
 import Link from 'next/link';
 
+import { PriceTag, type PriceMap } from '@/components/commerce/price-tag';
 import { formatTotalDuration, levelLabel, pluralize } from '@/lib/catalog/format';
 
 import { CourseThumbnail } from './course-thumbnail';
@@ -12,9 +13,15 @@ import { CourseThumbnail } from './course-thumbnail';
  */
 export function CourseCard({
   course,
+  price,
   priority = false,
 }: {
   course: CourseCardData;
+  /**
+   * From `GET /commerce/prices`: a price, null when the course has none (not for sale), or
+   * undefined when prices could not be loaded (then no price line is shown at all).
+   */
+  price?: PublicPrice | null | undefined;
   priority?: boolean;
 }) {
   const level = levelLabel(course.level);
@@ -44,6 +51,7 @@ export function CourseCard({
         {course.instructor ? (
           <p className="text-xs text-muted-foreground">{course.instructor.displayName}</p>
         ) : null}
+        {price !== undefined ? <PriceTag price={price} className="pt-1" /> : null}
         <p className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-2 text-xs text-muted-foreground">
           <span>{pluralize(course.lectureCount, 'lecture')}</span>
           {course.videoSeconds > 0 ? (
@@ -65,10 +73,16 @@ export function CourseCard({
 
 export function CourseGrid({
   courses,
+  prices,
+  priceOf,
   priorityCount = 0,
   label,
 }: {
   courses: readonly CourseCardData[];
+  /** The courses' prices; a course missing from the map has no price. Undefined: not loaded. */
+  prices?: PriceMap | undefined;
+  /** Per-course lookup instead of `prices` (null: no price, undefined: unknown). */
+  priceOf?: ((courseId: string) => PublicPrice | null | undefined) | undefined;
   /** Eagerly load the first N thumbnails (above the fold). */
   priorityCount?: number;
   label?: string;
@@ -80,7 +94,11 @@ export function CourseGrid({
     >
       {courses.map((course, index) => (
         <li key={course.id}>
-          <CourseCard course={course} priority={index < priorityCount} />
+          <CourseCard
+            course={course}
+            price={priceOf ? priceOf(course.id) : prices ? (prices[course.id] ?? null) : undefined}
+            priority={index < priorityCount}
+          />
         </li>
       ))}
     </ul>

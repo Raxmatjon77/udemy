@@ -6,6 +6,7 @@ import type { CategoryRecord } from '../application/ports/category.repository';
 import {
   type BrowseRecord,
   type LiveCourseRecord,
+  type LiveCourseSummaryRecord,
   type LiveLectureLookup,
   PublicCatalogRepository,
   type LiveTotals,
@@ -94,6 +95,18 @@ export class KyselyPublicCatalogRepository extends PublicCatalogRepository {
   async findLiveCourse(courseId: string, ex: Executor = this.db): Promise<LiveCourseRecord | null> {
     const row = await this.liveCourses(ex).where('c.id', '=', courseId).executeTakeFirst();
     return row === undefined ? null : toLiveCourse(row);
+  }
+
+  async findLiveCourseSummaries(
+    courseIds: readonly string[],
+    ex: Executor = this.db,
+  ): Promise<LiveCourseSummaryRecord[]> {
+    if (courseIds.length === 0) return [];
+    const rows = await this.liveCourses(ex)
+      .select('r.title')
+      .where('c.id', 'in', [...new Set(courseIds)])
+      .execute();
+    return rows.map((row) => ({ ...toLiveCourse(row), title: row.title }));
   }
 
   async findLiveLecture(

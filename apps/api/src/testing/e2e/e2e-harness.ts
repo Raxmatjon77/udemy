@@ -19,7 +19,7 @@ import { AppModule } from '../../app.module';
 import { AccessFacade } from '../../modules/access';
 import { BootstrapAdminCommand } from '../../modules/users';
 import { deleteUsersTestData } from '../../modules/users/testing/users-test-data';
-import { setupApp } from '../../setup-app';
+import { API_APP_OPTIONS, setupApp } from '../../setup-app';
 import {
   type IntegrationDatabase,
   type IntegrationRedis,
@@ -176,7 +176,10 @@ export function useE2eApp(): E2eHarness {
   beforeAll(async () => {
     if (!available()) return;
     const moduleRef = await NestTest.createTestingModule({ imports: [AppModule] }).compile();
-    app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+    app = moduleRef.createNestApplication<NestExpressApplication>({
+      ...API_APP_OPTIONS,
+      logger: false,
+    });
     setupApp(app);
     await app.init();
     // For fixtures created in the file's own beforeAll hooks (each test then gets its own).
