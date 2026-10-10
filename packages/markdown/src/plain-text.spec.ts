@@ -1,3 +1,4 @@
+import { cpuMsSince, cpuStart } from './testing/cpu-time';
 import { describe, expect, it } from 'vitest';
 import { MAX_LIST_MARKERS } from './complexity';
 import {
@@ -121,14 +122,14 @@ describe('markdownPlainText: the same cost guard as validateMarkdown', () => {
         ? undefined
         : verdict.issues.find((i) => i.kind === 'too_complex' || i.kind === 'too_deeply_nested')
             ?.kind;
-      const started = performance.now();
+      const started = cpuStart();
       let thrown: unknown;
       try {
         markdownPlainText(source);
       } catch (error) {
         thrown = error;
       }
-      expect(performance.now() - started).toBeLessThan(PLAIN_TEXT_BUDGET_MS);
+      expect(cpuMsSince(started)).toBeLessThan(PLAIN_TEXT_BUDGET_MS);
       if (guardKind === undefined) {
         expect(thrown).toBeUndefined();
       } else {

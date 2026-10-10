@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { findExecutableVectors } from '../testing/html-scan';
 import { INERT, LEGIT, MALICIOUS } from '../testing/xss-corpus';
 import { LINK_REL, MarkdownView } from './markdown-view';
+import { cpuMsSince, cpuStart } from '../testing/cpu-time';
 
 /**
- * Wall-clock ceiling for one server render of up to 100 000 chars (render costs more than validate).
+ * CPU-time ceiling for one server render of up to 100 000 chars (render costs more than validate).
  * Like the validate budget it guards against quadratic blow-ups, with headroom for a loaded machine.
  * Override with MARKDOWN_RENDER_BUDGET_MS.
  */
@@ -17,9 +18,9 @@ function render(source: string): string {
 
 describe('<MarkdownView>: malicious corpus renders without executable vectors (validation bypassed)', () => {
   it.each(MALICIOUS.map((c) => [c.name, c] as const))('%s', (_name, c) => {
-    const start = performance.now();
+    const start = cpuStart();
     const html = render(c.source);
-    expect(performance.now() - start).toBeLessThan(RENDER_BUDGET_MS);
+    expect(cpuMsSince(start)).toBeLessThan(RENDER_BUDGET_MS);
     expect(findExecutableVectors(html)).toEqual([]);
   });
 
@@ -152,9 +153,9 @@ describe('<MarkdownView>: legitimate content renders correctly', () => {
       '## Lesson\n\nSome *emphasis*, **strong**, `code` and a [link](https://example.com).\n\n' +
       '- a\n  - b\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```ts\nconst x = 1;\n```\n\n';
     const source = section.repeat(Math.floor(100_000 / section.length));
-    const start = performance.now();
+    const start = cpuStart();
     const html = render(source);
-    expect(performance.now() - start).toBeLessThan(RENDER_BUDGET_MS);
+    expect(cpuMsSince(start)).toBeLessThan(RENDER_BUDGET_MS);
     expect(findExecutableVectors(html)).toEqual([]);
   });
 });

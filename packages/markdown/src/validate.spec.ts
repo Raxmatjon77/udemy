@@ -1,3 +1,4 @@
+import { cpuMsSince, cpuStart } from './testing/cpu-time';
 import { describe, expect, it } from 'vitest';
 import { INERT, LEGIT, MALICIOUS } from './testing/xss-corpus';
 import { classifyUrl } from './url-policy';
@@ -9,7 +10,7 @@ import {
 } from './validate';
 
 /**
- * Wall-clock ceiling for one validateMarkdown call on any input up to the 100 000-char limit.
+ * CPU-time ceiling for one validateMarkdown call on any input up to the 100 000-char limit.
  * It exists to catch a quadratic blow-up (an unguarded worst case takes 14-15 s or overflows the
  * stack), not to benchmark: guarded inputs take <= ~0.5 s on an idle machine but 2-3x that while
  * turbo builds Next apps in parallel, so a tight bound flakes. Override with MARKDOWN_VALIDATE_BUDGET_MS.
@@ -17,9 +18,9 @@ import {
 const VALIDATE_BUDGET_MS = Number(process.env.MARKDOWN_VALIDATE_BUDGET_MS ?? 6_000);
 
 function timed<T>(fn: () => T): { result: T; ms: number } {
-  const start = performance.now();
+  const start = cpuStart();
   const result = fn();
-  return { result, ms: performance.now() - start };
+  return { result, ms: cpuMsSince(start) };
 }
 
 function issuesOf(source: string): MarkdownIssue[] {
