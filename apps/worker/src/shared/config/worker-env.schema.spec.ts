@@ -181,3 +181,32 @@ describe('workerEnvSchema (Phase 3 event pipeline operations)', () => {
     );
   });
 });
+
+describe('workerEnvSchema (Phase 4 enrollment mail and ledger reconciliation)', () => {
+  it('applies the defaults (instructor mail off, reconciliation hourly with a 60 min settle)', () => {
+    expect(validateEnv(workerEnvSchema, validEnv)).toMatchObject({
+      ENROLLMENT_INSTRUCTOR_MAIL_ENABLED: false,
+      LEDGER_RECONCILIATION_ENABLED: true,
+      LEDGER_RECONCILIATION_INTERVAL_MS: 3_600_000,
+      LEDGER_RECONCILIATION_INITIAL_DELAY_MS: 240_000,
+      LEDGER_RECONCILIATION_SETTLE_MINUTES: 60,
+    });
+  });
+
+  it('turns the instructor mail on', () => {
+    expect(
+      validateEnv(workerEnvSchema, { ...validEnv, ENROLLMENT_INSTRUCTOR_MAIL_ENABLED: 'true' })
+        .ENROLLMENT_INSTRUCTOR_MAIL_ENABLED,
+    ).toBe(true);
+  });
+
+  it.each([
+    ['LEDGER_RECONCILIATION_INTERVAL_MS', '1000'],
+    ['LEDGER_RECONCILIATION_SETTLE_MINUTES', '0'],
+    ['ENROLLMENT_INSTRUCTOR_MAIL_ENABLED', 'maybe'],
+  ])('rejects an invalid %s (%s)', (key, value) => {
+    expect(() => validateEnv(workerEnvSchema, { ...validEnv, [key]: value })).toThrow(
+      new RegExp(key),
+    );
+  });
+});

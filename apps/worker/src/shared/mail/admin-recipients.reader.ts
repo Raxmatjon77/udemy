@@ -10,6 +10,8 @@ export interface AdminRecipient {
 /**
  * Every ADMIN (design §7: "reads `access.user_roles` + `identity.users`"), minus admins with an
  * active ban, ordered by id so retries walk the same order. Read in the handler's transaction.
+ * Shared by the catalog review-request mailer and the commerce admin-alert mailers (Phase 4
+ * design §7), each module listing it in its own providers.
  */
 @Injectable()
 export class AdminRecipientsReader {

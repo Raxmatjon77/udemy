@@ -2,12 +2,15 @@ import { Module } from '@nestjs/common';
 import { createConfigModule, createLoggerModule, DatabaseModule } from '@udemy/nest-common';
 import { MailModule } from '@udemy/nest-common/mail';
 import { CatalogMailModule } from './catalog/catalog-mail.module';
+import { CommerceMailModule } from './commerce/commerce-mail.module';
+import { EnrollmentMailModule } from './enrollment/enrollment-mail.module';
 import { HandlersModule } from './handlers/handlers.module';
 import { HealthModule } from './health/health.module';
 import { IdentityMailModule } from './identity/identity-mail.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { MediaEventsModule } from './media/media-events.module';
 import { MessagingModule } from './messaging';
+import { PayoutsModule } from './payouts/payouts.module';
 import { WorkerConfigModule, workerEnvSchema } from './shared/config';
 import { StorageModule } from './shared/storage/storage.module';
 import { UsersMailModule } from './users/users-mail.module';
@@ -28,6 +31,9 @@ import { UsersMailModule } from './users/users-mail.module';
     UsersMailModule,
     CatalogMailModule,
     MediaEventsModule,
+    CommerceMailModule,
+    EnrollmentMailModule,
+    PayoutsModule,
     MaintenanceModule,
     HealthModule,
   ],

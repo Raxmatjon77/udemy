@@ -10,7 +10,7 @@ import { EventHandler, type EventHandlerContract, parseEvent } from '../../messa
 import { UserContactReader } from '../../shared/mail/user-contact.reader';
 import { CatalogLinks } from '../mail/catalog-links';
 import { reviewRequestedMail } from '../mail/catalog-mail.templates';
-import { AdminRecipientsReader } from '../persistence/admin-recipients.reader';
+import { AdminRecipientsReader } from '../../shared/mail/admin-recipients.reader';
 
 /**
  * `CourseSubmittedForReview` -> a "review requested" mail to every ADMIN (design §7), linking to

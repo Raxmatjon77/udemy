@@ -24,7 +24,7 @@ import {
 import { ReviewRequestedMailerHandler } from './handlers/review-requested-mailer.handler';
 import { TakedownMailerHandler } from './handlers/takedown-mailer.handler';
 import { CatalogLinks } from './mail/catalog-links';
-import { AdminRecipientsReader } from './persistence/admin-recipients.reader';
+import { AdminRecipientsReader } from '../shared/mail/admin-recipients.reader';
 import { CourseTitleReader } from './persistence/course-title.reader';
 
 /**

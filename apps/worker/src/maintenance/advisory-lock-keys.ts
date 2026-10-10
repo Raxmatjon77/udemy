@@ -10,7 +10,8 @@
  * | `0x75646d79_02` | worker: MediaCleanupJob                    |
  * | `0x75646d79_03` | api: CommerceJobs refund dispatch (`REFUND_DISPATCH_LOCK_KEY` in @udemy/db) |
  * | `0x75646d79_04` | api: CommerceJobs reconcile (`COMMERCE_RECONCILE_LOCK_KEY` in @udemy/db) |
- * | `0x75646d79_05` - `_0f` | reserved for further jobs                 |
+ * | `0x75646d79_05` | worker: LedgerReconciliationJob            |
+ * | `0x75646d79_06` - `_0f` | reserved for further jobs                 |
  * | `0x75646d79_10` | worker: OutboxRetentionJob                 |
  *
  * The two-int advisory key space (`pg_advisory_xact_lock(int, int)`, e.g. the media quota lock
@@ -22,5 +23,6 @@ export const ADVISORY_LOCK_KEYS = {
   /** Owned by apps/api (CommerceJobs); listed so nobody reuses them here. */
   commerceRefundDispatch: 0x75646d79_03,
   commerceReconcile: 0x75646d79_04,
+  ledgerReconciliation: 0x75646d79_05,
   outboxRetention: 0x75646d79_10,
 } as const;

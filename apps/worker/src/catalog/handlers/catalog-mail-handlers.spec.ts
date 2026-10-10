@@ -8,7 +8,10 @@ import { FAKE_TRX, fakeConfig, RecordingMailer } from '../../identity/testing/id
 import { NonRetryableError } from '../../messaging';
 import { type UserContact, UserContactReader } from '../../shared/mail/user-contact.reader';
 import { CatalogLinks } from '../mail/catalog-links';
-import { type AdminRecipient, AdminRecipientsReader } from '../persistence/admin-recipients.reader';
+import {
+  type AdminRecipient,
+  AdminRecipientsReader,
+} from '../../shared/mail/admin-recipients.reader';
 import { CourseTitleReader } from '../persistence/course-title.reader';
 import {
   CoursePublishedMailerHandler,

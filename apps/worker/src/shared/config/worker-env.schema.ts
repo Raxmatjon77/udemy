@@ -207,6 +207,24 @@ export const workerEnvSchema = baseEnvSchema
     DEBEZIUM_CONNECTOR_NAME: z.string().trim().min(1).default('udemy-outbox'),
     /** How often the consumer lag of the handled topics is logged. 0 = off. */
     PIPELINE_METRICS_INTERVAL_MS: intervalOrOff.default(60_000),
+
+    // ---- Phase 4: enrollment mail and the payouts ledger (design §7, D13, schema doc §8.7)
+    /** `enrollment.instructor-new-enrollment-mailer` sends mail only when true (events are consumed either way). */
+    ENROLLMENT_INSTRUCTOR_MAIL_ENABLED: envBoolean.default(false),
+    /** Run the scheduled ledger reconciliation in this replica (an advisory lock still makes runs exclusive). */
+    LEDGER_RECONCILIATION_ENABLED: envBoolean.default(true),
+    /** Time between two reconciliation runs. */
+    LEDGER_RECONCILIATION_INTERVAL_MS: envInt.min(60_000).default(60 * 60 * 1000),
+    /** Delay of the first run after startup. */
+    LEDGER_RECONCILIATION_INITIAL_DELAY_MS: envInt.default(240_000),
+    /**
+     * Only commerce facts older than this are reconciled (orders paid / refunds succeeded before
+     * now - N min), so events still in flight through Debezium and Kafka are not reported.
+     */
+    LEDGER_RECONCILIATION_SETTLE_MINUTES: envInt
+      .min(1)
+      .max(7 * 24 * 60)
+      .default(60),
   })
   // Refuse the `change-me` dev placeholders from .env.example when NODE_ENV=production.
   .superRefine(refuseDevPlaceholdersInProduction());
