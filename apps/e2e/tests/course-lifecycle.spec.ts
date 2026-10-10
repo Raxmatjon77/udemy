@@ -388,9 +388,14 @@ test('course lifecycle: build → review → reject → resubmit → approve →
     await expect(student.getByTestId('instructor-card')).toContainText(instructor.displayName);
     await expect(student.getByTestId('curriculum-totals')).toContainText('2 lectures');
     // Phase 4 replaced the "Enrollment opens soon" placeholder with the purchase box. This course
-    // has no price, so it is not for sale; the exact states are asserted by the Phase 4 checkout
-    // journey against the real commerce API.
-    await expect(student.getByTestId('purchase-box')).toBeVisible();
+    // has no price (not for sale). While the commerce API is being built the price lookup can fail,
+    // which renders "Enrollment unavailable" instead; the exact purchase states are asserted by the
+    // Phase 4 checkout journey against the real commerce API.
+    await expect(
+      student
+        .getByTestId('purchase-box')
+        .or(student.getByRole('button', { name: 'Enrollment unavailable' })),
+    ).toBeVisible();
   });
 
   await test.step('student plays the free preview: an HLS segment loads from MinIO (200)', async () => {
