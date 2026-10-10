@@ -34,6 +34,13 @@ const NON_BFF_ROUTES: readonly NonBffRoute[] = [
   { route: 'JwksController.get', method: 'GET', path: '/.well-known/jwks.json', ingress: 'read' },
   { route: 'HealthController.live', method: 'GET', path: '/health/live', ingress: 'read' },
   { route: 'HealthController.ready', method: 'GET', path: '/health/ready', ingress: 'read' },
+  // P4-T15: the signed Stripe webhook (400 webhook_signature_invalid without a valid signature).
+  {
+    route: 'StripeWebhookController.receive',
+    method: 'POST',
+    path: '/webhooks/stripe',
+    ingress: 'webhook:stripe',
+  },
 ];
 
 /** The same routes as Express serves them (global prefix, versioning, prefix exclusions). */
@@ -41,6 +48,7 @@ const NON_BFF_URLS: readonly string[] = [
   'GET /.well-known/jwks.json',
   'GET /api/health/live',
   'GET /api/health/ready',
+  'POST /api/v1/webhooks/stripe',
 ];
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';

@@ -245,6 +245,7 @@ export function makeOrderLine(overrides: Partial<OrderLine> = {}): OrderLine {
     id: FIXTURE_IDS.orderLine,
     lineNo: 1,
     courseId: FIXTURE_IDS.course,
+    slug: 'complete-typescript',
     courseTitle: 'Complete TypeScript',
     instructor: { id: FIXTURE_IDS.instructor, displayName: 'Ada Instructor' },
     listAmount,

@@ -6,6 +6,20 @@ import {
   type CouponDeactivatedPayload,
   CoursePriceChanged,
   type CoursePriceChangedPayload,
+  OrderCanceled,
+  type OrderCanceledPayload,
+  OrderExpired,
+  type OrderExpiredPayload,
+  OrderPaid,
+  type OrderPaidPayload,
+  OrderPaymentMismatch,
+  type OrderPaymentMismatchPayload,
+  OrderPlaced,
+  type OrderPlacedPayload,
+  PaymentDisputed,
+  type PaymentDisputedPayload,
+  RefundApproved,
+  type RefundApprovedPayload,
 } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { OutboxPublisher } from '../../../shared/outbox';
@@ -31,5 +45,36 @@ export class OutboxCommerceEventPublisher extends CommerceEventPublisher {
 
   async couponDeactivated(trx: Transaction<DB>, payload: CouponDeactivatedPayload): Promise<void> {
     await this.outbox.publish(trx, CouponDeactivated, payload.couponId, payload);
+  }
+
+  async orderPlaced(trx: Transaction<DB>, payload: OrderPlacedPayload): Promise<void> {
+    await this.outbox.publish(trx, OrderPlaced, payload.orderId, payload);
+  }
+
+  async orderPaid(trx: Transaction<DB>, payload: OrderPaidPayload): Promise<void> {
+    await this.outbox.publish(trx, OrderPaid, payload.orderId, payload);
+  }
+
+  async orderExpired(trx: Transaction<DB>, payload: OrderExpiredPayload): Promise<void> {
+    await this.outbox.publish(trx, OrderExpired, payload.orderId, payload);
+  }
+
+  async orderCanceled(trx: Transaction<DB>, payload: OrderCanceledPayload): Promise<void> {
+    await this.outbox.publish(trx, OrderCanceled, payload.orderId, payload);
+  }
+
+  async orderPaymentMismatch(
+    trx: Transaction<DB>,
+    payload: OrderPaymentMismatchPayload,
+  ): Promise<void> {
+    await this.outbox.publish(trx, OrderPaymentMismatch, payload.orderId, payload);
+  }
+
+  async paymentDisputed(trx: Transaction<DB>, payload: PaymentDisputedPayload): Promise<void> {
+    await this.outbox.publish(trx, PaymentDisputed, payload.orderId, payload);
+  }
+
+  async refundApproved(trx: Transaction<DB>, payload: RefundApprovedPayload): Promise<void> {
+    await this.outbox.publish(trx, RefundApproved, payload.orderId, payload);
   }
 }

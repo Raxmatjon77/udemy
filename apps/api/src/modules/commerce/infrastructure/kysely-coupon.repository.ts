@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { CouponDiscountType, CouponScope, CouponState } from '@udemy/contracts';
-import { type DB, type Executor, sql, type Transaction } from '@udemy/db';
+import { type DB, type Executor, lockCheckoutCoupons, sql, type Transaction } from '@udemy/db';
 import { type Database, InjectDatabase } from '@udemy/nest-common';
 import {
   type CouponRecord,
@@ -150,5 +150,13 @@ export class KyselyCouponRepository extends CouponRepository {
       `.execute(trx);
       return rows.length > 0;
     });
+  }
+
+  lockForCheckout(
+    trx: Transaction<DB>,
+    code: string,
+    courseIds: readonly string[],
+  ): Promise<string[]> {
+    return lockCheckoutCoupons(trx, code, courseIds);
   }
 }

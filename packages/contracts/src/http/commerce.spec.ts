@@ -295,6 +295,7 @@ describe('orders and refunds', () => {
     id,
     lineNo: 1,
     courseId: id,
+    slug: 'complete-typescript',
     courseTitle: 'Complete TypeScript',
     instructor: null,
     listAmount: '19.99',

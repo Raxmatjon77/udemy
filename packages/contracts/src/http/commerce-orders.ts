@@ -139,6 +139,11 @@ export const OrderLineSchema = z.object({
   id: UuidSchema,
   lineNo: z.number().int().min(1),
   courseId: UuidSchema,
+  /**
+   * The course's CURRENT slug, for links (`/courses/{slug}`); null when the course no longer
+   * exists (deleted). Additive (P4-T15).
+   */
+  slug: z.string().min(1).nullable(),
   /** Snapshot at purchase (D6). */
   courseTitle: CourseTitleSnapshotSchema,
   /** Resolved live; null when the instructor is banned or unknown. */

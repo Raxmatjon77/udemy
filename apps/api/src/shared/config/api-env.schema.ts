@@ -1,5 +1,11 @@
 import { isAbsolute, resolve } from 'node:path';
-import { type ClientApp, COURSE_SUBMISSION_DEFAULTS } from '@udemy/contracts';
+import {
+  CART_LIMITS,
+  type ClientApp,
+  COURSE_SUBMISSION_DEFAULTS,
+  CurrencySchema,
+  DEFAULT_CURRENCY,
+} from '@udemy/contracts';
 import {
   baseEnvSchema,
   envBoolean,
@@ -8,6 +14,7 @@ import {
   envPort,
   refuseDevPlaceholdersInProduction,
 } from '@udemy/nest-common';
+import { STRIPE_API_VERSION } from '@udemy/payments';
 import { z } from 'zod';
 import { API_ROOT_DIR } from './api-root-dir';
 
@@ -39,6 +46,46 @@ const byteCount = envInt.min(1).max(Number.MAX_SAFE_INTEGER);
  * (`ed25519-2026-10-b`, emergency rotation). It is also a file name, so the charset is strict.
  */
 const JWT_KID_FORMAT = /^ed25519-\d{4}-(?:0[1-9]|1[0-2])(?:-[a-z0-9]+)?$/;
+
+/** An http(s) origin (scheme://host[:port]) without path, query, fragment or credentials. */
+const httpOrigin = z.url({ protocol: /^https?$/ }).refine((value) => {
+  const url = new URL(value);
+  return (
+    url.pathname === '/' &&
+    url.search === '' &&
+    url.hash === '' &&
+    url.username === '' &&
+    url.password === ''
+  );
+}, 'Expected an origin (scheme://host[:port]) without path, query or credentials');
+
+/**
+ * `STRIPE_SECRET_KEY` (design §9): a TEST-mode secret or restricted key only. Phase 4 refuses
+ * `sk_live_` / `rk_live_` outright; real test keys live only in an untracked `.env`.
+ */
+const stripeSecretKey = z
+  .string()
+  .trim()
+  .refine((value) => !/^(sk|rk)_live_/.test(value), 'Live Stripe keys are refused in Phase 4')
+  .refine(
+    (value) => /^(sk|rk)_test_[A-Za-z0-9_]+$/.test(value),
+    'Expected a Stripe test key (sk_test_… or rk_test_…)',
+  );
+
+/** `STRIPE_WEBHOOK_SECRET`: the endpoint's signing secret. */
+const stripeWebhookSecret = z
+  .string()
+  .trim()
+  .regex(/^whsec_[A-Za-z0-9_+/=-]{6,}$/, 'Expected a whsec_… signing secret');
+
+/**
+ * The dev/emulator payment values of `.env.example` (no `change-me` marker fits Stripe's
+ * formats), refused in production like the dev client hashes.
+ */
+export const DEV_PAYMENT_PLACEHOLDERS = [
+  'sk_test_emulator_dev',
+  'whsec_dev_emulator_change_me_0000000000000000',
+] as const;
 
 /**
  * SHA-256 of the dev BFF secrets in apps/web-*\/.env.example. They cannot contain the
@@ -133,6 +180,50 @@ export const apiEnvSchema = baseEnvSchema
       .min(0)
       .max(1_000_000)
       .default(COURSE_SUBMISSION_DEFAULTS.minVideoSeconds),
+
+    // ---- Phase 4: payments (design D9, D12, §9, §14). The API is the only Stripe client.
+    /** Provider adapter; only the real `StripePaymentProvider` exists. */
+    PAYMENTS_PROVIDER: z.enum(['stripe']).default('stripe'),
+    STRIPE_SECRET_KEY: stripeSecretKey,
+    STRIPE_WEBHOOK_SECRET: stripeWebhookSecret,
+    /** apps/stripe-emulator or stripe-mock (origin only). Absent = the real api.stripe.com. */
+    STRIPE_API_BASE_URL: httpOrigin.optional(),
+    /** Must equal the version pinned by @udemy/payments when set (§14). */
+    STRIPE_API_VERSION: z
+      .literal(STRIPE_API_VERSION, {
+        error: `Must be ${STRIPE_API_VERSION} (the version pinned by @udemy/payments)`,
+      })
+      .optional(),
+    /** Max |now − t| of a webhook signature timestamp, seconds. */
+    STRIPE_WEBHOOK_TOLERANCE_S: envInt.min(1).max(600).default(300),
+    /** Origin of web-student: Checkout success/cancel URLs (`/checkout/success?orderId=`). */
+    STUDENT_APP_ORIGIN: httpOrigin,
+    /**
+     * Origins a Checkout Session URL returned by the provider may have (comma separated). The
+     * API refuses to hand any other URL to the browser (web-student checks the same list).
+     * Default: the STRIPE_API_BASE_URL origin (emulator) when set, else https://checkout.stripe.com.
+     */
+    CHECKOUT_ALLOWED_ORIGINS: envList(httpOrigin).optional(),
+
+    // ---- Phase 4: commerce (design §13)
+    /** The single platform currency (Q4). */
+    COMMERCE_CURRENCY: CurrencySchema.default(DEFAULT_CURRENCY),
+    /** Days after payment in which a student may request a refund (Q3). */
+    COMMERCE_REFUND_WINDOW_DAYS: envInt.min(1).max(365).default(30),
+    /** Instructor share of the net paid amount, basis points (Q2), snapshotted per line. */
+    COMMERCE_INSTRUCTOR_SHARE_BPS: envInt.max(10_000).default(7000),
+    /**
+     * Checkout Session lifetime, minutes. Stripe requires expires_at >= 30 min ahead on a fresh
+     * create, so the floor is 35 (schema doc §6 item 6) and the ceiling Stripe's 24 h.
+     */
+    COMMERCE_CHECKOUT_SESSION_TTL_MIN: envInt.min(35).max(1440).default(35),
+    COMMERCE_CART_MAX_ITEMS: envInt.min(1).max(CART_LIMITS.maxItems).default(CART_LIMITS.maxItems),
+    /** CommerceJobs in this process (the advisory locks make one replica win per tick). */
+    COMMERCE_JOBS_ENABLED: envBoolean.default(true),
+    /** Refund dispatcher poll (P4-T16). */
+    COMMERCE_REFUND_DISPATCH_INTERVAL_MS: envInt.min(1000).max(86_400_000).default(60_000),
+    /** Reconciler: stale CREATING payments and OPEN sessions past expiry. */
+    COMMERCE_RECONCILE_INTERVAL_MS: envInt.min(1000).max(86_400_000).default(300_000),
   })
   .superRefine((env, ctx) => {
     // Shared secrets would silently couple unrelated security properties.
@@ -161,6 +252,10 @@ export const apiEnvSchema = baseEnvSchema
       seen.set(env[key], key);
     }
   })
-  .superRefine(refuseDevPlaceholdersInProduction({ forbiddenValues: DEV_CLIENT_SECRET_HASHES }));
+  .superRefine(
+    refuseDevPlaceholdersInProduction({
+      forbiddenValues: [...DEV_CLIENT_SECRET_HASHES, ...DEV_PAYMENT_PLACEHOLDERS],
+    }),
+  );
 
 export type ApiEnv = z.output<typeof apiEnvSchema>;

@@ -3,7 +3,13 @@ import type { Executor } from '@udemy/db';
 import { CatalogFacade } from '../../catalog';
 import { IdentityFacade } from '../../identity';
 import type { QuoteCourse } from '../domain/quote';
-import { CommerceCatalog, CommercePeople, type CommercePerson } from './ports/context-gateways';
+import {
+  type CommerceBuyer,
+  CommerceBuyers,
+  CommerceCatalog,
+  CommercePeople,
+  type CommercePerson,
+} from './ports/context-gateways';
 
 /** `CommerceCatalog` over `CatalogFacade.getCourseSummaries` (the live revision's title). */
 @Injectable()
@@ -41,5 +47,24 @@ export class IdentityFacadePeople extends CommercePeople {
     return new Map(
       summaries.map((s) => [s.id, { displayName: s.displayName, banned: s.status === 'BANNED' }]),
     );
+  }
+}
+
+/** `CommerceBuyers` over `IdentityFacade.getUserSummary`. */
+@Injectable()
+export class IdentityFacadeBuyers extends CommerceBuyers {
+  constructor(private readonly identity: IdentityFacade) {
+    super();
+  }
+
+  async findBuyer(userId: string, ex?: Executor): Promise<CommerceBuyer | null> {
+    const summary = await this.identity.getUserSummary(userId, ex);
+    return summary === null
+      ? null
+      : {
+          email: summary.email,
+          displayName: summary.displayName,
+          emailVerified: summary.emailVerified,
+        };
   }
 }

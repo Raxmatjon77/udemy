@@ -59,6 +59,9 @@ importers:
       '@udemy/nest-common':
         specifier: workspace:*
         version: link:../../packages/nest-common
+      '@udemy/payments':
+        specifier: workspace:*
+        version: link:../../packages/payments
       '@udemy/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -102,6 +105,9 @@ importers:
       '@udemy/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
+      '@udemy/stripe-emulator':
+        specifier: workspace:*
+        version: link:../stripe-emulator
       '@udemy/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig

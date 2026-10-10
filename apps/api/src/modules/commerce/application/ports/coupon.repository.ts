@@ -67,6 +67,17 @@ export abstract class CouponRepository {
    * `UPDATE ... SET deactivated_at = now() WHERE id AND scope AND deactivated_at IS NULL`. True
    * when THIS call deactivated it (false: unknown in this scope, or already deactivated).
    */
+  /**
+   * Checkout lock step (schema doc §8.2, R8: after the cart and the order reads, before the
+   * re-quote): the coupons with this code for these courses or the platform, ascending id,
+   * FOR NO KEY UPDATE. Returns the locked ids.
+   */
+  abstract lockForCheckout(
+    trx: Transaction<DB>,
+    code: string,
+    courseIds: readonly string[],
+  ): Promise<string[]>;
+
   abstract deactivate(
     trx: Transaction<DB>,
     couponId: string,

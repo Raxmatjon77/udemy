@@ -27,6 +27,19 @@ export abstract class CommercePeople {
   ): Promise<ReadonlyMap<string, CommercePerson>>;
 }
 
+/** The buyer as checkout needs it (`IdentityFacade.getUserSummary`). */
+export interface CommerceBuyer {
+  readonly email: string;
+  readonly displayName: string;
+  readonly emailVerified: boolean;
+}
+
+/** Identity: the buyer's verified state (D17) and the email Stripe prefills. */
+export abstract class CommerceBuyers {
+  /** null = no such user. */
+  abstract findBuyer(userId: string, ex?: Executor): Promise<CommerceBuyer | null>;
+}
+
 export type CommerceEnrollmentSource = 'ORDER' | 'FREE' | 'ADMIN';
 export type CommerceRevokeCause = 'REFUND' | 'ADMIN' | 'CHARGEBACK';
 

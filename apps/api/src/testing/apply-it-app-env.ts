@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { itDatabaseUrl, itRedisUrl } from './integration';
-import { TEST_ENV } from './test-env';
+import { TEST_APP_EXTRAS, TEST_ENV } from './test-env';
 
 /**
  * Side-effect import for HTTP tests that boot the REAL AppModule against the integration
@@ -20,7 +20,7 @@ const pem = generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', ty
 writeFileSync(join(keysDir, `${TEST_ENV.JWT_ACTIVE_KID}.pem`), pem, { mode: 0o600 });
 
 const savedEnv = { ...process.env };
-Object.assign(process.env, TEST_ENV, {
+Object.assign(process.env, TEST_ENV, TEST_APP_EXTRAS, {
   DATABASE_URL: itDatabaseUrl(),
   REDIS_URL: itRedisUrl(),
   JWT_KEYS_DIR: keysDir,

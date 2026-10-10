@@ -1,7 +1,13 @@
-import { type CouponProblemCode, ErrorCode, type PurchaseBlockReason } from '@udemy/contracts';
+import {
+  type CartQuote,
+  type CouponProblemCode,
+  ErrorCode,
+  type PurchaseBlockReason,
+} from '@udemy/contracts';
 import {
   ConflictError,
   type DomainFieldIssue,
+  ForbiddenError,
   NotFoundError,
   ValidationError,
 } from '@udemy/nest-common/errors';
@@ -192,5 +198,143 @@ export class InvalidCommerceField extends ValidationError {
       issues,
       cause: options.cause,
     });
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Checkout (design §5 "Checkout", D15, D17). Errors that carry RFC 7807 extension members
+ * (`quote`, `orderId`, `checkoutUrl`) or need a status the DomainError kinds lack (400, 503)
+ * are turned into HttpExceptions by the presentation's `CommerceProblemsInterceptor`.
+ * -------------------------------------------------------------------------------------- */
+
+/** 400 `idempotency_key_required`: `POST /me/checkout` without an `Idempotency-Key` header. */
+export class IdempotencyKeyRequired extends ValidationError {
+  constructor(options: CauseOption = {}) {
+    super('The Idempotency-Key header is required.', {
+      code: ErrorCode.IdempotencyKeyRequired,
+      issues: [{ path: 'idempotency-key', message: 'Required (a UUID).' }],
+      cause: options.cause,
+    });
+  }
+}
+
+/** 403 `email_not_verified` (D17): verify the email before buying. */
+export class CheckoutEmailNotVerified extends ForbiddenError {
+  constructor(options: CauseOption = {}) {
+    super('Verify your email address before checking out.', {
+      code: ErrorCode.EmailNotVerified,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 422 `cart_empty`. */
+export class CartEmpty extends ValidationError {
+  constructor(options: CauseOption = {}) {
+    super('Your cart is empty.', { code: ErrorCode.CartEmpty, cause: options.cause });
+  }
+}
+
+/** 422 `amount_below_minimum` (D3): a total in (0, 0.50) cannot be charged. */
+export class AmountBelowMinimum extends ValidationError {
+  constructor(options: CauseOption = {}) {
+    super('The order total is below the minimum amount that can be charged.', {
+      code: ErrorCode.AmountBelowMinimum,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 422 `idempotency_key_reused`: this key already placed an order for a different request. */
+export class IdempotencyKeyReused extends ValidationError {
+  constructor(options: CauseOption = {}) {
+    super('This Idempotency-Key was already used for a different checkout.', {
+      code: ErrorCode.IdempotencyKeyReused,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 409 `price_changed` + the fresh quote (`PriceChangedProblem`). */
+export class PriceChanged extends ConflictError {
+  constructor(
+    readonly quote: CartQuote,
+    options: CauseOption = {},
+  ) {
+    super('The price of your cart has changed. Please review it and try again.', {
+      code: ErrorCode.PriceChanged,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 409 `cart_changed` + the fresh quote (`CartChangedProblem`): a line became unavailable. */
+export class CartChanged extends ConflictError {
+  constructor(
+    readonly quote: CartQuote,
+    options: CauseOption = {},
+  ) {
+    super('Some courses in your cart are no longer available. Please review your cart.', {
+      code: ErrorCode.CartChanged,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 409 `checkout_in_progress` (D15) + `{ orderId, checkoutUrl }` (`CheckoutInProgressProblem`). */
+export class CheckoutInProgress extends ConflictError {
+  constructor(
+    readonly orderId: string,
+    /** Null while the session is still being created. A bearer capability: never log it. */
+    readonly checkoutUrl: string | null,
+    options: CauseOption = {},
+  ) {
+    super('You already have a checkout in progress. Resume it or cancel it first.', {
+      code: ErrorCode.CheckoutInProgress,
+      cause: options.cause,
+    });
+  }
+}
+
+/**
+ * 503 `payment_provider_unavailable`: the provider call failed. The order stays CREATING; a
+ * retry with the SAME key resumes it (the reconciler cleans up abandoned ones).
+ */
+export class PaymentProviderUnavailable extends Error {
+  readonly code = ErrorCode.PaymentProviderUnavailable;
+
+  constructor(options: CauseOption = {}) {
+    super('The payment provider is temporarily unavailable. Please retry.', {
+      cause: options.cause,
+    });
+    this.name = new.target.name;
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Orders
+ * -------------------------------------------------------------------------------------- */
+
+/** 404 `order_not_found` (also for foreign orders: the policy and the use cases agree, §9). */
+export class OrderNotFound extends NotFoundError {
+  constructor(options: CauseOption = {}) {
+    super('The order does not exist.', { code: ErrorCode.OrderNotFound, cause: options.cause });
+  }
+}
+
+/** 409 `order_not_cancelable`: paid (or being paid), or otherwise closed for cancellation. */
+export class OrderNotCancelable extends ConflictError {
+  constructor(options: CauseOption = {}) {
+    super('This order can no longer be canceled.', {
+      code: ErrorCode.OrderNotCancelable,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 409 `order_not_paid`: a receipt exists only once the order was paid. */
+export class OrderNotPaid extends ConflictError {
+  constructor(options: CauseOption = {}) {
+    super('This order has not been paid.', { code: ErrorCode.OrderNotPaid, cause: options.cause });
   }
 }

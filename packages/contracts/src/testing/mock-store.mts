@@ -784,6 +784,7 @@ export class CommerceMockStore {
           id: line.id,
           lineNo: line.lineNo,
           courseId: line.courseId,
+          slug: this.courses.get(line.courseId)?.slug ?? null,
           courseTitle: line.courseTitle,
           instructor: this.person(line.instructorId),
           listAmount: line.listAmount,

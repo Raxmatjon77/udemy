@@ -140,9 +140,23 @@ export const SECTION_8_PHASE_4_ENROLLMENT: readonly Operation[] = [
   [`${V1}/admin/enrollments/{enrollmentId}/revoke`, 'post'],
 ];
 
+/**
+ * Phase 4 commerce B (P4-T15): checkout, the buyer's orders, and the Stripe webhook; covered
+ * by modules/commerce/commerce-b.e2e.spec.ts.
+ */
+export const SECTION_8_PHASE_4_COMMERCE_B: readonly Operation[] = [
+  [`${V1}/me/checkout`, 'post'],
+  [`${V1}/me/orders`, 'get'],
+  [`${V1}/me/orders/{orderId}`, 'get'],
+  [`${V1}/me/orders/{orderId}/receipt`, 'get'],
+  [`${V1}/me/orders/{orderId}/cancel`, 'post'],
+  [`${V1}/webhooks/stripe`, 'post'],
+];
+
 export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_1,
   ...SECTION_8_PHASE_2,
   ...SECTION_8_PHASE_4_COMMERCE_A,
   ...SECTION_8_PHASE_4_ENROLLMENT,
+  ...SECTION_8_PHASE_4_COMMERCE_B,
 ];

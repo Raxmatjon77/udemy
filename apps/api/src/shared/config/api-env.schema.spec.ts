@@ -171,6 +171,63 @@ describe('apiEnvSchema', () => {
     });
   });
 
+  describe('payments and commerce (Phase 4 §9, §13)', () => {
+    it('applies the commerce defaults; STRIPE_API_BASE_URL and CHECKOUT_ALLOWED_ORIGINS are optional', () => {
+      const env = validateEnv(apiEnvSchema, validEnv);
+      expect(env).toMatchObject({
+        PAYMENTS_PROVIDER: 'stripe',
+        STRIPE_WEBHOOK_TOLERANCE_S: 300,
+        COMMERCE_CURRENCY: 'USD',
+        COMMERCE_REFUND_WINDOW_DAYS: 30,
+        COMMERCE_INSTRUCTOR_SHARE_BPS: 7000,
+        COMMERCE_CHECKOUT_SESSION_TTL_MIN: 35,
+        COMMERCE_CART_MAX_ITEMS: 20,
+        COMMERCE_JOBS_ENABLED: true,
+        COMMERCE_RECONCILE_INTERVAL_MS: 300_000,
+      });
+      expect(env.STRIPE_API_BASE_URL).toBeUndefined();
+      expect(env.CHECKOUT_ALLOWED_ORIGINS).toBeUndefined();
+      expect(
+        validateEnv(apiEnvSchema, {
+          ...validEnv,
+          CHECKOUT_ALLOWED_ORIGINS: 'https://checkout.stripe.com, http://127.0.0.1:12111',
+        }).CHECKOUT_ALLOWED_ORIGINS,
+      ).toEqual(['https://checkout.stripe.com', 'http://127.0.0.1:12111']);
+    });
+
+    it.each([
+      ['STRIPE_SECRET_KEY', 'sk_live_abc123'],
+      ['STRIPE_SECRET_KEY', 'rk_live_abc123'],
+      ['STRIPE_SECRET_KEY', 'pk_test_abc123'],
+      ['STRIPE_WEBHOOK_SECRET', 'not-a-whsec'],
+      ['STRIPE_API_BASE_URL', 'http://127.0.0.1:12111/v1'],
+      ['STRIPE_API_VERSION', '2020-08-27'],
+      ['STRIPE_WEBHOOK_TOLERANCE_S', '0'],
+      ['STUDENT_APP_ORIGIN', 'http://localhost:3000/app'],
+      ['CHECKOUT_ALLOWED_ORIGINS', 'ftp://x.example'],
+      ['COMMERCE_CURRENCY', 'EUR'],
+      ['COMMERCE_CHECKOUT_SESSION_TTL_MIN', '30'],
+      ['COMMERCE_INSTRUCTOR_SHARE_BPS', '10001'],
+      ['COMMERCE_CART_MAX_ITEMS', '21'],
+    ])('rejects %s=%s', (key, value) => {
+      expect(() => validateEnv(apiEnvSchema, { ...validEnv, [key]: value })).toThrow(
+        new RegExp(key),
+      );
+    });
+
+    it('refuses the dev emulator key and secret in production', () => {
+      const production = { ...validEnv, ...PRODUCTION_SECRETS, NODE_ENV: 'production' };
+      for (const [key, value] of [
+        ['STRIPE_SECRET_KEY', 'sk_test_emulator_dev'],
+        ['STRIPE_WEBHOOK_SECRET', 'whsec_dev_emulator_change_me_0000000000000000'],
+      ] as const) {
+        expect(() => validateEnv(apiEnvSchema, { ...production, [key]: value })).toThrow(
+          new RegExp(key),
+        );
+      }
+    });
+  });
+
   it('never echoes variable values in the error message', () => {
     const secret = 'postgres-but-wrong://user:S3cret@host/db';
 

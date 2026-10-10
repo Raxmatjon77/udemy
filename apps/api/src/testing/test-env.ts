@@ -22,6 +22,21 @@ export const TEST_ENV = {
   S3_SECRET_KEY: 'minio12345',
   S3_BUCKET_UPLOADS: 'udemy-uploads',
   S3_BUCKET_MEDIA: 'udemy-media',
+  // Phase 4 payments: throwaway test-mode values (no real Stripe key anywhere, design §9).
+  STRIPE_SECRET_KEY: 'sk_test_api_unit_tests',
+  STRIPE_WEBHOOK_SECRET: 'whsec_api_unit_tests_000000000000',
+  STUDENT_APP_ORIGIN: 'http://localhost:3000',
+} as const satisfies Record<string, string>;
+
+/**
+ * Optional settings every test app gets on top of TEST_ENV: no background CommerceJobs (tests
+ * run `CommerceJobs.reconcile()` themselves) and the Stripe adapter pointed at a loopback
+ * address, so nothing can ever reach api.stripe.com (tests that need a provider override
+ * `PAYMENT_PROVIDER` or start their own emulator).
+ */
+export const TEST_APP_EXTRAS = {
+  COMMERCE_JOBS_ENABLED: 'false',
+  STRIPE_API_BASE_URL: 'http://127.0.0.1:9',
 } as const satisfies Record<string, string>;
 
 /** Production-safe replacements for every dev placeholder in TEST_ENV. */

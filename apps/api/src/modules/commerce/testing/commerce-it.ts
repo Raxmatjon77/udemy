@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { type DB, type Kysely, sql } from '@udemy/db';
+import { type DB, type Kysely, sql, type Transaction } from '@udemy/db';
 import { deleteTestUsers } from '../../../testing/integration';
 import { commerceRateLimitKeys } from '../infrastructure/redis-commerce-rate-limiter';
 
@@ -209,6 +209,74 @@ export async function insertTestEnrollment(
   });
 }
 
+/**
+ * The children of the users' orders (P4-T15/T16 tables), inside the caller's replica-mode
+ * transaction: payouts entries of their lines (if a worker ever ran), refunds and their
+ * transitions, provider events, order transitions, payments, lines and the orders' outbox
+ * events. The orders themselves are deleted by the caller.
+ */
+async function deleteOrdersOf(trx: Transaction<DB>, users: readonly string[]): Promise<void> {
+  const orderIds = (
+    await trx
+      .selectFrom('commerce.orders')
+      .select('id')
+      .where('userId', 'in', [...users])
+      .execute()
+  ).map((r) => r.id);
+  if (orderIds.length === 0) return;
+  const lineIds = (
+    await trx
+      .selectFrom('commerce.orderLines')
+      .select('id')
+      .where('orderId', 'in', orderIds)
+      .execute()
+  ).map((r) => r.id);
+  if (lineIds.length > 0) {
+    const entryIds = (
+      await trx
+        .selectFrom('payouts.journalEntries')
+        .select('id')
+        .where('orderLineId', 'in', lineIds)
+        .execute()
+    ).map((r) => r.id);
+    if (entryIds.length > 0) {
+      await trx.deleteFrom('payouts.postings').where('entryId', 'in', entryIds).execute();
+      await trx.deleteFrom('payouts.journalEntries').where('id', 'in', entryIds).execute();
+    }
+  }
+  const refundIds = (
+    await trx.selectFrom('commerce.refunds').select('id').where('orderId', 'in', orderIds).execute()
+  ).map((r) => r.id);
+  if (refundIds.length > 0) {
+    await trx.deleteFrom('commerce.refundTransitions').where('refundId', 'in', refundIds).execute();
+    await trx.deleteFrom('commerce.refunds').where('id', 'in', refundIds).execute();
+  }
+  await trx.deleteFrom('commerce.orderTransitions').where('orderId', 'in', orderIds).execute();
+  await trx.deleteFrom('commerce.providerEvents').where('orderId', 'in', orderIds).execute();
+  await trx.deleteFrom('commerce.payments').where('orderId', 'in', orderIds).execute();
+  await trx.deleteFrom('commerce.orderLines').where('orderId', 'in', orderIds).execute();
+  await trx.deleteFrom('outbox.events').where('aggregateId', 'in', orderIds).execute();
+}
+
+/**
+ * Removes provider events by id (the ones a test sent that never mapped to an order: orphans,
+ * ignored types, livemode). Replica mode bypasses the inbox's no-delete guard.
+ */
+export async function deleteProviderEvents(
+  db: Kysely<DB>,
+  eventIds: readonly string[],
+): Promise<void> {
+  if (eventIds.length === 0) return;
+  await db.transaction().execute(async (trx) => {
+    await sql`set local session_replication_role = replica`.execute(trx);
+    await trx
+      .deleteFrom('commerce.providerEvents')
+      .where('provider', '=', 'STRIPE')
+      .where('eventId', 'in', [...eventIds])
+      .execute();
+  });
+}
+
 /** Clears the commerce rate-limit buckets these tests may have filled. */
 export function commerceRateLimitTestKeys(options: {
   userIds?: readonly string[];
@@ -264,10 +332,25 @@ export async function deleteCommerceTestData(
       await trx.deleteFrom('outbox.events').where('aggregateId', 'in', couponIds).execute();
     }
     if (users.length > 0) {
+      await deleteOrdersOf(trx, users);
       await trx.deleteFrom('commerce.couponRedemptions').where('userId', 'in', users).execute();
       await trx.deleteFrom('commerce.orders').where('userId', 'in', users).execute();
       await trx.deleteFrom('commerce.cartItems').where('userId', 'in', users).execute();
       await trx.deleteFrom('commerce.carts').where('userId', 'in', users).execute();
+      const enrollmentIds = (
+        await trx
+          .selectFrom('enrollment.enrollments')
+          .select('id')
+          .where('userId', 'in', users)
+          .execute()
+      ).map((r) => r.id);
+      if (enrollmentIds.length > 0) {
+        await trx.deleteFrom('outbox.events').where('aggregateId', 'in', enrollmentIds).execute();
+        await trx
+          .deleteFrom('enrollment.enrollmentTransitions')
+          .where('enrollmentId', 'in', enrollmentIds)
+          .execute();
+      }
       await trx.deleteFrom('enrollment.enrollments').where('userId', 'in', users).execute();
     }
     if (couponIds.length > 0) {
