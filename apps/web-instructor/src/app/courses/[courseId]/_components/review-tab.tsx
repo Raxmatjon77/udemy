@@ -124,7 +124,11 @@ export function ReviewTab({
           {isUpdate ? (
             <>
               <dt className="font-medium">Unpublished changes</dt>
-              <dd>{course.hasUnpublishedChanges ? 'Yes: submit them to update the live course.' : 'None'}</dd>
+              <dd>
+                {course.hasUnpublishedChanges
+                  ? 'Yes: submit them to update the live course.'
+                  : 'None'}
+              </dd>
             </>
           ) : null}
         </dl>
@@ -149,7 +153,9 @@ export function ReviewTab({
         </Alert>
       ) : null}
 
-      {course.locked ? null : <ReadinessPanel issues={issues} curriculum={curriculum} onNavigate={onNavigate} />}
+      {course.locked ? null : (
+        <ReadinessPanel issues={issues} curriculum={curriculum} onNavigate={onNavigate} />
+      )}
 
       {course.locked ? (
         <section aria-labelledby="withdraw-heading" className="grid gap-2">
@@ -177,7 +183,12 @@ export function ReviewTab({
           </div>
         </section>
       ) : course.status === 'ARCHIVED' ? null : (
-        <form onSubmit={onSubmit} noValidate className="grid gap-3" aria-labelledby="submit-heading">
+        <form
+          onSubmit={onSubmit}
+          noValidate
+          className="grid gap-3"
+          aria-labelledby="submit-heading"
+        >
           <h3 id="submit-heading" className="text-base font-semibold">
             {isUpdate ? 'Submit your changes for review' : 'Submit for review'}
           </h3>
@@ -188,7 +199,8 @@ export function ReviewTab({
           </p>
           <div className="grid gap-2">
             <label htmlFor="submit-note" className="text-sm font-medium">
-              Note to the reviewer <span className="font-normal text-muted-foreground">(optional)</span>
+              Note to the reviewer{' '}
+              <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
             <Textarea
               id="submit-note"
@@ -206,19 +218,27 @@ export function ReviewTab({
             ) : null}
           </div>
           <div role="alert" aria-live="assertive">
-            {submit.isError ? <p className="text-sm text-destructive">{problemMessage(submit.error)}</p> : null}
+            {submit.isError ? (
+              <p className="text-sm text-destructive">{problemMessage(submit.error)}</p>
+            ) : null}
           </div>
           <p role="status" aria-live="polite" className="text-sm">
             {message}
           </p>
           <div className="flex flex-wrap items-center gap-3">
-            <SubmitButton pending={submit.isPending} pendingLabel="Submitting…" disabled={!canSubmit}>
+            <SubmitButton
+              pending={submit.isPending}
+              pendingLabel="Submitting…"
+              disabled={!canSubmit}
+            >
               Submit for review
             </SubmitButton>
             {!course.readiness.ready ? (
               <span className="text-sm text-muted-foreground">Fix the items above first.</span>
             ) : noChanges ? (
-              <span className="text-sm text-muted-foreground">No changes since the live version.</span>
+              <span className="text-sm text-muted-foreground">
+                No changes since the live version.
+              </span>
             ) : null}
           </div>
         </form>
@@ -249,7 +269,9 @@ export function ReviewTab({
                 <p className="text-xs text-muted-foreground">
                   <time dateTime={item.occurredAt}>{formatDateTime(item.occurredAt)}</time>
                 </p>
-                {item.reason ? <p className="whitespace-pre-wrap text-muted-foreground">{item.reason}</p> : null}
+                {item.reason ? (
+                  <p className="whitespace-pre-wrap text-muted-foreground">{item.reason}</p>
+                ) : null}
               </li>
             ))}
           </ol>

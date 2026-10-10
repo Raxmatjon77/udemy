@@ -67,12 +67,19 @@ export function DetailsTab({ course, readOnly }: { course: CourseDetail; readOnl
         return;
       }
       if (hasCode(error, ErrorCode.CourseInReview) || hasCode(error, ErrorCode.CourseNotEditable)) {
-        void queryClient.invalidateQueries({ queryKey: catalogKeys.course(course.id), exact: true });
+        void queryClient.invalidateQueries({
+          queryKey: catalogKeys.course(course.id),
+          exact: true,
+        });
       }
       const issues = markdownIssues(error, 'descriptionMd');
       if (issues) {
         setDescriptionIssues(issues);
-        setError('descriptionMd', { type: 'server', message: problemMessage(error) }, { shouldFocus: true });
+        setError(
+          'descriptionMd',
+          { type: 'server', message: problemMessage(error) },
+          { shouldFocus: true },
+        );
         return;
       }
       applyServerError(setError, error, {
@@ -132,14 +139,26 @@ export function DetailsTab({ course, readOnly }: { course: CourseDetail; readOnl
 
   return (
     <div className="grid gap-10">
-      <form noValidate onSubmit={handleSubmit(onSubmit)} className="grid gap-6" aria-labelledby="details-heading">
+      <form
+        noValidate
+        onSubmit={handleSubmit(onSubmit)}
+        className="grid gap-6"
+        aria-labelledby="details-heading"
+      >
         <h2 id="details-heading" className="sr-only">
           Course details
         </h2>
-        {conflict ? <VersionConflictAlert onReload={() => void reload()} reloading={reloading} /> : null}
+        {conflict ? (
+          <VersionConflictAlert onReload={() => void reload()} reloading={reloading} />
+        ) : null}
         <FormAlert message={errors.root?.server?.message} />
         <fieldset disabled={disabled} className="grid gap-6">
-          <FormField id="course-title" label="Title" description="5–60 characters." error={errors.title?.message}>
+          <FormField
+            id="course-title"
+            label="Title"
+            description="5–60 characters."
+            error={errors.title?.message}
+          >
             {(field) => <Input {...field} maxLength={60} {...register('title')} />}
           </FormField>
           <FormField
@@ -205,7 +224,11 @@ export function DetailsTab({ course, readOnly }: { course: CourseDetail; readOnl
               description={categories.isError ? 'Categories could not be loaded.' : undefined}
             >
               {(field) => (
-                <CategorySelect {...field} categories={categories.data?.items ?? []} {...register('categoryId')} />
+                <CategorySelect
+                  {...field}
+                  categories={categories.data?.items ?? []}
+                  {...register('categoryId')}
+                />
               )}
             </FormField>
           </div>
@@ -220,7 +243,12 @@ export function DetailsTab({ course, readOnly }: { course: CourseDetail; readOnl
             error={errors.slug?.message}
           >
             {(field) => (
-              <Input {...field} readOnly={!course.slugEditable} maxLength={60} {...register('slug')} />
+              <Input
+                {...field}
+                readOnly={!course.slugEditable}
+                maxLength={60}
+                {...register('slug')}
+              />
             )}
           </FormField>
           <BulletListEditor

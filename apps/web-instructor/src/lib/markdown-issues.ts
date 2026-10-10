@@ -23,7 +23,9 @@ export function markdownIssues(error: unknown, field?: string): MarkdownIssueVie
   if (!isApiError(error) || error.code !== ErrorCode.MarkdownNotAllowed) return null;
   const errors = error.problem?.errors ?? [];
   const issues = errors
-    .filter((issue) => field === undefined || issue.path === '' || issue.path.split('.')[0] === field)
+    .filter(
+      (issue) => field === undefined || issue.path === '' || issue.path.split('.')[0] === field,
+    )
     .map((issue): MarkdownIssueView => {
       const match = POSITION.exec(issue.message);
       return match

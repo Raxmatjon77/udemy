@@ -45,6 +45,8 @@ jobs:
         with:
           turbo-cache: lint
       - run: pnpm turbo run lint
+      # Formatting is checked repo-wide (docs, configs and workflows too), not per package.
+      - run: pnpm format:check
 
   typecheck:
     runs-on: ubuntu-latest

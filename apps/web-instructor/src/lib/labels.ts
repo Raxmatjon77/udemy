@@ -92,7 +92,10 @@ function counts(issue: CourseReadinessIssue): string {
 /** Human wording of one readiness issue, plus where to fix it. */
 export function describeReadinessIssue(
   issue: CourseReadinessIssue,
-  names: { section?: (id: string) => string | undefined; lecture?: (id: string) => string | undefined } = {},
+  names: {
+    section?: (id: string) => string | undefined;
+    lecture?: (id: string) => string | undefined;
+  } = {},
 ): { message: string; target: BuilderTarget } {
   const lecture = issue.lectureId ? names.lecture?.(issue.lectureId) : undefined;
   const section = issue.sectionId ? names.section?.(issue.sectionId) : undefined;
@@ -111,7 +114,10 @@ export function describeReadinessIssue(
         target: { tab: 'details', field: 'descriptionMd' },
       };
     case 'LANGUAGE_MISSING':
-      return { message: 'Choose the course language.', target: { tab: 'details', field: 'language' } };
+      return {
+        message: 'Choose the course language.',
+        target: { tab: 'details', field: 'language' },
+      };
     case 'LEVEL_MISSING':
       return { message: 'Choose the course level.', target: { tab: 'details', field: 'level' } };
     case 'CATEGORY_MISSING':
@@ -157,6 +163,9 @@ export function describeReadinessIssue(
         target: curriculum,
       };
     case 'ARTICLE_TOO_SHORT':
-      return { message: `${lectureRef}: the article is too short${counts(issue)}.`, target: curriculum };
+      return {
+        message: `${lectureRef}: the article is too short${counts(issue)}.`,
+        target: curriculum,
+      };
   }
 }

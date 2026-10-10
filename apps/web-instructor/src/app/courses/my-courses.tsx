@@ -92,7 +92,9 @@ export function MyCourses() {
       ) : (
         <>
           <Table>
-            <TableCaption className="sr-only">Your courses, most recently changed first</TableCaption>
+            <TableCaption className="sr-only">
+              Your courses, most recently changed first
+            </TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead>Course</TableHead>

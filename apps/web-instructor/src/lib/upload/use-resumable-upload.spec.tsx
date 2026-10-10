@@ -77,7 +77,9 @@ function mediaApi({
       calls.complete += 1;
       if (next) return next();
       return HttpResponse.json(
-        AssetViewSchema.parse(asset({ id: ASSET_ID, status: 'UPLOADED', durationSeconds: null, sizeBytes: 25 })),
+        AssetViewSchema.parse(
+          asset({ id: ASSET_ID, status: 'UPLOADED', durationSeconds: null, sizeBytes: 25 }),
+        ),
       );
     }),
     http.delete(proxy(`/media/uploads/${ASSET_ID}`), () => {
@@ -96,7 +98,9 @@ function renderUpload(options: Partial<Parameters<typeof useResumableUpload>[0]>
       createXhr: createFakeXhr,
       concurrency: 2,
       sleep: (_ms, signal) =>
-        signal.aborted ? Promise.reject(new DOMException('aborted', 'AbortError')) : Promise.resolve(),
+        signal.aborted
+          ? Promise.reject(new DOMException('aborted', 'AbortError'))
+          : Promise.resolve(),
       ...options,
     }),
   );
@@ -124,7 +128,12 @@ describe('useResumableUpload', () => {
 
     const first = await waitForPending(2);
     expect(calls.initiate).toEqual([
-      { purpose: 'LECTURE_VIDEO', filename: 'lecture.mp4', contentType: 'video/mp4', sizeBytes: 25 },
+      {
+        purpose: 'LECTURE_VIDEO',
+        filename: 'lecture.mp4',
+        contentType: 'video/mp4',
+        sizeBytes: 25,
+      },
     ]);
     expect(onInitiated).toHaveBeenCalledWith(ASSET_ID);
     // URLs are fetched in one batch for the parts still queued.

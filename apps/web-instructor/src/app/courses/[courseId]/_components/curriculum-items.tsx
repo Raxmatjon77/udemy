@@ -96,7 +96,11 @@ export function SortableLecture({
       data-lecture-id={lecture.id}
     >
       {readOnly ? null : (
-        <DragHandle label={`Reorder lecture ${number}: ${lecture.title}`} {...attributes} {...listeners} />
+        <DragHandle
+          label={`Reorder lecture ${number}: ${lecture.title}`}
+          {...attributes}
+          {...listeners}
+        />
       )}
       <Badge variant="outline" className="w-20 shrink-0">
         {LECTURE_TYPE_LABELS[lecture.type]}
@@ -111,7 +115,12 @@ export function SortableLecture({
         {lecture.title}
       </button>
       {lecture.isPreview ? <Badge variant="secondary">Preview</Badge> : null}
-      <span className={cn('hidden shrink-0 text-xs sm:inline', failed ? 'text-destructive' : 'text-muted-foreground')}>
+      <span
+        className={cn(
+          'hidden shrink-0 text-xs sm:inline',
+          failed ? 'text-destructive' : 'text-muted-foreground',
+        )}
+      >
         {lectureSummary(lecture)}
       </span>
       {readOnly ? null : (
@@ -181,12 +190,19 @@ export function SortableSection({
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn('grid gap-3 rounded-lg border bg-card p-4', isDragging && 'z-10 opacity-70 shadow-lg')}
+      className={cn(
+        'grid gap-3 rounded-lg border bg-card p-4',
+        isDragging && 'z-10 opacity-70 shadow-lg',
+      )}
       aria-labelledby={`section-${section.id}`}
     >
       <div className="flex items-center gap-2">
         {readOnly ? null : (
-          <DragHandle label={`Reorder section ${number}: ${section.title}`} {...attributes} {...listeners} />
+          <DragHandle
+            label={`Reorder section ${number}: ${section.title}`}
+            {...attributes}
+            {...listeners}
+          />
         )}
         <h3
           id={`section-${section.id}`}
@@ -221,7 +237,9 @@ export function SortableSection({
           </>
         )}
       </div>
-      {section.objective ? <p className="text-sm text-muted-foreground">{section.objective}</p> : null}
+      {section.objective ? (
+        <p className="text-sm text-muted-foreground">{section.objective}</p>
+      ) : null}
       <ol
         ref={setBodyRef}
         aria-label={`Lectures of section ${number}`}

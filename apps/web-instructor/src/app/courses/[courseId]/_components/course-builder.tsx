@@ -23,7 +23,6 @@ import { LectureDrawer } from './lecture-drawer';
 import { LockBanner } from './lock-banner';
 import { ReviewTab } from './review-tab';
 
-
 const TAB_LABELS: Record<BuilderTab, string> = {
   details: 'Details',
   curriculum: 'Curriculum',
@@ -34,7 +33,13 @@ const TAB_LABELS: Record<BuilderTab, string> = {
  * The course builder (design §10): Details, Curriculum and Review tabs over one course. While a
  * submission is pending (D2) or the course is archived, every tab is read-only.
  */
-export function CourseBuilder({ courseId, initialTab = 'details' }: { courseId: string; initialTab?: BuilderTab }) {
+export function CourseBuilder({
+  courseId,
+  initialTab = 'details',
+}: {
+  courseId: string;
+  initialTab?: BuilderTab;
+}) {
   const queryClient = useQueryClient();
   const course = useCourse(courseId);
   const curriculum = useCurriculum(courseId);
@@ -102,7 +107,10 @@ export function CourseBuilder({ courseId, initialTab = 'details' }: { courseId: 
     );
   }
   if (course.isError) {
-    if (hasCode(course.error, ErrorCode.CourseNotFound) || hasCode(course.error, ErrorCode.NotFound)) {
+    if (
+      hasCode(course.error, ErrorCode.CourseNotFound) ||
+      hasCode(course.error, ErrorCode.NotFound)
+    ) {
       return (
         <Alert variant="destructive" role="alert">
           <AlertTitle>Course not found</AlertTitle>
@@ -124,7 +132,8 @@ export function CourseBuilder({ courseId, initialTab = 'details' }: { courseId: 
   const readOnly = data.locked || data.status === 'ARCHIVED' || data.status === 'IN_REVIEW';
   const lecture =
     openLectureId && curriculum.data
-      ? (curriculum.data.sections.flatMap((s) => s.lectures).find((l) => l.id === openLectureId) ?? null)
+      ? (curriculum.data.sections.flatMap((s) => s.lectures).find((l) => l.id === openLectureId) ??
+        null)
       : null;
   const issueCount = data.readiness.issues.length;
   const withdrawError = withdraw.isError ? problemMessage(withdraw.error) : null;
@@ -132,7 +141,10 @@ export function CourseBuilder({ courseId, initialTab = 'details' }: { courseId: 
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
-        <Link href="/courses" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+        <Link
+          href="/courses"
+          className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+        >
           ← My courses
         </Link>
         <div className="flex flex-wrap items-center gap-3">
@@ -175,7 +187,10 @@ export function CourseBuilder({ courseId, initialTab = 'details' }: { courseId: 
           >
             {TAB_LABELS[value]}
             {value === 'review' && issueCount > 0 && !data.locked ? (
-              <span className="ml-2 rounded-full bg-muted px-1.5 text-xs" aria-label={`${issueCount} items left`}>
+              <span
+                className="ml-2 rounded-full bg-muted px-1.5 text-xs"
+                aria-label={`${issueCount} items left`}
+              >
                 {issueCount}
               </span>
             ) : null}
@@ -183,10 +198,20 @@ export function CourseBuilder({ courseId, initialTab = 'details' }: { courseId: 
         ))}
       </div>
 
-      <div role="tabpanel" id="panel-details" aria-labelledby="tab-details" hidden={tab !== 'details'}>
+      <div
+        role="tabpanel"
+        id="panel-details"
+        aria-labelledby="tab-details"
+        hidden={tab !== 'details'}
+      >
         <DetailsTab course={data} readOnly={readOnly} />
       </div>
-      <div role="tabpanel" id="panel-curriculum" aria-labelledby="tab-curriculum" hidden={tab !== 'curriculum'}>
+      <div
+        role="tabpanel"
+        id="panel-curriculum"
+        aria-labelledby="tab-curriculum"
+        hidden={tab !== 'curriculum'}
+      >
         {curriculum.isPending ? (
           <Skeleton className="h-64 w-full" />
         ) : curriculum.isError ? (

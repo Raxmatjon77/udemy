@@ -106,7 +106,13 @@ export function UploadField({
               continue where it stopped.
             </p>
             <div>
-              <Button type="button" size="sm" variant="outline" onClick={() => void cancel()} disabled={canceling}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void cancel()}
+                disabled={canceling}
+              >
                 Discard paused upload
               </Button>
             </div>
@@ -157,7 +163,13 @@ export function UploadField({
 
       {upload.busy ? (
         <div>
-          <Button type="button" size="sm" variant="outline" onClick={() => void cancel()} disabled={canceling}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void cancel()}
+            disabled={canceling}
+          >
             Cancel upload
           </Button>
         </div>
@@ -165,4 +177,3 @@ export function UploadField({
     </div>
   );
 }
-

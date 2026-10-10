@@ -106,7 +106,9 @@ export function CurriculumTab({
   );
   const lectures = useMemo(
     () =>
-      new Map(curriculum.sections.flatMap((section) => section.lectures.map((l) => [l.id, l] as const))),
+      new Map(
+        curriculum.sections.flatMap((section) => section.lectures.map((l) => [l.id, l] as const)),
+      ),
     [curriculum],
   );
 
@@ -170,7 +172,10 @@ export function CurriculumTab({
 
   function stepSectionBy(sectionId: string, delta: -1 | 1) {
     const next = stepSection(order, sectionId, delta);
-    commit(next, `Moved section “${sectionTitle(sectionId)}” to position ${next.findIndex((s) => s.id === sectionId) + 1}.`);
+    commit(
+      next,
+      `Moved section “${sectionTitle(sectionId)}” to position ${next.findIndex((s) => s.id === sectionId) + 1}.`,
+    );
   }
   function stepLectureBy(lectureId: string, delta: -1 | 1) {
     const next = stepLecture(order, lectureId, delta);
@@ -195,7 +200,9 @@ export function CurriculumTab({
     const type = dataOf(args.active)?.type;
     const droppableContainers = args.droppableContainers.filter((container) => {
       const target = dataOf(container)?.type;
-      return type === 'section' ? target === 'section' : target === 'lecture' || target === 'section-body';
+      return type === 'section'
+        ? target === 'section'
+        : target === 'lecture' || target === 'section-body';
     });
     return type === 'section'
       ? closestCenter({ ...args, droppableContainers })
@@ -236,7 +243,11 @@ export function CurriculumTab({
     const to = dataOf(over);
     let next = base;
     if (from?.type === 'section' && to?.type === 'section') {
-      next = moveSection(base, from.sectionId, base.findIndex((s) => s.id === to.sectionId));
+      next = moveSection(
+        base,
+        from.sectionId,
+        base.findIndex((s) => s.id === to.sectionId),
+      );
     } else if (from?.type === 'lecture' && to?.type === 'lecture') {
       const target = findLecture(base, to.lectureId);
       if (target) {
@@ -256,8 +267,11 @@ export function CurriculumTab({
     onDragOver: ({ active, over }) =>
       over ? `${describe(active.id, order)} is over ${describe(over.id, order)}.` : undefined,
     onDragEnd: ({ active, over }) =>
-      over ? `Dropped ${describe(active.id, order)}.` : `Dropped ${describe(active.id, order)} in its original place.`,
-    onDragCancel: ({ active }) => `Moving was cancelled. ${describe(active.id, serverOrder)} is back in its place.`,
+      over
+        ? `Dropped ${describe(active.id, order)}.`
+        : `Dropped ${describe(active.id, order)} in its original place.`,
+    onDragCancel: ({ active }) =>
+      `Moving was cancelled. ${describe(active.id, serverOrder)} is back in its place.`,
   };
 
   /* ---- section and lecture CRUD ---- */
@@ -301,7 +315,9 @@ export function CurriculumTab({
 
       <div role="alert" aria-live="assertive">
         {notice ? (
-          <p className={notice.kind === 'error' ? 'text-sm text-destructive' : 'text-sm'}>{notice.text}</p>
+          <p className={notice.kind === 'error' ? 'text-sm text-destructive' : 'text-sm'}>
+            {notice.text}
+          </p>
         ) : null}
       </div>
       <p role="status" aria-live="polite" className="sr-only">
@@ -326,7 +342,10 @@ export function CurriculumTab({
           screenReaderInstructions: { draggable: SCREEN_READER_INSTRUCTIONS },
         }}
       >
-        <SortableContext items={order.map((s) => sectionDndId(s.id))} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={order.map((s) => sectionDndId(s.id))}
+          strategy={verticalListSortingStrategy}
+        >
           <ol className="grid gap-4" aria-label="Sections" aria-busy={busy}>
             {order.map((entry, sectionIndex) => {
               const section = sections.get(entry.id);
@@ -355,9 +374,15 @@ export function CurriculumTab({
                     readOnly ? null : (
                       <AddLectureForm
                         sectionNumber={sectionIndex + 1}
-                        pending={addLecture.isPending && addLecture.variables?.sectionId === entry.id}
-                        disabled={entry.lectureIds.length >= CURRICULUM_LIMITS.maxLecturesPerSection}
-                        onAdd={(type, title) => addLecture.mutateAsync({ sectionId: entry.id, type, title })}
+                        pending={
+                          addLecture.isPending && addLecture.variables?.sectionId === entry.id
+                        }
+                        disabled={
+                          entry.lectureIds.length >= CURRICULUM_LIMITS.maxLecturesPerSection
+                        }
+                        onAdd={(type, title) =>
+                          addLecture.mutateAsync({ sectionId: entry.id, type, title })
+                        }
                       />
                     )
                   }
@@ -375,7 +400,8 @@ export function CurriculumTab({
                       const lecture = lectures.get(lectureId);
                       if (!lecture) return null;
                       const first = sectionIndex === 0 && index === 0;
-                      const last = sectionIndex === order.length - 1 && index === entry.lectureIds.length - 1;
+                      const last =
+                        sectionIndex === order.length - 1 && index === entry.lectureIds.length - 1;
                       return (
                         <SortableLecture
                           key={lectureId}
@@ -390,7 +416,12 @@ export function CurriculumTab({
                           deleteButton={
                             <ConfirmDialog
                               trigger={
-                                <Button type="button" size="sm" variant="ghost" aria-label={`Delete lecture “${lecture.title}”`}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label={`Delete lecture “${lecture.title}”`}
+                                >
                                   ✕
                                 </Button>
                               }
@@ -562,7 +593,11 @@ function AddSectionForm({
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} noValidate className="grid gap-2 rounded-lg border border-dashed p-4">
+    <form
+      onSubmit={(event) => void submit(event)}
+      noValidate
+      className="grid gap-2 rounded-lg border border-dashed p-4"
+    >
       <label htmlFor="new-section-title" className="text-sm font-medium">
         New section
       </label>

@@ -68,7 +68,10 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
  * Only the fields that differ from the loaded course (so an unchanged frozen slug is never
  * sent), plus `expectedVersion` for the optimistic lock. `null` when nothing changed.
  */
-export function toPatch(values: DetailsFormOutput, course: CourseDetail): UpdateCourseRequest | null {
+export function toPatch(
+  values: DetailsFormOutput,
+  course: CourseDetail,
+): UpdateCourseRequest | null {
   const patch: UpdateCourseRequest = {};
   if (values.title !== course.title) patch.title = values.title;
   const subtitle = values.subtitle.trim() || null;

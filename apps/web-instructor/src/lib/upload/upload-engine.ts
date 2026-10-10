@@ -70,7 +70,9 @@ export interface UploadOptions {
 
 /** A client-side rejection before anything was sent (contracts `checkMediaUpload`). */
 export class UploadValidationError extends Error {
-  constructor(readonly code: typeof ErrorCode.UnsupportedMediaType | typeof ErrorCode.UploadTooLarge) {
+  constructor(
+    readonly code: typeof ErrorCode.UnsupportedMediaType | typeof ErrorCode.UploadTooLarge,
+  ) {
     super(code);
     this.name = 'UploadValidationError';
   }
@@ -366,7 +368,11 @@ export async function runUpload(options: UploadOptions): Promise<AssetView> {
     });
   }
 
-  async function uploadPart(n: number, queue: readonly number[], inner: AbortSignal): Promise<void> {
+  async function uploadPart(
+    n: number,
+    queue: readonly number[],
+    inner: AbortSignal,
+  ): Promise<void> {
     for (let attempt = 1; ; attempt += 1) {
       const url = await urlFor(n, queue, inner);
       try {

@@ -61,7 +61,11 @@ export function ThumbnailField({ course, readOnly }: { course: CourseDetail; rea
           {previewUrl ? (
             // A local blob: preview; next/image cannot optimise it.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={previewUrl} alt="Selected course image" className="h-full w-full object-cover" />
+            <img
+              src={previewUrl}
+              alt="Selected course image"
+              className="h-full w-full object-cover"
+            />
           ) : current ? (
             <span className="px-3">{current.originalFilename}</span>
           ) : (

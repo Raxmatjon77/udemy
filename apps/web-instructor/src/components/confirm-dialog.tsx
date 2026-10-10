@@ -74,7 +74,12 @@ export function ConfirmDialog({
               Cancel
             </Button>
           </DialogClose>
-          <Button type="button" variant="destructive" onClick={() => void confirm()} disabled={pending}>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => void confirm()}
+            disabled={pending}
+          >
             {pending ? (
               <>
                 <Spinner /> {pendingLabel}

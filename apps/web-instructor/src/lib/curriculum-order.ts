@@ -55,7 +55,11 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** Moves a section to `toIndex` (clamped). Returns the same array when nothing changes. */
-export function moveSection(order: CurriculumOrder, sectionId: string, toIndex: number): CurriculumOrder {
+export function moveSection(
+  order: CurriculumOrder,
+  sectionId: string,
+  toIndex: number,
+): CurriculumOrder {
   const from = order.findIndex((section) => section.id === sectionId);
   if (from === -1) return order;
   const to = clamp(toIndex, 0, order.length - 1);
@@ -92,7 +96,11 @@ export function moveLecture(
  * One step up (-1) or down (+1), the keyboard/button alternative to dragging: past the start
  * or end of a section the lecture moves to the end of the previous / start of the next one.
  */
-export function stepLecture(order: CurriculumOrder, lectureId: string, delta: -1 | 1): CurriculumOrder {
+export function stepLecture(
+  order: CurriculumOrder,
+  lectureId: string,
+  delta: -1 | 1,
+): CurriculumOrder {
   const from = findLecture(order, lectureId);
   if (!from) return order;
   const section = order[from.sectionIndex]!;
@@ -105,7 +113,11 @@ export function stepLecture(order: CurriculumOrder, lectureId: string, delta: -1
   return moveLecture(order, lectureId, neighbour.id, delta < 0 ? neighbour.lectureIds.length : 0);
 }
 
-export function stepSection(order: CurriculumOrder, sectionId: string, delta: -1 | 1): CurriculumOrder {
+export function stepSection(
+  order: CurriculumOrder,
+  sectionId: string,
+  delta: -1 | 1,
+): CurriculumOrder {
   const from = order.findIndex((section) => section.id === sectionId);
   return from === -1 ? order : moveSection(order, sectionId, from + delta);
 }

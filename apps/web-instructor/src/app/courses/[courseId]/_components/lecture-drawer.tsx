@@ -69,7 +69,9 @@ export function LectureDrawer({
   return (
     <Dialog open={lecture !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent className="top-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-2xl translate-x-0 translate-y-0 content-start overflow-y-auto rounded-none border-y-0 border-r-0 sm:max-w-2xl">
-        {lecture ? <LectureEditor courseId={courseId} lecture={lecture} readOnly={readOnly} /> : null}
+        {lecture ? (
+          <LectureEditor courseId={courseId} lecture={lecture} readOnly={readOnly} />
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -112,12 +114,21 @@ function LectureEditor({
 
 /* ---- title and preview ---------------------------------------------------------------- */
 
-function LectureSettings({ courseId, lecture, readOnly }: { courseId: string; lecture: Lecture; readOnly: boolean }) {
+function LectureSettings({
+  courseId,
+  lecture,
+  readOnly,
+}: {
+  courseId: string;
+  lecture: Lecture;
+  readOnly: boolean;
+}) {
   const refresh = useRefreshCurriculum(courseId);
   const [title, setTitle] = useState(lecture.title);
   const [titleError, setTitleError] = useState<string | null>(null);
   const update = useMutation({
-    mutationFn: (body: UpdateLectureRequest) => catalogApi.updateLecture(courseId, lecture.id, body),
+    mutationFn: (body: UpdateLectureRequest) =>
+      catalogApi.updateLecture(courseId, lecture.id, body),
     onSuccess: refresh,
     onError: (error) => {
       if (hasCode(error, ErrorCode.CourseInReview)) refresh();
@@ -226,13 +237,23 @@ function AssetStatus({ asset }: { asset: AssetView }) {
         </Alert>
       ) : null}
       {asset.status === 'ABORTED' ? (
-        <p className="text-sm text-muted-foreground">The upload was cancelled. Upload the file again.</p>
+        <p className="text-sm text-muted-foreground">
+          The upload was cancelled. Upload the file again.
+        </p>
       ) : null}
     </div>
   );
 }
 
-function MediaPanel({ courseId, lecture, readOnly }: { courseId: string; lecture: Lecture; readOnly: boolean }) {
+function MediaPanel({
+  courseId,
+  lecture,
+  readOnly,
+}: {
+  courseId: string;
+  lecture: Lecture;
+  readOnly: boolean;
+}) {
   const refresh = useRefreshCurriculum(courseId);
   const asset = useAssetStatus(lecture.asset);
   const current = lecture.asset ? (asset.data ?? lecture.asset) : null;
@@ -267,7 +288,8 @@ function MediaPanel({ courseId, lecture, readOnly }: { courseId: string; lecture
       {current ? <AssetStatus asset={current} /> : null}
       {current?.status === 'UPLOADING' ? (
         <p className="text-sm text-muted-foreground">
-          This upload did not finish. If it is not offered for resuming below, upload the file again.
+          This upload did not finish. If it is not offered for resuming below, upload the file
+          again.
         </p>
       ) : null}
 
@@ -296,7 +318,15 @@ function MediaPanel({ courseId, lecture, readOnly }: { courseId: string; lecture
       <UploadField
         purpose={isVideo ? 'LECTURE_VIDEO' : 'LECTURE_RESOURCE'}
         slotKey={`lecture:${lecture.id}`}
-        label={current ? (isVideo ? 'Replace video' : 'Replace file') : isVideo ? 'Upload video' : 'Upload file'}
+        label={
+          current
+            ? isVideo
+              ? 'Replace video'
+              : 'Replace file'
+            : isVideo
+              ? 'Upload video'
+              : 'Upload file'
+        }
         description={
           isVideo
             ? 'MP4, MOV, WebM or MKV. Large files upload in parts and can resume after an interruption.'
@@ -313,7 +343,13 @@ function MediaPanel({ courseId, lecture, readOnly }: { courseId: string; lecture
       {current && !readOnly ? (
         <div className="grid gap-1">
           <div>
-            <Button type="button" size="sm" variant="ghost" onClick={() => detach.mutate()} disabled={detach.isPending}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => detach.mutate()}
+              disabled={detach.isPending}
+            >
               {isVideo ? 'Remove video' : 'Remove file'}
             </Button>
           </div>
@@ -330,7 +366,15 @@ function MediaPanel({ courseId, lecture, readOnly }: { courseId: string; lecture
 
 /* ---- article ---------------------------------------------------------------------------- */
 
-function ArticleEditor({ courseId, lecture, readOnly }: { courseId: string; lecture: Lecture; readOnly: boolean }) {
+function ArticleEditor({
+  courseId,
+  lecture,
+  readOnly,
+}: {
+  courseId: string;
+  lecture: Lecture;
+  readOnly: boolean;
+}) {
   const article = useQuery({
     queryKey: catalogKeys.article(courseId, lecture.id),
     queryFn: () => catalogApi.article(courseId, lecture.id),

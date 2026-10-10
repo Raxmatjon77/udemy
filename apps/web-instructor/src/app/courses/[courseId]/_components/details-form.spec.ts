@@ -32,7 +32,10 @@ describe('details form', () => {
   });
 
   it('reports the real reason for an optional field', () => {
-    const result = DetailsFormSchema.safeParse({ ...toFormValues(courseDetail()), subtitle: 'short' });
+    const result = DetailsFormSchema.safeParse({
+      ...toFormValues(courseDetail()),
+      subtitle: 'short',
+    });
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.message).toBe('Must be at least 10 characters.');
   });

@@ -75,7 +75,9 @@ export function CreateCourseForm() {
         label="Category"
         hint="Optional"
         description={
-          categories.isError ? 'Categories could not be loaded; you can choose one later.' : undefined
+          categories.isError
+            ? 'Categories could not be loaded; you can choose one later.'
+            : undefined
         }
         error={formState.errors.categoryId?.message}
       >

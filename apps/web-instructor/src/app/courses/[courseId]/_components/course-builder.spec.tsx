@@ -12,7 +12,14 @@ import {
   type Curriculum,
 } from '@udemy/contracts';
 
-import { categoryTree, courseDetail, curriculum, history, IDS, lockedCourse } from '@/test/fixtures';
+import {
+  categoryTree,
+  courseDetail,
+  curriculum,
+  history,
+  IDS,
+  lockedCourse,
+} from '@/test/fixtures';
 import { problem, proxy, server, setupMockApi } from '@/test/msw';
 import { renderWithClient } from '@/test/render';
 
@@ -82,17 +89,20 @@ describe('curriculum reorder', () => {
     );
     const deepDive = screen.getByRole('list', { name: 'Lectures of section 2' });
     await waitFor(() =>
-      expect(within(deepDive).getAllByRole('listitem').map((li) => li.dataset.lectureId)).toEqual([
-        IDS.lecture2,
-        IDS.lecture3,
-      ]),
+      expect(
+        within(deepDive)
+          .getAllByRole('listitem')
+          .map((li) => li.dataset.lectureId),
+      ).toEqual([IDS.lecture2, IDS.lecture3]),
     );
   });
 
   it('on 409 order_mismatch refetches the curriculum and tells the user', async () => {
     const counters = builderApi();
     server.use(
-      http.put(proxy(`/courses/${IDS.course}/curriculum/order`), () => problem(409, 'order_mismatch')),
+      http.put(proxy(`/courses/${IDS.course}/curriculum/order`), () =>
+        problem(409, 'order_mismatch'),
+      ),
     );
     const user = userEvent.setup();
     renderBuilder('curriculum');
@@ -103,10 +113,11 @@ describe('curriculum reorder', () => {
     await waitFor(() => expect(counters.curriculum).toBe(2));
     // Back to the server order.
     const sections = screen.getByRole('list', { name: 'Sections' });
-    expect(within(sections).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
-      'Section 1: Getting started',
-      'Section 2: Deep dive',
-    ]);
+    expect(
+      within(sections)
+        .getAllByRole('heading', { level: 3 })
+        .map((h) => h.textContent),
+    ).toEqual(['Section 1: Getting started', 'Section 2: Deep dive']);
   });
 });
 
@@ -136,7 +147,9 @@ describe('review lock (D2)', () => {
     expect(screen.queryByRole('button', { name: 'Add section' })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Withdraw to edit' }));
-    await waitFor(() => expect(screen.queryByText('Waiting for review: the course is read-only')).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByText('Waiting for review: the course is read-only')).toBeNull(),
+    );
     expect(withdrawn).toBe(1);
     expect(await screen.findByRole('button', { name: 'Add section' })).toBeTruthy();
     expect((screen.getByLabelText('Title') as HTMLInputElement).matches(':disabled')).toBe(false);
@@ -147,7 +160,9 @@ describe('details: optimistic version', () => {
   it('shows a reload prompt on 409 version_conflict and reloads the latest version', async () => {
     const counters = builderApi({
       course: (n) =>
-        n === 1 ? courseDetail() : courseDetail({ version: 5, subtitle: 'Changed in another tab!' }),
+        n === 1
+          ? courseDetail()
+          : courseDetail({ version: 5, subtitle: 'Changed in another tab!' }),
     });
     let sent: unknown;
     server.use(
@@ -169,9 +184,13 @@ describe('details: optimistic version', () => {
     expect(subtitle.matches(':disabled')).toBe(true);
 
     await user.click(screen.getByRole('button', { name: 'Reload latest version' }));
-    await waitFor(() => expect(screen.queryByText('This course was changed somewhere else')).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByText('This course was changed somewhere else')).toBeNull(),
+    );
     expect(counters.course).toBe(2);
-    expect((screen.getByLabelText('Subtitle') as HTMLInputElement).value).toBe('Changed in another tab!');
+    expect((screen.getByLabelText('Subtitle') as HTMLInputElement).value).toBe(
+      'Changed in another tab!',
+    );
   });
 });
 
@@ -182,7 +201,9 @@ describe('readiness', () => {
     renderBuilder('review');
 
     expect(await screen.findByText('Before you can submit (2 items left)')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Submit for review' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: 'Submit for review' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
     await user.click(screen.getByRole('button', { name: 'Go to details: Add a subtitle.' }));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Subtitle')));
     expect(screen.getByRole('tab', { name: 'Details' }).getAttribute('aria-selected')).toBe('true');

@@ -25,20 +25,31 @@ describe('article editor', () => {
   it('shows each markdown_not_allowed issue with its line and column, and jumps there', async () => {
     let sent: unknown;
     server.use(
-      http.put(proxy(`/courses/${IDS.course}/lectures/${IDS.lecture2}/article`), async ({ request }) => {
-        sent = SaveArticleRequestSchema.parse(await request.json());
-        return problem(422, 'markdown_not_allowed', {
-          errors: [
-            { path: 'bodyMd', message: 'Line 3, column 1: Raw HTML is not allowed (raw_html).' },
-            { path: 'bodyMd', message: 'Line 5, column 3: Images are not allowed (image).' },
-          ],
-        });
-      }),
-      http.get(proxy(`/courses/${IDS.course}/curriculum`), () => new HttpResponse(null, { status: 500 })),
+      http.put(
+        proxy(`/courses/${IDS.course}/lectures/${IDS.lecture2}/article`),
+        async ({ request }) => {
+          sent = SaveArticleRequestSchema.parse(await request.json());
+          return problem(422, 'markdown_not_allowed', {
+            errors: [
+              { path: 'bodyMd', message: 'Line 3, column 1: Raw HTML is not allowed (raw_html).' },
+              { path: 'bodyMd', message: 'Line 5, column 3: Images are not allowed (image).' },
+            ],
+          });
+        },
+      ),
+      http.get(
+        proxy(`/courses/${IDS.course}/curriculum`),
+        () => new HttpResponse(null, { status: 500 }),
+      ),
     );
     const user = userEvent.setup();
     renderWithClient(
-      <ArticleForm courseId={IDS.course} lectureId={IDS.lecture2} initial={'# Intro\n\nHello'} readOnly={false} />,
+      <ArticleForm
+        courseId={IDS.course}
+        lectureId={IDS.lecture2}
+        initial={'# Intro\n\nHello'}
+        readOnly={false}
+      />,
     );
 
     const textarea = screen.getByRole('textbox', { name: 'Article' }) as HTMLTextAreaElement;
@@ -61,13 +72,23 @@ describe('article editor', () => {
 
   it('saves a valid article', async () => {
     server.use(
-      http.put(proxy(`/courses/${IDS.course}/lectures/${IDS.lecture2}/article`), async ({ request }) => {
-        const { bodyMd } = SaveArticleRequestSchema.parse(await request.json());
-        return HttpResponse.json(
-          ArticleSchema.parse({ lectureId: IDS.lecture2, bodyMd, updatedAt: '2026-10-10T11:00:00.000Z' }),
-        );
-      }),
-      http.get(proxy(`/courses/${IDS.course}/curriculum`), () => new HttpResponse(null, { status: 500 })),
+      http.put(
+        proxy(`/courses/${IDS.course}/lectures/${IDS.lecture2}/article`),
+        async ({ request }) => {
+          const { bodyMd } = SaveArticleRequestSchema.parse(await request.json());
+          return HttpResponse.json(
+            ArticleSchema.parse({
+              lectureId: IDS.lecture2,
+              bodyMd,
+              updatedAt: '2026-10-10T11:00:00.000Z',
+            }),
+          );
+        },
+      ),
+      http.get(
+        proxy(`/courses/${IDS.course}/curriculum`),
+        () => new HttpResponse(null, { status: 500 }),
+      ),
       http.get(proxy(`/courses/${IDS.course}`), () => new HttpResponse(null, { status: 500 })),
     );
     const user = userEvent.setup();
@@ -93,7 +114,10 @@ describe('video lecture', () => {
             : asset({ status: 'FAILED', failureCode: 'UNSUPPORTED_MEDIA', durationSeconds: null }),
         );
       }),
-      http.get(proxy(`/courses/${IDS.course}/curriculum`), () => new HttpResponse(null, { status: 500 })),
+      http.get(
+        proxy(`/courses/${IDS.course}/curriculum`),
+        () => new HttpResponse(null, { status: 500 }),
+      ),
       http.get(proxy(`/courses/${IDS.course}`), () => new HttpResponse(null, { status: 500 })),
     );
     // jsdom reports a hidden document; polling only runs for a focused window.
@@ -117,7 +141,11 @@ describe('video lecture', () => {
       );
       expect(await screen.findByLabelText('Processing progress')).toBeTruthy();
       // Polls every 3 s until the asset is terminal.
-      for (let i = 0; i < 5 && !screen.queryByText(MEDIA_FAILURE_LABELS.UNSUPPORTED_MEDIA); i += 1) {
+      for (
+        let i = 0;
+        i < 5 && !screen.queryByText(MEDIA_FAILURE_LABELS.UNSUPPORTED_MEDIA);
+        i += 1
+      ) {
         await vi.advanceTimersByTimeAsync(3_000);
       }
       expect(await screen.findByText(MEDIA_FAILURE_LABELS.UNSUPPORTED_MEDIA)).toBeTruthy();
@@ -154,7 +182,9 @@ describe('video lecture', () => {
     );
     // Previewable type: the toggle is enabled.
     await waitFor(() =>
-      expect((screen.getByRole('checkbox', { name: 'Free preview' }) as HTMLInputElement).disabled).toBe(false),
+      expect(
+        (screen.getByRole('checkbox', { name: 'Free preview' }) as HTMLInputElement).disabled,
+      ).toBe(false),
     );
   });
 });

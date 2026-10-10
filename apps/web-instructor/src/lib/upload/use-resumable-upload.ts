@@ -15,16 +15,15 @@ import {
   type UploadOptions,
   type UploadTransport,
 } from './upload-engine';
-import { parseUploadRecord, sessionUploadStore, type UploadRecord, type UploadStore } from './upload-store';
+import {
+  parseUploadRecord,
+  sessionUploadStore,
+  type UploadRecord,
+  type UploadStore,
+} from './upload-store';
 
 export type UploadStatusPhase =
-  | 'idle'
-  | 'preparing'
-  | 'uploading'
-  | 'completing'
-  | 'done'
-  | 'error'
-  | 'canceled';
+  'idle' | 'preparing' | 'uploading' | 'completing' | 'done' | 'error' | 'canceled';
 
 export interface UploadState {
   phase: UploadStatusPhase;
@@ -178,7 +177,8 @@ export function useResumableUpload(options: UseResumableUploadOptions) {
 
   const reset = useCallback(() => setState(IDLE), []);
 
-  const busy = state.phase === 'preparing' || state.phase === 'uploading' || state.phase === 'completing';
+  const busy =
+    state.phase === 'preparing' || state.phase === 'uploading' || state.phase === 'completing';
   /** An upload from before a reload that can resume once the same file is selected again. */
   const pending: UploadRecord | null = busy || state.phase === 'error' ? null : record;
 

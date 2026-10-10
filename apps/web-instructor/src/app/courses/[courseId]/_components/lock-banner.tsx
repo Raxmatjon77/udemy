@@ -40,7 +40,13 @@ export function LockBanner({
             </p>
           ) : null}
           <div>
-            <Button type="button" size="sm" variant="outline" onClick={onWithdraw} disabled={withdrawing}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onWithdraw}
+              disabled={withdrawing}
+            >
               {withdrawing ? (
                 <>
                   <Spinner /> Withdrawing…

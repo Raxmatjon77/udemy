@@ -73,7 +73,13 @@ export function courseDetail(overrides: Partial<CourseDetail> = {}): CourseDetai
     readiness: {
       ready: false,
       issues: [
-        { code: 'SUBTITLE_MISSING', sectionId: null, lectureId: null, required: null, actual: null },
+        {
+          code: 'SUBTITLE_MISSING',
+          sectionId: null,
+          lectureId: null,
+          required: null,
+          actual: null,
+        },
         { code: 'TOO_FEW_OUTCOMES', sectionId: null, lectureId: null, required: 4, actual: 0 },
       ],
     },
@@ -115,7 +121,9 @@ export function asset(overrides: Partial<AssetView> = {}): AssetView {
   });
 }
 
-export function lecture(overrides: Partial<Lecture> & Pick<Lecture, 'id' | 'sectionId' | 'position'>): Lecture {
+export function lecture(
+  overrides: Partial<Lecture> & Pick<Lecture, 'id' | 'sectionId' | 'position'>,
+): Lecture {
   return LectureSchema.parse({
     type: 'VIDEO',
     title: `Lecture ${overrides.id.slice(-2)}`,
@@ -160,7 +168,9 @@ export function curriculum(overrides: Partial<Curriculum> = {}): Curriculum {
         objective: null,
         position: 1,
         updatedAt: NOW,
-        lectures: [lecture({ id: IDS.lecture3, sectionId: IDS.sectionB, position: 0, title: 'Modules' })],
+        lectures: [
+          lecture({ id: IDS.lecture3, sectionId: IDS.sectionB, position: 0, title: 'Modules' }),
+        ],
       },
     ],
     totals: { sectionCount: 2, lectureCount: 3, previewCount: 0, videoSeconds: 0 },
