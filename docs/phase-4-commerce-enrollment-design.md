@@ -1063,3 +1063,9 @@ sequenceDiagram
 - **Webhook tolerance** rejects timestamps more than 300 s in the future as well as in the past. Currency is upper case in the port and lower case on the wire.
 - **API wiring (P4-T15):** add `@udemy/payments` to `apps/api` and bind `{ provide: PAYMENT_PROVIDER, useFactory: () => new StripePaymentProvider(stripeProviderConfigFromEnv()) }`. Idempotency keys: `checkout-session:{orderId}`, `refund:{id}:{attempt}`.
 - **CI:** stripe-mock `v0.206.0` is in the test job on port 12211 (`IT_STRIPE_MOCK_URL`). stripe-mock rejects keys with underscores after `sk_test_`; tests use `sk_test_123`.
+- **CI wiring (P4-T19):**
+  - **e2e:** `apps/stripe-emulator` is a Playwright `webServer` (`node dist/main.js` on `127.0.0.1:12111`, `E2E_STRIPE_EMULATOR=host`; `external` reuses a running one). The e2e job generates a masked `sk_test_emulator_ci…` key and `whsec_…` secret per run (`E2E_STRIPE_SECRET_KEY` / `E2E_STRIPE_WEBHOOK_SECRET`). Locally the suite generates them in memory.
+  - **api env in e2e:** `apps/e2e/src/env.ts` gives the api `STRIPE_*`, `STRIPE_API_BASE_URL` and `CHECKOUT_ALLOWED_ORIGINS` (the emulator origin), `STUDENT_APP_ORIGIN` and `COMMERCE_CHECKOUT_SESSION_TTL_MIN` ≥ 35. web-student gets the same `CHECKOUT_ALLOWED_ORIGINS`.
+  - **Image:** the emulator is bundled with esbuild onto an Alpine + node runtime (510 MB → 193 MB local, 109 MB → 53 MB compressed). The blocker for a lean `pnpm deploy` is `@udemy/payments` → `@udemy/nest-common` (db, pino, nodemailer, Nest peers) plus the optional `vitest` peer.
+  - **Publishing:** `images.yml` publishes `udemy-stripe-emulator` with the same CI + E2E gate as the other images.
+  - **Live check:** `stripe-live.yml` (manual dispatch) runs the stateless contract cases against real Stripe test mode with the `STRIPE_TEST_SECRET_KEY` repository secret. It skips when the secret is absent and refuses anything that is not `sk_test_`.

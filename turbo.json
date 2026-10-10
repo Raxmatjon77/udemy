@@ -32,6 +32,7 @@
         "@udemy/api#build",
         "@udemy/worker#build",
         "@udemy/transcoder#build",
+        "@udemy/stripe-emulator#build",
         "@udemy/web-student#build",
         "@udemy/web-instructor#build",
         "@udemy/web-admin#build"

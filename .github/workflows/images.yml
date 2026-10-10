@@ -1,7 +1,12 @@
-# Docker images of the api, the worker and the transcoder (apps/<app>/Dockerfile, built from the repo
-# root) with Buildx and the GitHub Actions layer cache, published to GHCR:
-#   ghcr.io/<owner>/udemy-api, ghcr.io/<owner>/udemy-worker, ghcr.io/<owner>/udemy-transcoder
-#   (owner lowercased: raxmatjon77)
+# Docker images of the api, the worker, the transcoder and the test-only Stripe emulator
+# (apps/<app>/Dockerfile, built from the repo root) with Buildx and the GitHub Actions layer cache,
+# published to GHCR:
+#   ghcr.io/<owner>/udemy-api, ghcr.io/<owner>/udemy-worker, ghcr.io/<owner>/udemy-transcoder,
+#   ghcr.io/<owner>/udemy-stripe-emulator   (owner lowercased: raxmatjon77)
+#
+# udemy-stripe-emulator (Phase 4 D12) is a dev/CI tool, never deployed next to production: it is
+# published so other environments (a preview stack, a laptop without the monorepo) can run the
+# exact emulator the E2E journeys used. Same gating as the services (green CI + E2E).
 #
 #   pull_request    build only, nothing is pushed (catches Dockerfile / prune / deploy breakage)
 #   main            pushed as :<full commit sha> and :main, but ONLY after the E2E workflow passed
@@ -50,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, worker, transcoder]
+        app: [api, worker, transcoder, stripe-emulator]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -157,7 +162,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, worker, transcoder]
+        app: [api, worker, transcoder, stripe-emulator]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

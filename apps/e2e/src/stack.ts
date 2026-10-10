@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 
-import { apiEnv, infra, REPO_ROOT, storageEnv } from './env';
+import { apiEnv, infra, REPO_ROOT, storageEnv, stripeEmulatorUrl } from './env';
 import { Mailpit } from './mailpit';
 import { createPool } from './db';
 
@@ -44,6 +44,13 @@ export async function assertStackReachable(): Promise<void> {
   });
   await check(`Mailpit (${infra.mailpitUrl})`, async () => {
     await new Mailpit().info();
+  });
+  // Started by Playwright (webServer) unless E2E_STRIPE_EMULATOR=external.
+  await check(`Stripe emulator (${stripeEmulatorUrl})`, async () => {
+    const response = await fetch(`${stripeEmulatorUrl}/health`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`status ${response.status}`);
   });
   await check(
     `Debezium connector "${infra.debeziumConnector}" (${infra.kafkaConnectUrl})`,

@@ -105,6 +105,14 @@ jobs:
       TRANSCODER_TMP_DIR: /tmp/udemy-transcoder
       TRANSCODER_MAX_HEIGHT: '720'
       TRANSCODER_THREADS: '2'
+      # ---- Phase 4 payments: apps/stripe-emulator as a Playwright webServer (`node dist/main.js`
+      # on 127.0.0.1:12111, E2E_STRIPE_EMULATOR=host). apps/e2e/src/env.ts points the api at it
+      # (STRIPE_API_BASE_URL, CHECKOUT_ALLOWED_ORIGINS, STUDENT_APP_ORIGIN,
+      # COMMERCE_CHECKOUT_SESSION_TTL_MIN >= 35), sets web-student's CHECKOUT_ALLOWED_ORIGINS, and
+      # has the emulator POST signed events to the api's /api/v1/webhooks/stripe. The key and the
+      # signing secret are generated per run below (E2E_STRIPE_SECRET_KEY / _WEBHOOK_SECRET).
+      E2E_STRIPE_EMULATOR: host
+      E2E_STRIPE_EMULATOR_PORT: '12111'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -130,8 +138,11 @@ jobs:
 
       # ---- Ephemeral secrets: random per run, masked, never stored. Each BFF secret is handed to
       # its app via E2E_<APP>_CLIENT_SECRET and the api gets its SHA-256 (CLIENT_<APP>_SECRET_HASH).
+      # The Stripe key and webhook secret go to both the api and the emulator (apps/e2e/src/env.ts
+      # passes them as STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET); without them the api refuses to boot.
       - name: Ephemeral secrets
         run: |
+          set -euo pipefail
           put() { echo "::add-mask::$2"; echo "$1=$2" >> "$GITHUB_ENV"; }
           for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET; do
             value="$(openssl rand -base64 32)"
@@ -143,6 +154,14 @@ jobs:
             put "E2E_${app}_CLIENT_SECRET" "$secret"
             echo "CLIENT_${app}_SECRET_HASH=${hash}" >> "$GITHUB_ENV"
           done
+          # Stripe (design §9): throwaway test-mode values shared by the api and the emulator only.
+          # Formats the api and the emulator accept: sk_test_[A-Za-z0-9_]+ and whsec_ + 64 hex.
+          # Assign first, then write: a failing openssl inside "$(...)" in put's argument list would
+          # otherwise write a bare prefix.
+          key_hex="$(openssl rand -hex 24)"
+          whsec_hex="$(openssl rand -hex 32)"
+          put E2E_STRIPE_SECRET_KEY "sk_test_emulator_ci${key_hex}"
+          put E2E_STRIPE_WEBHOOK_SECRET "whsec_${whsec_hex}"
 
       - name: Ephemeral JWT signing key
         run: |
@@ -152,10 +171,10 @@ jobs:
 
       # Everything the suite starts (the same set the turbo `e2e` task depends on). Run directly,
       # not via `turbo run e2e`: strict env mode would strip DATABASE_URL & co. from the servers.
-      - name: Build api, worker, transcoder, web-*
+      - name: Build api, worker, transcoder, stripe-emulator, web-*
         run: >-
           pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker
-          --filter=@udemy/transcoder --filter='@udemy/web-*'
+          --filter=@udemy/transcoder --filter=@udemy/stripe-emulator --filter='@udemy/web-*'
 
       # ---- Chromium, cached by the installed Playwright version and the runner image. On a cache
       # hit only the system libraries (apt) are installed.
@@ -213,15 +232,30 @@ jobs:
           node infra/ci/register-connector.mjs --url "$E2E_KAFKA_CONNECT_URL"
           --name "$E2E_DEBEZIUM_CONNECTOR" --timeout 240
 
-      # Playwright starts the six servers (apps/e2e/playwright.config.ts `webServer`): api, worker,
-      # transcoder (`node dist/main.js`, E2E_TRANSCODER=host) and the three BFFs, and stops them with
-      # SIGTERM at the end (the transcoder kills ffmpeg and releases its lease).
+      # Playwright starts the seven servers (apps/e2e/playwright.config.ts `webServer`): the stripe
+      # emulator, api, worker, transcoder (`node dist/main.js`, E2E_TRANSCODER=host) and the three
+      # BFFs, and stops them with SIGTERM at the end (the transcoder kills ffmpeg and releases its
+      # lease).
       - name: Playwright journeys
         run: pnpm --filter @udemy/e2e e2e
 
       # ---- Diagnostics (failure only): apps/e2e/.output/ has report/, test-results/ (traces,
-      # screenshots, videos) and logs/ (the six servers: api, worker, transcoder, web-*); ci/ gets
-      # the connector status, the compose container logs and the transcoder's scratch listing.
+      # screenshots, videos) and logs/ (the seven servers: stripe-emulator, api, worker,
+      # transcoder, web-*); ci/ gets the connector status, the compose container logs and the
+      # transcoder's scratch listing.
+      # Server output goes to apps/e2e/.output/logs/<server>.log, so a server that fails to boot
+      # only shows up as "Process from config.webServer was not able to start" above. Print the
+      # tail of every log here (masked values stay masked) so the cause is in the job log.
+      - name: Server logs (tail)
+        if: failure()
+        run: |
+          shopt -s nullglob
+          for file in apps/e2e/.output/logs/*.log; do
+            echo "::group::$(basename "$file") (last 150 lines)"
+            tail -n 150 "$file"
+            echo "::endgroup::"
+          done
+
       - name: Collect stack diagnostics
         if: failure()
         run: |

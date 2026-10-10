@@ -18,6 +18,12 @@ All state is in memory. Never expose it beyond loopback and never point producti
 | Host, built        | `pnpm --filter @udemy/stripe-emulator build && node apps/stripe-emulator/dist/main.js`                                   |
 | In-process (tests) | `startEmulator(emulatorConfig({ secretKey, webhookSecret, webhookUrl }), { port: 0, host: '127.0.0.1' })`                |
 
+The image (`apps/stripe-emulator/Dockerfile`, published by `images.yml` as
+`ghcr.io/raxmatjon77/udemy-stripe-emulator`) holds one esbuild bundle of `dist/main.js` on Alpine
+plus the pinned node binary (about 53 MB compressed). It runs as uid 1000 with a read-only root
+filesystem. Playwright (`apps/e2e`) does not use the image: it starts `node dist/main.js` on the
+host with per-run secrets (see `apps/e2e/README.md`, "The Stripe emulator").
+
 The API then uses `STRIPE_API_BASE_URL=http://127.0.0.1:12111`, the same `STRIPE_SECRET_KEY` and
 the same `STRIPE_WEBHOOK_SECRET`.
 
@@ -119,3 +125,7 @@ JSON in, JSON out; errors are `{"error":{"message"}}` with 400 / 404 / 409. Moun
   to a local sink that verifies every request with `verifyWebhook` and an ephemeral `whsec_`.
 - The same suite's stateless cases also run against stripe-mock when `IT_STRIPE_MOCK_URL` is set
   (skipped otherwise; a set but unreachable URL fails).
+- And against real Stripe in test mode when `IT_STRIPE_LIVE_SECRET_KEY` is an `sk_test_` key
+  (`src/contract/stripe-live.contract.spec.ts`; anything else is refused, unset skips). CI runs
+  it only from the manual `.github/workflows/stripe-live.yml` with the `STRIPE_TEST_SECRET_KEY`
+  repository secret.

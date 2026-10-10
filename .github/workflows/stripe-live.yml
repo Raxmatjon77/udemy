@@ -1,0 +1,74 @@
+# OPTIONAL: the shared PaymentProvider contract suite (apps/stripe-emulator/src/contract/
+# stripe-live.contract.spec.ts) with the real @udemy/payments StripePaymentProvider against REAL
+# Stripe in TEST mode (design §13 Q6, P4-T19). It proves that the exact Checkout Session and
+# Refund parameters the API sends are accepted by api.stripe.com at the pinned API version,
+# which stripe-mock (ci.yml) and the emulator (e2e.yml) can only approximate.
+#
+# Never part of normal CI: manual dispatch only (Actions > Stripe live contract > Run workflow),
+# so it never runs fork or PR code with the secret. It needs the repository secret
+# STRIPE_TEST_SECRET_KEY, a Stripe TEST key of a throwaway account (an `sk_test_...` key; the
+# suite creates and confirms test PaymentIntents and refunds). Without the secret the job is
+# skipped cleanly (green, with a notice); a key that does not start with `sk_test_` fails the run
+# before any request is made (live keys and restricted keys are refused).
+name: Stripe live contract
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Secrets cannot be used in `if:` directly: check presence and prefix here (the value is
+      # never printed; GitHub masks repository secrets in logs anyway).
+      - name: Check STRIPE_TEST_SECRET_KEY
+        id: key
+        env:
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: |
+          if [ -z "${STRIPE_TEST_SECRET_KEY}" ]; then
+            echo "::notice::STRIPE_TEST_SECRET_KEY is not set: skipping the live Stripe contract run."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "${STRIPE_TEST_SECRET_KEY}" in
+            sk_test_*) echo "present=true" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::STRIPE_TEST_SECRET_KEY must be a Stripe TEST secret key (sk_test_...). Refusing to run."
+              exit 1 ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.key.outputs.present == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        if: steps.key.outputs.present == 'true'
+        with:
+          turbo-cache: stripe-live
+
+      # The suite imports the built @udemy/payments (and nest-common/errors through it).
+      - name: Build @udemy/payments and its dependencies
+        if: steps.key.outputs.present == 'true'
+        run: pnpm turbo run build --filter=@udemy/payments...
+
+      - name: Contract suite against Stripe test mode
+        if: steps.key.outputs.present == 'true'
+        env:
+          IT_STRIPE_LIVE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+        run: >-
+          pnpm --filter @udemy/stripe-emulator exec vitest run
+          src/contract/stripe-live.contract.spec.ts

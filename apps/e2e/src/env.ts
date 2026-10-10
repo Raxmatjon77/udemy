@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +48,7 @@ export const ports = {
   instructor: port('E2E_INSTRUCTOR_PORT', 3001),
   admin: port('E2E_ADMIN_PORT', 3002),
   transcoder: port('E2E_TRANSCODER_PORT', 4002),
+  stripeEmulator: port('E2E_STRIPE_EMULATOR_PORT', 12111),
 } as const;
 
 /** Always `localhost`: Chromium accepts `Secure` (and so `__Host-`) cookies on it over http. */
@@ -58,6 +60,8 @@ export const urls = {
   admin: `http://localhost:${ports.admin}`,
   // 127.0.0.1: in compose mode the health port is published on the loopback IPv4 address only.
   transcoder: `http://127.0.0.1:${ports.transcoder}`,
+  // 127.0.0.1, as in dev: the hosted pay page is a different site from the apps (no cookies).
+  stripeEmulator: `http://127.0.0.1:${ports.stripeEmulator}`,
 } as const;
 
 export type AppName = 'student' | 'instructor' | 'admin';
@@ -103,6 +107,73 @@ export function storageEnv(): Record<string, string | undefined> {
   return Object.fromEntries(names.map((name) => [name, serverSetting(name)]));
 }
 
+/**
+ * How the suite gets its Stripe stand-in, apps/stripe-emulator (`E2E_STRIPE_EMULATOR`):
+ * - `host` (default, CI): `node dist/main.js` in apps/stripe-emulator on 127.0.0.1:
+ *   `E2E_STRIPE_EMULATOR_PORT` (12111), delivering signed webhooks to this run's api.
+ * - `external`: not started by the suite; one is already listening at `E2E_STRIPE_EMULATOR_URL`
+ *   (default http://127.0.0.1:12111, e.g. the dev compose `stripe-emulator`). It must deliver to
+ *   this run's api and share its key and signing secret (`STRIPE_*` of the root .env).
+ */
+export type StripeEmulatorMode = 'host' | 'external';
+
+function resolveStripeEmulatorMode(): StripeEmulatorMode {
+  const raw = process.env.E2E_STRIPE_EMULATOR;
+  if (raw === undefined || raw === '' || raw === 'host') return 'host';
+  if (raw === 'external') return raw;
+  throw new Error(`E2E_STRIPE_EMULATOR must be host or external, got ${JSON.stringify(raw)}`);
+}
+
+export const stripeEmulatorMode: StripeEmulatorMode = resolveStripeEmulatorMode();
+
+/** Origin of the emulator: its `/v1` API for the api, its `/pay/:id` page for the browser. */
+export const stripeEmulatorUrl =
+  stripeEmulatorMode === 'external'
+    ? new URL(process.env.E2E_STRIPE_EMULATOR_URL || 'http://127.0.0.1:12111').origin
+    : urls.stripeEmulator;
+
+/**
+ * The API key and webhook signing secret shared by the api and the emulator (design §9: throwaway
+ * values, per run). `E2E_STRIPE_SECRET_KEY` / `E2E_STRIPE_WEBHOOK_SECRET` win (CI generates and
+ * masks them). Otherwise, host mode generates fresh ones and stores them in `process.env`, so the
+ * Playwright main process, its servers and the test workers (which inherit the env) agree;
+ * external mode uses the root .env values the running emulator was started with.
+ */
+function stripeSecret(name: 'SECRET_KEY' | 'WEBHOOK_SECRET', generate: () => string): string {
+  const e2eName = `E2E_STRIPE_${name}`;
+  const given = process.env[e2eName];
+  if (given) return given;
+  const value = stripeEmulatorMode === 'external' ? serverSetting(`STRIPE_${name}`) : generate();
+  if (!value) throw new Error(`${e2eName} or STRIPE_${name} is required`);
+  process.env[e2eName] = value;
+  return value;
+}
+
+export const stripeSecrets = {
+  // The api and the emulator accept sk_test_[A-Za-z0-9_]+ only.
+  secretKey: stripeSecret(
+    'SECRET_KEY',
+    () => `sk_test_emulator_e2e${randomBytes(24).toString('hex')}`,
+  ),
+  webhookSecret: stripeSecret(
+    'WEBHOOK_SECRET',
+    () => `whsec_e2e${randomBytes(32).toString('hex')}`,
+  ),
+} as const;
+
+/** The api's webhook route the emulator POSTs signed events to (public ingress, no BFF). */
+export const stripeWebhookUrl = `${urls.api}/api/v1/webhooks/stripe`;
+
+/**
+ * `COMMERCE_CHECKOUT_SESSION_TTL_MIN` for the api: the configured value when it is at least 35
+ * (the api's floor: Stripe needs expires_at >= 30 min ahead), else 35, so an old .env with 30
+ * cannot stop the api from booting.
+ */
+function checkoutSessionTtlMin(): string {
+  const configured = Number(serverSetting('COMMERCE_CHECKOUT_SESSION_TTL_MIN'));
+  return String(Number.isInteger(configured) && configured >= 35 ? configured : 35);
+}
+
 /** Env overrides for `node dist/main.js` in apps/api (the rest comes from the root .env). */
 export function apiEnv(): Record<string, string> {
   return {
@@ -113,6 +184,30 @@ export function apiEnv(): Record<string, string> {
     // The course journey submits one section with a 5 s video and an article (design P2-T19, Q6).
     CATALOG_SUBMIT_MIN_LECTURES: '1',
     CATALOG_SUBMIT_MIN_VIDEO_SECONDS: '0',
+    // Phase 4 payments: the real StripePaymentProvider against this run's emulator.
+    PAYMENTS_PROVIDER: 'stripe',
+    STRIPE_SECRET_KEY: stripeSecrets.secretKey,
+    STRIPE_WEBHOOK_SECRET: stripeSecrets.webhookSecret,
+    STRIPE_API_BASE_URL: stripeEmulatorUrl,
+    // Checkout success/cancel URLs, and the only origin a session URL may have.
+    STUDENT_APP_ORIGIN: urls.student,
+    CHECKOUT_ALLOWED_ORIGINS: stripeEmulatorUrl,
+    COMMERCE_CHECKOUT_SESSION_TTL_MIN: checkoutSessionTtlMin(),
+  };
+}
+
+/** Env of `node dist/main.js` in apps/stripe-emulator (host mode). */
+export function stripeEmulatorEnv(): Record<string, string> {
+  return {
+    PORT: String(ports.stripeEmulator),
+    // Loopback only: the control API has no auth and the emulator accepts its key for anything.
+    HOST: '127.0.0.1',
+    STRIPE_SECRET_KEY: stripeSecrets.secretKey,
+    STRIPE_WEBHOOK_SECRET: stripeSecrets.webhookSecret,
+    EMULATOR_WEBHOOK_URL: stripeWebhookUrl,
+    EMULATOR_PUBLIC_URL: stripeEmulatorUrl,
+    EMULATOR_CONTROL_ENABLED: 'true',
+    LOG_LEVEL: process.env.E2E_SERVER_LOG_LEVEL ?? 'info',
   };
 }
 
@@ -215,6 +310,8 @@ export function webEnv(app: AppName): Record<string, string> {
   };
   // Instructor: links to /become-instructor. Admin: links live courses to their public page.
   if (app === 'instructor' || app === 'admin') env.STUDENT_APP_ORIGIN = urls.student;
+  // Student: the checkout redirect may only go to the emulator's hosted pay page (Phase 4 §10).
+  if (app === 'student') env.CHECKOUT_ALLOWED_ORIGINS = stripeEmulatorUrl;
   return env;
 }
 

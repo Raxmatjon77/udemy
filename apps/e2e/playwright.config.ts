@@ -9,6 +9,9 @@ import {
   OUTPUT_DIR,
   ports,
   REPO_ROOT,
+  stripeEmulatorEnv,
+  stripeEmulatorMode,
+  stripeEmulatorUrl,
   transcoderEnv,
   transcoderMode,
   urls,
@@ -19,7 +22,8 @@ import {
 
 /**
  * End-to-end journeys against the REAL stack: the built api + worker + transcoder
- * (node dist/main.js, or the transcoder's compose service) and the three Next apps (next start),
+ * (node dist/main.js, or the transcoder's compose service), the Stripe emulator (node
+ * dist/main.js) and the three Next apps (next start),
  * on top of the docker dev stack (Postgres, Redis, Kafka + Debezium, MinIO, Mailpit). See
  * README.md for prerequisites, ports and env.
  *
@@ -71,6 +75,23 @@ function transcoderServer() {
   };
 }
 
+/**
+ * apps/stripe-emulator (Phase 4 D12): the Stripe API subset, hosted pay page and signed webhooks
+ * to this run's api, with a per-run key and signing secret (src/env.ts `stripeSecrets`). In
+ * memory, so every run starts empty. Webhook deliveries are retried with backoff, so it does not
+ * matter that the api may become ready after it. `external`: one is already running.
+ */
+const stripeEmulatorServer = () => ({
+  name: 'stripe-emulator',
+  command: `node dist/main.js ${log('stripe-emulator')}`,
+  cwd: resolve(REPO_ROOT, 'apps/stripe-emulator'),
+  url: `${stripeEmulatorUrl}/health`,
+  env: stripeEmulatorEnv(),
+  reuseExistingServer: false,
+  timeout: SERVER_TIMEOUT_MS,
+  gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 10_000 },
+});
+
 /** Specs that play H.264/AAC video: they need Google Chrome (Chromium builds lack the codecs). */
 const CHROME_SPECS = /course-lifecycle\.spec\.ts$/;
 
@@ -118,6 +139,7 @@ export default defineConfig({
     },
   ],
   webServer: [
+    ...(stripeEmulatorMode === 'external' ? [] : [stripeEmulatorServer()]),
     {
       name: 'api',
       command: `node dist/main.js ${log('api')}`,

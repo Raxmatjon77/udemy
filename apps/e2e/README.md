@@ -3,6 +3,8 @@
 Playwright journeys across the three Next apps against the **real** stack: the built api, worker and
 transcoder, the three BFFs (`next start`), Postgres, Redis, Kafka + Debezium, MinIO and Mailpit.
 Nothing is mocked; emails are read back from Mailpit, videos are really transcoded and played.
+Payments (Phase 4) go through the real `StripePaymentProvider` to `apps/stripe-emulator`, which the
+suite starts itself (see "The Stripe emulator" below).
 
 | Spec                             | Journey                                                                                             |
 | -------------------------------- | --------------------------------------------------------------------------------------------------- |
@@ -63,7 +65,7 @@ bundled Chromium (project `chromium`). Install Chrome normally on macOS; `ubuntu
 4. Production builds of everything the suite starts:
    ```bash
    pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter=@udemy/transcoder \
-     --filter='@udemy/web-*'
+     --filter=@udemy/stripe-emulator --filter='@udemy/web-*'
    ```
    `pnpm turbo run e2e` does this for you (the `e2e` task depends on those builds).
 5. The MinIO buckets (`docker compose … run --rm minio-init`, part of the dev stack setup) and the
@@ -99,18 +101,45 @@ or `docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --prof
 removes it. Stop any other transcoder first (host `pnpm dev` or the compose service): it would
 lease the journey's jobs too (safe, but its logs are not in `.output/logs/`).
 
+### The Stripe emulator
+
+`E2E_STRIPE_EMULATOR` picks how the suite gets its Stripe stand-in (default `host`):
+
+| Mode       | What happens                                                                                                                                                                                                                                                                                                                             |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`     | Playwright starts `node dist/main.js` in apps/stripe-emulator on `127.0.0.1:${E2E_STRIPE_EMULATOR_PORT}` (12111), in memory, delivering signed webhooks to this run's api at `${api}/api/v1/webhooks/stripe`. Same as CI.                                                                                                                |
+| `external` | nothing is started: an emulator is already running at `E2E_STRIPE_EMULATOR_URL` (default `http://127.0.0.1:12111`, e.g. the dev compose `--profile emulator` service). It must deliver to this run's api (the compose one posts to `host.docker.internal:4000`, so only with the default api port) and share the root `.env` key/secret. |
+
+**Secrets:** the api and the emulator share one `sk_test_…` key and one `whsec_…` signing secret,
+throwaway values for this run only (design §9). `E2E_STRIPE_SECRET_KEY` / `E2E_STRIPE_WEBHOOK_SECRET`
+win when set (CI and `infra/ci/e2e-local.sh` generate them); otherwise `host` mode generates them
+in memory when the config loads and keeps them in `process.env`, so the servers and the test
+workers agree. The dev values in `.env` are not used (`external` mode excepted). The suite passes
+them to the api as `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`, overriding `.env`.
+
+**If 12111 is taken** (a dev emulator from compose or `pnpm dev`), Playwright refuses to start
+(`reuseExistingServer` is off). Move the suite's emulator instead of stopping yours:
+`E2E_STRIPE_EMULATOR_PORT=12121 pnpm --filter @udemy/e2e e2e`. Every origin follows the port
+(`STRIPE_API_BASE_URL`, `CHECKOUT_ALLOWED_ORIGINS` of the api and web-student, the pay page URL).
+
+Journeys can drive it with `src/stripe-emulator.ts` (`StripeEmulator`: `drainWebhooks()`,
+`events()`, `completeSession()`, `expireSession()`; the control API is in
+`apps/stripe-emulator/README.md`). The emulator is shared by the whole run: look up your own
+sessions and events, never call `/_emulator/reset`.
+
 `e2e` is deliberately **not** part of `pnpm test`: it needs the docker stack.
 
 What a run does:
 
-1. Playwright starts six servers (`webServer` in `playwright.config.ts`) and waits for their
-   health checks: api `node dist/main.js` (`/api/health/ready`), worker `node dist/main.js`
+1. Playwright starts seven servers (`webServer` in `playwright.config.ts`) and waits for their
+   health checks: the stripe emulator `node dist/main.js` (`/health` on 12111, see above), api
+   `node dist/main.js` (`/api/health/ready`), worker `node dist/main.js`
    (`/health/ready`), the transcoder (`/health/ready` on 4002, see above), and `next start` for
    web-student / web-instructor / web-admin (`/api/health`). `reuseExistingServer` is off: a taken
-   port fails the run instead of testing someone else's process. All six are stopped (SIGTERM)
+   port fails the run instead of testing someone else's process. All seven are stopped (SIGTERM)
    when the run ends.
 2. Global setup (`src/global-setup.ts`) checks that Postgres (with migrations), Redis, Kafka, the
-   Debezium connector, MinIO and Mailpit answer; removes leftovers of an aborted run
+   Debezium connector, MinIO, Mailpit and the Stripe emulator answer; removes leftovers of an aborted run
    (`e2e-…@example.test` users with their courses and media, `e2e-…` categories, e2e mail only);
    generates the media fixtures; and bootstraps a **fresh e2e admin** with
    `api cli admin:bootstrap --password-stdin` and a random password. The password is passed to the
@@ -125,17 +154,18 @@ What a run does:
    admins) and the fixtures.
 
 Output (all gitignored, under `.output/`): `logs/<server>.log` (server stdout/stderr of the last
-run, `transcoder.log` included), `fixtures/` (during a run), `test-results/` (trace, screenshot and video of failed tests), `report/` (HTML report:
+run, `transcoder.log` and `stripe-emulator.log` included), `fixtures/` (during a run), `test-results/` (trace, screenshot and video of failed tests), `report/` (HTML report:
 `pnpm --filter @udemy/e2e e2e:report`). Open a trace with `npx playwright show-trace <trace.zip>`.
 
 ## Ports and env
 
 Defaults: student 3000, instructor 3001, admin 3002, api 4000, worker health 4001, transcoder
-health 4002. If one is taken by a process you did not start, move the suite instead of killing it:
+health 4002, stripe emulator 12111. If one is taken by a process you did not start, move the suite instead of killing it:
 
 ```bash
 E2E_STUDENT_PORT=3100 E2E_INSTRUCTOR_PORT=3101 E2E_ADMIN_PORT=3102 \
-E2E_API_PORT=4100 E2E_WORKER_PORT=4101 E2E_TRANSCODER_PORT=4102 pnpm --filter @udemy/e2e e2e
+E2E_API_PORT=4100 E2E_WORKER_PORT=4101 E2E_TRANSCODER_PORT=4102 E2E_STRIPE_EMULATOR_PORT=12121 \
+  pnpm --filter @udemy/e2e e2e
 ```
 
 MinIO only allows the CORS origins `http://localhost:3000-3002` (`MINIO_CORS_ALLOW_ORIGIN` in the
@@ -145,17 +175,20 @@ the players fail with CORS errors.
 Everything that depends on a port is derived from these in `src/env.ts`, because the cookie, Origin
 and CSRF checks need every origin to match the URL the browser uses:
 
-| Process       | Env set by the suite                                                                                                                                                                                                                                                                                                |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| api           | `PORT`, `API_PUBLIC_URL` (= the JWT `iss`), `CATALOG_SUBMIT_MIN_LECTURES=1`, `CATALOG_SUBMIT_MIN_VIDEO_SECONDS=0`; the rest from the root `.env`                                                                                                                                                                    |
-| transcoder    | host mode: `TRANSCODER_HEALTH_PORT`, `TRANSCODER_MAX_HEIGHT=720`; the rest from the root `.env`. Compose mode: the service's own env (same buckets and credentials)                                                                                                                                                 |
-| worker        | `WORKER_HEALTH_PORT`, `STUDENT_/INSTRUCTOR_/ADMIN_APP_ORIGIN` (links in emails); the rest from root `.env`                                                                                                                                                                                                          |
-| web-\* (BFFs) | `PORT`, `APP_ORIGIN`, `API_INTERNAL_URL`, `JWT_ISSUER`, `JWKS_URL`, `JWT_AUDIENCE`, `COOKIE_SECURE=true`, `MEDIA_PUBLIC_ORIGIN` (the origin of the api's `S3_PUBLIC_ENDPOINT`, for the CSP), the client id/secret from the app's `.env.local` (else `.env.example`); instructor and admin also `STUDENT_APP_ORIGIN` |
+| Process         | Env set by the suite                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| api             | `PORT`, `API_PUBLIC_URL` (= the JWT `iss`), `CATALOG_SUBMIT_MIN_LECTURES=1`, `CATALOG_SUBMIT_MIN_VIDEO_SECONDS=0`; Phase 4: `PAYMENTS_PROVIDER=stripe`, `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` (this run's), `STRIPE_API_BASE_URL` and `CHECKOUT_ALLOWED_ORIGINS` (the emulator origin), `STUDENT_APP_ORIGIN`, `COMMERCE_CHECKOUT_SESSION_TTL_MIN` (the configured value if ≥ 35, else 35); the rest from the root `.env` |
+| stripe-emulator | host mode: `PORT`, `HOST=127.0.0.1`, the same key and secret, `EMULATOR_WEBHOOK_URL` (`${api}/api/v1/webhooks/stripe`), `EMULATOR_PUBLIC_URL` (its origin), `EMULATOR_CONTROL_ENABLED=true`                                                                                                                                                                                                                                      |
+| transcoder      | host mode: `TRANSCODER_HEALTH_PORT`, `TRANSCODER_MAX_HEIGHT=720`; the rest from the root `.env`. Compose mode: the service's own env (same buckets and credentials)                                                                                                                                                                                                                                                              |
+| worker          | `WORKER_HEALTH_PORT`, `STUDENT_/INSTRUCTOR_/ADMIN_APP_ORIGIN` (links in emails); the rest from root `.env`                                                                                                                                                                                                                                                                                                                       |
+| web-\* (BFFs)   | `PORT`, `APP_ORIGIN`, `API_INTERNAL_URL`, `JWT_ISSUER`, `JWKS_URL`, `JWT_AUDIENCE`, `COOKIE_SECURE=true`, `MEDIA_PUBLIC_ORIGIN` (the origin of the api's `S3_PUBLIC_ENDPOINT`, for the CSP), the client id/secret from the app's `.env.local` (else `.env.example`); instructor and admin also `STUDENT_APP_ORIGIN`; student also `CHECKOUT_ALLOWED_ORIGINS` (the emulator origin)                                               |
 
 Other knobs: `E2E_DATABASE_URL`, `E2E_REDIS_URL`, `E2E_KAFKA_BROKERS` (default: the root `.env`),
 `E2E_MAILPIT_URL` (`http://localhost:8025`), `E2E_KAFKA_CONNECT_URL` (`http://localhost:8083`),
 `E2E_DEBEZIUM_CONNECTOR` (`udemy-outbox`), `E2E_SERVER_LOG_LEVEL` (`info`), `E2E_SKIP_SLOW=1`,
-`E2E_TRANSCODER` (`host` | `compose` | `external`), `E2E_TRANSCODER_BUILD=1`, and
+`E2E_TRANSCODER` (`host` | `compose` | `external`), `E2E_TRANSCODER_BUILD=1`, `E2E_STRIPE_EMULATOR`
+(`host` | `external`), `E2E_STRIPE_EMULATOR_PORT` (12111), `E2E_STRIPE_EMULATOR_URL` (external),
+`E2E_STRIPE_SECRET_KEY` / `E2E_STRIPE_WEBHOOK_SECRET` (default: random per run), and
 `E2E_STUDENT_/INSTRUCTOR_/ADMIN_CLIENT_SECRET` (a BFF's client secret instead of the one in its
 `.env.local`; the api then needs the matching `CLIENT_<APP>_SECRET_HASH`, as in CI).
 
@@ -193,12 +226,18 @@ stays). Timeout 30 min; it runs separately from `ci.yml` (lint/typecheck/test/bu
   cannot pass `-c wal_level=logical` to Postgres.
 - **Before the suite:** random `REFRESH_TOKEN_PEPPER` / `LOGIN_EMAIL_HMAC_KEY` /
   `EMAIL_TOKEN_SECRET`, random BFF secrets (`E2E_<APP>_CLIENT_SECRET`) with their SHA-256 in
-  `CLIENT_<APP>_SECRET_HASH` (all masked), an ephemeral JWT key, the builds, the migrations, the
+  `CLIENT_<APP>_SECRET_HASH`, a random `sk_test_emulator_ci…` key and `whsec_…` signing secret
+  (`E2E_STRIPE_SECRET_KEY` / `E2E_STRIPE_WEBHOOK_SECRET`, shared by the api and the emulator; all
+  masked), an ephemeral JWT key, the builds, the migrations, the
   topics via the one-shot `kafka-init` container (`infra/kafka/create-topics.sh`), and
   `infra/ci/register-connector.mjs` (PUTs `infra/debezium/outbox-connector.json` and waits for
   RUNNING), the MinIO buckets (`minio-init`). Nothing secret is committed or stored.
-- **On failure** the run uploads `apps/e2e/.output/` as the artifact `e2e-output-<run>-<attempt>`
-  (7 days): `report/`, `test-results/` (traces), `logs/` (the six servers, `transcoder.log`
+- **Stripe:** the emulator is a Playwright `webServer` (`node dist/main.js`,
+  `E2E_STRIPE_EMULATOR=host`), built with the other servers. No Stripe account or secret is
+  involved; the live test-mode check is the separate, manual `stripe-live.yml`.
+- **On failure** the job log gets the last 150 lines of every server log (a server that fails to
+  boot otherwise only shows "Process from config.webServer was not able to start"), and the run uploads `apps/e2e/.output/` as the artifact `e2e-output-<run>-<attempt>`
+  (7 days): `report/`, `test-results/` (traces), `logs/` (the seven servers, `transcoder.log`
   included) and `ci/` (connector status, `docker compose ps`, the container logs and the
   transcoder's scratch directory listing).
 
