@@ -100,6 +100,9 @@ jobs:
           MINIO_ROOT_USER: minio
           MINIO_ROOT_PASSWORD: minio12345
           MINIO_DEFAULT_BUCKETS: udemy-uploads,udemy-media
+          # Same allowlist as the dev stack; MinIO's default is `*`, which the storage CORS spike
+          # test (unlisted origin gets no CORS headers) would rightly fail.
+          MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:3000,http://localhost:3001,http://localhost:3002
         ports:
           - 9000:9000
         options: >-
