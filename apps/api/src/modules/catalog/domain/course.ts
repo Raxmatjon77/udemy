@@ -1,4 +1,4 @@
-import type { CourseBadge, CourseStatus } from '@udemy/contracts';
+import type { CourseBadge, CourseStatus, CourseTransitionAction } from '@udemy/contracts';
 import {
   CourseInReview,
   CourseNotEditable,
@@ -74,20 +74,15 @@ export function assertDeletable(course: CourseLifecycle): void {
   if (course.status !== 'DRAFT' && course.status !== 'REJECTED') throw new CourseNotEditable();
 }
 
-/** The most recent APPROVE or REJECT decision of a course, if any. */
-export interface LatestDecisionFacts {
-  readonly action: 'APPROVE' | 'REJECT';
-  readonly revisionId: string;
-}
-
 /**
- * Derived "My courses" badge (contracts `COURSE_BADGES`). A PUBLISHED course shows whether an
- * update is in review, or whether the most recent decision rejected an update of the live
- * course (the rejected revision is not the live one).
+ * Derived badge (contracts `COURSE_BADGES`, never stored): the status, the pending pointer and
+ * the action at the head of the transition chain. A PUBLISHED course shows an update in
+ * review, or that its most recent transition rejected an update (the live revision is
+ * unchanged); any later transition (resubmit, withdraw, archive + restore) clears that.
  */
 export function courseBadge(
-  course: Pick<CourseLifecycle, 'status' | 'pendingRevisionId' | 'publishedRevisionId'>,
-  latestDecision: LatestDecisionFacts | null,
+  course: Pick<CourseLifecycle, 'status' | 'pendingRevisionId'>,
+  headAction: CourseTransitionAction | null,
 ): CourseBadge {
   switch (course.status) {
     case 'DRAFT':
@@ -97,12 +92,6 @@ export function courseBadge(
       return course.status;
     case 'PUBLISHED':
       if (course.pendingRevisionId !== null) return 'LIVE_UPDATE_PENDING';
-      if (
-        latestDecision?.action === 'REJECT' &&
-        latestDecision.revisionId !== course.publishedRevisionId
-      ) {
-        return 'LIVE_UPDATE_REJECTED';
-      }
-      return 'LIVE';
+      return headAction === 'REJECT' ? 'LIVE_UPDATE_REJECTED' : 'LIVE';
   }
 }

@@ -75,18 +75,20 @@ describe('working-copy rules (invariants 1, 2, 11)', () => {
 });
 
 describe('courseBadge', () => {
-  it('derives the badge from status, pointers and the latest decision', () => {
-    expect(courseBadge(draft, null)).toBe('DRAFT');
-    expect(courseBadge({ ...draft, status: 'IN_REVIEW', pendingRevisionId: 'r1' }, null)).toBe(
+  it('derives the badge from status, the pending pointer and the head transition', () => {
+    expect(courseBadge(draft, 'CREATE')).toBe('DRAFT');
+    expect(courseBadge({ ...draft, status: 'IN_REVIEW', pendingRevisionId: 'r1' }, 'SUBMIT')).toBe(
       'IN_REVIEW',
     );
-    expect(
-      courseBadge({ ...draft, status: 'REJECTED' }, { action: 'REJECT', revisionId: 'r1' }),
-    ).toBe('REJECTED');
-    expect(courseBadge(live, { action: 'APPROVE', revisionId: 'r1' })).toBe('LIVE');
-    expect(courseBadge({ ...live, pendingRevisionId: 'r2' }, null)).toBe('LIVE_UPDATE_PENDING');
-    expect(courseBadge(live, { action: 'REJECT', revisionId: 'r2' })).toBe('LIVE_UPDATE_REJECTED');
-    expect(courseBadge({ ...live, status: 'ARCHIVED' }, null)).toBe('ARCHIVED');
+    expect(courseBadge({ ...draft, status: 'REJECTED' }, 'REJECT')).toBe('REJECTED');
+    expect(courseBadge(live, 'APPROVE')).toBe('LIVE');
+    expect(courseBadge({ ...live, pendingRevisionId: 'r2' }, 'SUBMIT')).toBe('LIVE_UPDATE_PENDING');
+    expect(courseBadge(live, 'REJECT')).toBe('LIVE_UPDATE_REJECTED');
+    // a later transition clears the rejected-update badge
+    expect(courseBadge(live, 'WITHDRAW')).toBe('LIVE');
+    expect(courseBadge(live, 'RESTORE')).toBe('LIVE');
+    expect(courseBadge({ ...live, status: 'ARCHIVED' }, 'ARCHIVE')).toBe('ARCHIVED');
+    expect(courseBadge(live, null)).toBe('LIVE');
   });
 });
 

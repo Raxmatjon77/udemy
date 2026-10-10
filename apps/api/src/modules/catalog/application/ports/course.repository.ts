@@ -1,4 +1,10 @@
-import type { BulletKind, CourseLanguage, CourseLevel, CourseStatus } from '@udemy/contracts';
+import type {
+  BulletKind,
+  CourseLanguage,
+  CourseLevel,
+  CourseStatus,
+  CourseTransitionAction,
+} from '@udemy/contracts';
 import type { DB, Executor, Transaction } from '@udemy/db';
 import type { CourseLifecycle } from '../../domain/course';
 
@@ -69,11 +75,45 @@ export interface MyCourseRecord {
   readonly updatedAt: Date;
   /** `updated_at` as exact UTC text with microseconds (the keyset). */
   readonly updatedAtText: string;
-  /** Most recent APPROVE/REJECT (for the badge). */
-  readonly latestDecision: {
-    readonly action: 'APPROVE' | 'REJECT';
-    readonly revisionId: string;
-  } | null;
+  /** Action at the head of the transition chain (for the badge). */
+  readonly headAction: CourseTransitionAction | null;
+}
+
+/**
+ * A lifecycle change of the course row (status and revision pointers; undefined = keep).
+ * Always bumps `version`. `markFirstPublished` sets `first_published_at = COALESCE(
+ * first_published_at, now())`, i.e. the first APPROVE's `occurred_at` (same transaction).
+ */
+export interface LifecycleChange {
+  readonly status: CourseStatus;
+  readonly pendingRevisionId?: string | null;
+  readonly publishedRevisionId?: string;
+  readonly markFirstPublished?: boolean;
+}
+
+/** One row of the admin course list (working-copy title). */
+export interface AdminCourseRecord {
+  readonly id: string;
+  readonly ownerId: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly status: CourseStatus;
+  readonly pendingRevisionId: string | null;
+  readonly publishedRevisionId: string | null;
+  readonly firstPublishedAt: Date | null;
+  readonly updatedAt: Date;
+  /** `updated_at` as exact UTC text with microseconds (the keyset). */
+  readonly updatedAtText: string;
+  readonly headAction: CourseTransitionAction | null;
+}
+
+export interface AdminCourseQuery {
+  readonly status: CourseStatus | undefined;
+  /** Substring of the working title or the slug (>= 3 characters; LIKE-escaped). */
+  readonly q: string | undefined;
+  readonly ownerId: string | undefined;
+  readonly after: MyCoursesKeyset | null;
+  readonly limit: number;
 }
 
 /**
@@ -122,6 +162,16 @@ export abstract class CourseRepository {
     kind: BulletKind,
     texts: readonly string[],
   ): Promise<void>;
+
+  /** Applies a lifecycle change (P2-T10) and bumps `version`; returns the new row. */
+  abstract applyLifecycle(
+    trx: Transaction<DB>,
+    courseId: string,
+    change: LifecycleChange,
+  ): Promise<CourseRecord>;
+
+  /** Admin list: every non-deleted course, newest change first, with filters. */
+  abstract searchForAdmin(query: AdminCourseQuery): Promise<AdminCourseRecord[]>;
 
   /** One page of the owner's non-deleted courses, newest change first. */
   abstract listByOwner(query: {

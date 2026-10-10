@@ -38,3 +38,26 @@ function invalidCursor(): ValidationError {
     issues: [{ path: 'cursor', message: 'Invalid cursor.' }],
   });
 }
+
+const ReviewQueueKeysetSchema = z.object({ r: z.uuid() });
+
+/**
+ * Opaque cursor of the admin review queue: base64url of `{ r: revisionId }` (keyset on the
+ * uuidv7 pending revision id, schema doc §6 item 16).
+ */
+export function encodeReviewQueueCursor(revisionId: string): string {
+  return Buffer.from(JSON.stringify({ r: revisionId }), 'utf8').toString('base64url');
+}
+
+/** @throws ValidationError (422 `validation_failed`) for anything this api did not produce */
+export function decodeReviewQueueCursor(cursor: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+  } catch {
+    throw invalidCursor();
+  }
+  const result = ReviewQueueKeysetSchema.safeParse(parsed);
+  if (!result.success) throw invalidCursor();
+  return result.data.r;
+}

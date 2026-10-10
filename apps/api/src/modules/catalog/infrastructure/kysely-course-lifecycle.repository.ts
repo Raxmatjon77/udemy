@@ -1,17 +1,33 @@
 import { Injectable } from '@nestjs/common';
-import { REVISION_KINDS } from '@udemy/contracts';
-import { type DB, type Executor, getTransitionHead, type Transaction } from '@udemy/db';
+import {
+  COURSE_STATUSES,
+  COURSE_TRANSITION_ACTIONS,
+  type CourseTransitionAction,
+  REVISION_KINDS,
+} from '@udemy/contracts';
+import {
+  type DB,
+  type Executor,
+  getTransitionHead,
+  listReviewQueue,
+  type Transaction,
+} from '@udemy/db';
 import { type Database, InjectDatabase } from '@udemy/nest-common';
 import {
   CourseLifecycleRepository,
   type DecisionRecord,
   type NewTransition,
+  type ReviewQueueRecord,
   type RevisionSummaryRecord,
   type TransitionHead,
+  type TransitionRecord,
 } from '../application/ports/course-lifecycle.repository';
 import { mapCatalogConstraints } from './catalog-constraint-errors';
 import { toCourseStatus } from './kysely-course.repository';
-import { narrow } from './row-mapping';
+import { narrow, narrowNullable } from './row-mapping';
+
+const toAction = (value: string): CourseTransitionAction =>
+  narrow(COURSE_TRANSITION_ACTIONS, value, 'catalog.course_transitions.action');
 
 /** `catalog.course_transitions` (hash-linked chain) and revision summaries with Kysely. */
 @Injectable()
@@ -22,7 +38,18 @@ export class KyselyCourseLifecycleRepository extends CourseLifecycleRepository {
 
   async getTransitionHead(trx: Transaction<DB>, courseId: string): Promise<TransitionHead | null> {
     const head = await getTransitionHead(trx, courseId);
-    return head === null ? null : { id: head.id, toStatus: toCourseStatus(head.toStatus) };
+    if (head === null) return null;
+    const row = await trx
+      .selectFrom('catalog.courseTransitions')
+      .select(['action', 'actorId'])
+      .where('id', '=', head.id)
+      .executeTakeFirstOrThrow();
+    return {
+      id: head.id,
+      toStatus: toCourseStatus(head.toStatus),
+      action: toAction(row.action),
+      actorId: row.actorId,
+    };
   }
 
   async appendTransition(
@@ -55,7 +82,7 @@ export class KyselyCourseLifecycleRepository extends CourseLifecycleRepository {
     if (ids.length === 0) return [];
     const rows = await ex
       .selectFrom('catalog.courseRevisions')
-      .select(['id', 'revisionNo', 'kind', 'submittedAt'])
+      .select(['id', 'courseId', 'revisionNo', 'kind', 'submittedAt'])
       .where('id', 'in', ids)
       .execute();
     return rows.map((row) => ({
@@ -85,5 +112,84 @@ export class KyselyCourseLifecycleRepository extends CourseLifecycleRepository {
       reason: row.reason,
       decidedAt: row.occurredAt,
     };
+  }
+
+  async findHeadAction(
+    courseId: string,
+    ex: Executor = this.db,
+  ): Promise<CourseTransitionAction | null> {
+    const row = await ex
+      .selectFrom('catalog.courseTransitions as t')
+      .select('t.action')
+      .where('t.courseId', '=', courseId)
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom('catalog.courseTransitions as n')
+              .select('n.id')
+              .where('n.courseId', '=', courseId)
+              .whereRef('n.prevTransitionId', '=', 't.id'),
+          ),
+        ),
+      )
+      .executeTakeFirst();
+    return row === undefined ? null : toAction(row.action);
+  }
+
+  async listHistory(courseId: string, ex: Executor = this.db): Promise<TransitionRecord[]> {
+    const rows = await ex
+      .selectFrom('catalog.courseTransitions as t')
+      .leftJoin('catalog.courseRevisions as r', 'r.id', 't.revisionId')
+      .select([
+        't.id',
+        't.prevTransitionId',
+        't.action',
+        't.fromStatus',
+        't.toStatus',
+        't.revisionId',
+        'r.revisionNo',
+        't.actorId',
+        't.reason',
+        't.occurredAt',
+      ])
+      .where('t.courseId', '=', courseId)
+      .execute();
+    // The chain is linear (unique successor): walk it from the root instead of trusting clocks.
+    const bySuccessorOf = new Map(rows.map((row) => [row.prevTransitionId, row]));
+    const ordered: TransitionRecord[] = [];
+    for (let row = bySuccessorOf.get(null); row !== undefined; row = bySuccessorOf.get(row.id)) {
+      ordered.push({
+        id: row.id,
+        prevTransitionId: row.prevTransitionId,
+        action: toAction(row.action),
+        fromStatus: narrowNullable(
+          COURSE_STATUSES,
+          row.fromStatus,
+          'course_transitions.from_status',
+        ),
+        toStatus: toCourseStatus(row.toStatus),
+        revisionId: row.revisionId,
+        revisionNo: row.revisionNo,
+        actorId: row.actorId,
+        reason: row.reason,
+        occurredAt: row.occurredAt,
+      });
+      if (ordered.length > rows.length) throw new Error(`course ${courseId}: cyclic history`);
+    }
+    return ordered;
+  }
+
+  async listReviewQueue(query: {
+    readonly limit: number;
+    readonly afterRevisionId: string | null;
+  }): Promise<ReviewQueueRecord[]> {
+    const rows = await listReviewQueue(this.db, {
+      limit: query.limit,
+      ...(query.afterRevisionId === null ? {} : { afterRevisionId: query.afterRevisionId }),
+    });
+    return rows.map((row) => ({
+      ...row,
+      kind: narrow(REVISION_KINDS, row.kind, 'catalog.course_revisions.kind'),
+    }));
   }
 }

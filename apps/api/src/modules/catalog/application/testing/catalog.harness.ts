@@ -3,7 +3,18 @@ import { CourseDetailAssembler } from '../course-detail.assembler';
 import { CourseLocker } from '../course-locker';
 import { CourseReadinessEvaluator } from '../course-readiness.evaluator';
 import { CurriculumReader } from '../curriculum-reader';
-import { LiveRevisionPresenceDetector } from '../ports/unpublished-changes.detector';
+import { ContentHashUnpublishedChangesDetector } from '../content-hash-unpublished-changes.detector';
+import { WorkingCopySnapshotter } from '../working-copy-snapshotter';
+import { AdminSearchCoursesQuery } from '../use-cases/admin-search-courses.query';
+import { ApproveRevisionCommand } from '../use-cases/approve-revision.command';
+import { ArchiveCourseCommand } from '../use-cases/archive-course.command';
+import { GetCourseHistoryQuery } from '../use-cases/get-course-history.query';
+import { GetRevisionReviewQuery } from '../use-cases/get-revision-review.query';
+import { ListReviewQueueQuery } from '../use-cases/list-review-queue.query';
+import { RejectRevisionCommand } from '../use-cases/reject-revision.command';
+import { RestoreCourseCommand } from '../use-cases/restore-course.command';
+import { SubmitCourseCommand } from '../use-cases/submit-course.command';
+import { WithdrawSubmissionCommand } from '../use-cases/withdraw-submission.command';
 import { AddLectureCommand } from '../use-cases/add-lecture.command';
 import { AddSectionCommand } from '../use-cases/add-section.command';
 import { AdminListCategoriesQuery } from '../use-cases/admin-list-categories.query';
@@ -34,9 +45,12 @@ import {
   FakeCatalogEventPublisher,
   FakeCategoryRepository,
   FakeCourseLifecycleRepository,
+  FakeCoursePeopleDirectory,
   FakeCourseRepository,
   FakeCurriculumRepository,
   FakeMediaFacade,
+  FakeRevisionRepository,
+  FakeSubmissionRateLimiter,
   FakeTransactionRunner,
 } from './catalog.fakes';
 
@@ -51,6 +65,10 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
   const tx = new FakeTransactionRunner(world);
   const mediaFake = new FakeMediaFacade(world);
   const media = mediaFake.asFacade();
+  const revisions = new FakeRevisionRepository(world);
+  const people = new FakeCoursePeopleDirectory();
+  const rateLimiter = new FakeSubmissionRateLimiter();
+  const snapshotter = new WorkingCopySnapshotter(courses, curriculum);
 
   const locker = new CourseLocker(courses);
   const reader = new CurriculumReader(curriculum, media);
@@ -60,7 +78,7 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
     lifecycle,
     reader,
     readiness,
-    new LiveRevisionPresenceDetector(),
+    new ContentHashUnpublishedChangesDetector(snapshotter, revisions),
   );
 
   return {
@@ -73,6 +91,9 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
     tx,
     media: mediaFake,
     readiness,
+    revisions,
+    people,
+    rateLimiter,
     // categories
     adminListCategories: new AdminListCategoriesQuery(categories),
     listCategoryTree: new ListCategoryTreeQuery(categories),
@@ -109,6 +130,30 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
     saveArticle: new SaveArticleCommand(courses, curriculum, locker, tx),
     attachMedia: new AttachLectureMediaCommand(courses, curriculum, reader, media, locker, tx),
     detachMedia: new DetachLectureMediaCommand(courses, curriculum, reader, media, locker, tx),
+    // lifecycle and moderation
+    submit: new SubmitCourseCommand(
+      courses,
+      categories,
+      lifecycle,
+      revisions,
+      reader,
+      readiness,
+      snapshotter,
+      media,
+      events,
+      rateLimiter,
+      locker,
+      tx,
+    ),
+    withdraw: new WithdrawSubmissionCommand(courses, lifecycle, media, events, locker, detail, tx),
+    approve: new ApproveRevisionCommand(courses, lifecycle, media, events, locker, detail, tx),
+    reject: new RejectRevisionCommand(courses, lifecycle, media, events, locker, detail, tx),
+    archive: new ArchiveCourseCommand(courses, lifecycle, media, events, locker, detail, tx),
+    restore: new RestoreCourseCommand(courses, lifecycle, events, locker, detail, tx),
+    history: new GetCourseHistoryQuery(courses, lifecycle, people),
+    reviewQueue: new ListReviewQueueQuery(lifecycle, people),
+    revisionReview: new GetRevisionReviewQuery(courses, revisions, categories, people, media),
+    adminCourses: new AdminSearchCoursesQuery(courses, people),
   };
 }
 

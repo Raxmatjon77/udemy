@@ -1,4 +1,4 @@
-import { ErrorCode } from '@udemy/contracts';
+import { type CourseReadinessIssue, ErrorCode } from '@udemy/contracts';
 import {
   ConflictError,
   type DomainFieldIssue,
@@ -125,6 +125,42 @@ export class ReviewAlreadyPending extends ConflictError {
   constructor(options: CauseOption = {}) {
     super('A submission of this course is already in review.', {
       code: ErrorCode.ReviewAlreadyPending,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 404 `not_found`: no such revision of this course (there is no dedicated revision code). */
+export class RevisionNotFound extends NotFoundError {
+  constructor(options: CauseOption = {}) {
+    super('The revision does not exist for this course.', {
+      code: ErrorCode.NotFound,
+      cause: options.cause,
+    });
+  }
+}
+
+/**
+ * 422 `course_not_ready` (invariant 6): every unmet readiness rule at once. The presentation
+ * layer renders `issues` as the `CourseNotReadyProblem` extension member (not field errors).
+ */
+export class CourseNotReady extends ValidationError {
+  constructor(
+    readonly readinessIssues: readonly CourseReadinessIssue[],
+    options: CauseOption = {},
+  ) {
+    super('The course is not ready to be submitted for review.', {
+      code: ErrorCode.CourseNotReady,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 409 `nothing_to_review` (invariant 7): the snapshot equals the live revision. */
+export class NothingToReview extends ConflictError {
+  constructor(options: CauseOption = {}) {
+    super('Nothing changed since the live version of the course.', {
+      code: ErrorCode.NothingToReview,
       cause: options.cause,
     });
   }

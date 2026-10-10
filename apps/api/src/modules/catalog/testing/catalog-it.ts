@@ -105,7 +105,7 @@ export async function forceCourseState(
 
 /**
  * Removes everything catalog tests wrote for these owners (courses with their children,
- * transitions, outbox events), the tracked categories, the owners' media rows, then the users.
+ * revisions, transitions, outbox events), the tracked categories, the owners' media rows, then the users.
  * Needs a superuser: replica mode disables the append-only and deferred guards for this
  * transaction only.
  */
@@ -136,6 +136,24 @@ export async function deleteCatalogTestData(
           .deleteFrom('catalog.courseTransitions')
           .where('courseId', 'in', courses)
           .execute();
+        // Revision snapshots (P2-T10); the course pointers are dropped with the courses below.
+        const revisions = trx
+          .selectFrom('catalog.courseRevisions')
+          .select('id')
+          .where('courseId', 'in', courses);
+        await trx
+          .deleteFrom('catalog.revisionLectures')
+          .where('revisionId', 'in', revisions)
+          .execute();
+        await trx
+          .deleteFrom('catalog.revisionSections')
+          .where('revisionId', 'in', revisions)
+          .execute();
+        await trx
+          .deleteFrom('catalog.revisionBullets')
+          .where('revisionId', 'in', revisions)
+          .execute();
+        await trx.deleteFrom('catalog.courseRevisions').where('courseId', 'in', courses).execute();
         await trx
           .deleteFrom('catalog.lectureArticles')
           .where('lectureId', 'in', (eb) =>

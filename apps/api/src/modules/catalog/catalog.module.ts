@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AppConfigService } from '../../shared/config';
+import { IdentityModule } from '../identity';
 import { MediaModule } from '../media';
 import { CatalogSettings } from './application/catalog-settings';
 import { CourseDetailAssembler } from './application/course-detail.assembler';
@@ -13,10 +14,27 @@ import { CourseLifecycleRepository } from './application/ports/course-lifecycle.
 import { CourseRepository } from './application/ports/course.repository';
 import { CurriculumRepository } from './application/ports/curriculum.repository';
 import { TransactionRunner } from './application/ports/transaction-runner';
-import {
-  LiveRevisionPresenceDetector,
-  UnpublishedChangesDetector,
-} from './application/ports/unpublished-changes.detector';
+import { UnpublishedChangesDetector } from './application/ports/unpublished-changes.detector';
+import { ContentHashUnpublishedChangesDetector } from './application/content-hash-unpublished-changes.detector';
+import { IdentityCoursePeopleDirectory } from './application/identity-course-people.directory';
+import { CoursePeopleDirectory } from './application/ports/course-people.directory';
+import { RevisionRepository } from './application/ports/revision.repository';
+import { SubmissionRateLimiter } from './application/ports/submission-rate-limiter';
+import { WorkingCopySnapshotter } from './application/working-copy-snapshotter';
+import { AdminSearchCoursesQuery } from './application/use-cases/admin-search-courses.query';
+import { ApproveRevisionCommand } from './application/use-cases/approve-revision.command';
+import { ArchiveCourseCommand } from './application/use-cases/archive-course.command';
+import { GetCourseHistoryQuery } from './application/use-cases/get-course-history.query';
+import { GetRevisionReviewQuery } from './application/use-cases/get-revision-review.query';
+import { ListReviewQueueQuery } from './application/use-cases/list-review-queue.query';
+import { RejectRevisionCommand } from './application/use-cases/reject-revision.command';
+import { RestoreCourseCommand } from './application/use-cases/restore-course.command';
+import { SubmitCourseCommand } from './application/use-cases/submit-course.command';
+import { WithdrawSubmissionCommand } from './application/use-cases/withdraw-submission.command';
+import { KyselyRevisionRepository } from './infrastructure/kysely-revision.repository';
+import { RedisSubmissionRateLimiter } from './infrastructure/redis-submission-rate-limiter';
+import { AdminCourseModerationController } from './presentation/admin-course-moderation.controller';
+import { CourseLifecycleController } from './presentation/course-lifecycle.controller';
 import { AddLectureCommand } from './application/use-cases/add-lecture.command';
 import { AddSectionCommand } from './application/use-cases/add-section.command';
 import { AdminListCategoriesQuery } from './application/use-cases/admin-list-categories.query';
@@ -63,28 +81,32 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
 
 /**
  * catalog (design §3–§8): categories, the course working copy (details, bullets, slug,
- * thumbnail), curriculum, media attachment and deletion. P2-T9 ("catalog A").
+ * thumbnail), curriculum, media attachment and deletion (P2-T9, "catalog A"); the lifecycle
+ * (submit/withdraw/approve/reject/archive/restore), immutable revisions, history and the admin
+ * review queue / revision review / course list (P2-T10, "catalog B").
  *
- * Depends on media through `MediaFacade` only (usages in catalog's own transaction), plus the
+ * Depends on media through `MediaFacade` only, on identity through `IdentityFacade` (names,
+ * ban flags) (usages in catalog's own transaction), plus the
  * global DatabaseModule, OutboxModule, AppConfigModule and AuthSupportModule.
  * `CourseOwnership` is discovered by access's OwnershipRegistry for
  * `@CheckPolicy({ resource: 'course' })`.
  *
- * Extension points for P2-T10 (lifecycle/moderation) and P2-T11 (public read/playback), which
- * add their providers and controllers HERE: `CourseLocker` (per-course mutex),
- * `CourseLifecycleRepository` (transition chain), `CourseReadinessEvaluator` (submit check),
- * `CurriculumReader` / `CourseDetailAssembler` (views), `CatalogEventPublisher`,
- * `TransactionRunner` (maps the §9 constraints incl. deferred ones at COMMIT), the
- * `UnpublishedChangesDetector` binding (content-hash comparison) and `ListCategoryTreeQuery`
- * (the public `GET /catalog/categories`).
+ * Extension points for P2-T11 (public read/playback), which adds its providers and
+ * controllers HERE: `RevisionRepository.findById` (the live snapshot for the landing page,
+ * outline and per-lecture playback lookup via `courses.published_revision_id`),
+ * `CourseRepository`, `CurriculumReader`, `CoursePeopleDirectory`, `CatalogEventPublisher`,
+ * `TransactionRunner` (maps the §9 constraints incl. deferred ones at COMMIT) and
+ * `ListCategoryTreeQuery` (the public `GET /catalog/categories`).
  */
 @Module({
-  imports: [MediaModule],
+  imports: [MediaModule, IdentityModule],
   controllers: [
     InstructorCoursesController,
     CoursesController,
     CurriculumController,
+    CourseLifecycleController,
     AdminCategoriesController,
+    AdminCourseModerationController,
   ],
   providers: [
     // Configuration
@@ -97,8 +119,11 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
     { provide: CurriculumRepository, useClass: KyselyCurriculumRepository },
     { provide: CategoryRepository, useClass: KyselyCategoryRepository },
     { provide: CatalogEventPublisher, useClass: OutboxCatalogEventPublisher },
-    // P2-T10 rebinds this to the working-copy content-hash comparison.
-    { provide: UnpublishedChangesDetector, useClass: LiveRevisionPresenceDetector },
+    { provide: RevisionRepository, useClass: KyselyRevisionRepository },
+    { provide: SubmissionRateLimiter, useClass: RedisSubmissionRateLimiter },
+    { provide: CoursePeopleDirectory, useClass: IdentityCoursePeopleDirectory },
+    // "Unpublished changes" = working-copy content hash != live revision content_hash (§4).
+    { provide: UnpublishedChangesDetector, useClass: ContentHashUnpublishedChangesDetector },
 
     // Application services
     CourseOwnership,
@@ -106,6 +131,7 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
     CurriculumReader,
     CourseReadinessEvaluator,
     CourseDetailAssembler,
+    WorkingCopySnapshotter,
 
     // Use cases: categories
     AdminListCategoriesQuery,
@@ -137,6 +163,18 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
     SaveArticleCommand,
     AttachLectureMediaCommand,
     DetachLectureMediaCommand,
+
+    // Use cases: lifecycle and moderation (P2-T10)
+    SubmitCourseCommand,
+    WithdrawSubmissionCommand,
+    ApproveRevisionCommand,
+    RejectRevisionCommand,
+    ArchiveCourseCommand,
+    RestoreCourseCommand,
+    GetCourseHistoryQuery,
+    ListReviewQueueQuery,
+    GetRevisionReviewQuery,
+    AdminSearchCoursesQuery,
   ],
 })
 export class CatalogModule {}

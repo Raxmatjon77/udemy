@@ -39,6 +39,7 @@ export class CourseDetailAssembler {
       (await this.lifecycle.findRevisionSummaries(revisionIds, ex)).map((r) => [r.id, r]),
     );
     const decision = await this.lifecycle.findLatestDecision(course.id, ex);
+    const headAction = await this.lifecycle.findHeadAction(course.id, ex);
     const pending =
       course.pendingRevisionId === null ? undefined : revisions.get(course.pendingRevisionId);
     const live =
@@ -63,7 +64,7 @@ export class CourseDetailAssembler {
       outcomes: [...bullets.outcomes],
       requirements: [...bullets.requirements],
       status: course.status,
-      badge: courseBadge(course, decision),
+      badge: courseBadge(course, headAction),
       version: course.version,
       locked: isWorkingCopyLocked(course),
       pendingRevision: pending === undefined ? null : toRevisionSummary(pending),

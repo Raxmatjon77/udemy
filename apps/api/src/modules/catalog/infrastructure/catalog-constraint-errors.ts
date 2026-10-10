@@ -88,7 +88,7 @@ export const CATALOG_CONSTRAINT_ERRORS: Readonly<Record<string, ToDomainError>> 
   // One working consumer per asset (catalog's own backstops; MediaFacade reports it first)
   lectures_media_asset_id_uq: (cause) => new AttachedMediaUnusable({ cause }),
   courses_thumbnail_asset_id_uq: (cause) => new AttachedMediaUnusable({ cause }),
-  // Lifecycle log (P2-T9 writes CREATE/DELETE; P2-T10 the rest)
+  // Lifecycle log and revisions (P2-T9 writes CREATE/DELETE; P2-T10 the rest)
   course_transitions_course_deleted_ck: (cause) => new CourseNotFound({ cause }),
   course_transitions_course_id_prev_transition_id_uq: (cause) => new VersionConflict({ cause }),
   course_transitions_revision_id_decision_uq: (cause) => new InvalidStateTransition({ cause }),
@@ -100,6 +100,19 @@ export const CATALOG_CONSTRAINT_ERRORS: Readonly<Record<string, ToDomainError>> 
   course_transitions_self_decision_ck: (cause) => new SelfDecisionForbidden({ cause }),
   course_transitions_restore_actor_ck: (cause) => new RestoreForbidden({ cause }),
   course_revisions_course_id_revision_no_uq: (cause) => new ReviewAlreadyPending({ cause }),
+  // One pending revision per course (two submits can only race past a missing lock)
+  courses_pending_revision_id_uq: (cause) => new ReviewAlreadyPending({ cause }),
+  // Moderation reasons (the request schemas check them first)
+  course_transitions_takedown_reason_ck: field(
+    'reason',
+    'A takedown needs a reason of at least 10 characters.',
+  ),
+  course_transitions_reject_reason_ck: field(
+    'reason',
+    'A rejection needs a reason of at least 10 characters.',
+  ),
+  course_transitions_reason_ck: field('reason', 'Invalid reason.'),
+  course_revisions_submitter_note_ck: field('note', 'Invalid note.'),
   // Field shapes the request schemas already enforce (a hit is a validation gap: still 422)
   courses_title_ck: field('title', 'Invalid title.'),
   courses_subtitle_ck: field('subtitle', 'Invalid subtitle.'),

@@ -35,7 +35,7 @@ export class ListMyCoursesQuery {
         slug: row.slug,
         title: row.title,
         status: row.status,
-        badge: courseBadge(row, row.latestDecision),
+        badge: courseBadge(row, row.headAction),
         thumbnailAssetId: row.thumbnailAssetId,
         firstPublishedAt: row.firstPublishedAt?.toISOString() ?? null,
         updatedAt: row.updatedAt.toISOString(),

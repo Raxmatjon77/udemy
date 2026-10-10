@@ -1,9 +1,16 @@
 import type {
   AssetView,
   BulletKind,
+  CourseArchivedPayload,
   CourseCreatedPayload,
   CourseDeletedPayload,
+  CoursePublishedPayload,
+  CourseRejectedPayload,
+  CourseRestoredPayload,
   CourseStatus,
+  CourseSubmissionWithdrawnPayload,
+  CourseSubmittedForReviewPayload,
+  CourseTransitionAction,
   MediaPurpose,
 } from '@udemy/contracts';
 import type { DB, Executor, Transaction } from '@udemy/db';
@@ -14,7 +21,13 @@ import {
   type MediaFacade,
   MediaPurposeMismatch,
 } from '../../../media';
-import { CategoryInUse, CurriculumLimitExceeded, SlugTaken } from '../../domain/catalog.errors';
+import {
+  CategoryInUse,
+  CurriculumLimitExceeded,
+  InvalidStateTransition,
+  SlugTaken,
+  VersionConflict,
+} from '../../domain/catalog.errors';
 import type { CategoryFacts } from '../../domain/category';
 import type { CurriculumPositions } from '../../domain/curriculum';
 import { CatalogEventPublisher } from '../ports/catalog-event.publisher';
@@ -29,14 +42,28 @@ import {
   CourseLifecycleRepository,
   type DecisionRecord,
   type NewTransition,
+  type ReviewQueueRecord,
   type RevisionSummaryRecord,
   type TransitionHead,
+  type TransitionRecord,
 } from '../ports/course-lifecycle.repository';
+import { CoursePeopleDirectory, type CoursePerson } from '../ports/course-people.directory';
 import {
+  type InsertedRevision,
+  type NewRevision,
+  type RevisionLectureRecord,
+  type RevisionRecord,
+  RevisionRepository,
+} from '../ports/revision.repository';
+import { SubmissionRateLimiter } from '../ports/submission-rate-limiter';
+import {
+  type AdminCourseQuery,
+  type AdminCourseRecord,
   type CourseBullets,
   type CourseHeaderPatch,
   type CourseRecord,
   CourseRepository,
+  type LifecycleChange,
   type MyCourseRecord,
   type MyCoursesKeyset,
   type NewCourse,
@@ -74,7 +101,9 @@ export interface CatalogState {
   courses: Map<string, StoredCourse>;
   bullets: Map<string, { outcomes: string[]; requirements: string[] }>;
   transitions: StoredTransition[];
-  revisions: Map<string, RevisionSummaryRecord & { courseId: string }>;
+  revisions: Map<string, RevisionSummaryRecord>;
+  /** Full snapshots written by FakeRevisionRepository (summaries stay in `revisions`). */
+  snapshots: Map<string, RevisionRecord>;
   sections: Map<string, Mutable<SectionRecord>>;
   lectures: Map<string, Mutable<LectureRecord>>;
   articles: Map<string, Mutable<ArticleRecord>>;
@@ -91,6 +120,7 @@ export class CatalogWorld {
     bullets: new Map(),
     transitions: [],
     revisions: new Map(),
+    snapshots: new Map(),
     sections: new Map(),
     lectures: new Map(),
     articles: new Map(),
@@ -145,6 +175,16 @@ function toRecord(course: StoredCourse): CourseRecord {
   const record: Partial<StoredCourse> = { ...course };
   delete record.deletedAt;
   return record as CourseRecord;
+}
+
+/** Action at the head of a course's chain in the fake log. */
+function headOf(world: CatalogWorld, courseId: string): StoredTransition | undefined {
+  const chain = world.state.transitions.filter((t) => t.courseId === courseId);
+  return chain.find((t) => !chain.some((n) => n.prevTransitionId === t.id));
+}
+
+function headActionOf(world: CatalogWorld, courseId: string): CourseTransitionAction | null {
+  return headOf(world, courseId)?.action ?? null;
 }
 
 export class FakeCourseRepository extends CourseRepository {
@@ -307,7 +347,58 @@ export class FakeCourseRepository extends CourseRepository {
         firstPublishedAt: c.firstPublishedAt,
         updatedAt: c.updatedAt,
         updatedAtText: text(c.updatedAt),
-        latestDecision: null,
+        headAction: headActionOf(this.world, c.id),
+      }));
+  }
+
+  async applyLifecycle(
+    _trx: Transaction<DB>,
+    courseId: string,
+    change: LifecycleChange,
+  ): Promise<CourseRecord> {
+    const course = this.live(courseId);
+    if (course === undefined) throw new Error('fake: course not found');
+    course.status = change.status;
+    if (change.pendingRevisionId !== undefined) course.pendingRevisionId = change.pendingRevisionId;
+    if (change.publishedRevisionId !== undefined) {
+      course.publishedRevisionId = change.publishedRevisionId;
+    }
+    if (change.markFirstPublished === true && course.firstPublishedAt === null) {
+      course.firstPublishedAt = this.world.now();
+    }
+    course.version += 1;
+    course.updatedAt = this.world.now();
+    return toRecord(course);
+  }
+
+  async searchForAdmin(query: AdminCourseQuery): Promise<AdminCourseRecord[]> {
+    const text = (d: Date): string => d.toISOString().replace('Z', '000Z');
+    const q = query.q?.toLowerCase();
+    return [...this.world.state.courses.values()]
+      .filter((c) => c.deletedAt === null)
+      .filter((c) => query.status === undefined || c.status === query.status)
+      .filter((c) => query.ownerId === undefined || c.ownerId === query.ownerId)
+      .filter((c) => q === undefined || c.title.toLowerCase().includes(q) || c.slug.includes(q))
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || (a.id < b.id ? 1 : -1))
+      .filter((c) => {
+        const after = query.after;
+        if (after === null) return true;
+        const key = text(c.updatedAt);
+        return key < after.updatedAt || (key === after.updatedAt && c.id < after.id);
+      })
+      .slice(0, query.limit)
+      .map((c) => ({
+        id: c.id,
+        ownerId: c.ownerId,
+        slug: c.slug,
+        title: c.title,
+        status: c.status,
+        pendingRevisionId: c.pendingRevisionId,
+        publishedRevisionId: c.publishedRevisionId,
+        firstPublishedAt: c.firstPublishedAt,
+        updatedAt: c.updatedAt,
+        updatedAtText: text(c.updatedAt),
+        headAction: headActionOf(this.world, c.id),
       }));
   }
 }
@@ -322,15 +413,37 @@ export class FakeCourseLifecycleRepository extends CourseLifecycleRepository {
   }
 
   async getTransitionHead(_trx: Transaction<DB>, courseId: string): Promise<TransitionHead | null> {
-    const chain = this.world.state.transitions.filter((t) => t.courseId === courseId);
-    const head = chain.find((t) => !chain.some((n) => n.prevTransitionId === t.id));
-    return head === undefined ? null : { id: head.id, toStatus: head.toStatus };
+    const head = headOf(this.world, courseId);
+    return head === undefined
+      ? null
+      : { id: head.id, toStatus: head.toStatus, action: head.action, actorId: head.actorId };
   }
 
+  /**
+   * Mirrors the DB backstops the use cases rely on: the unique chain successor (version
+   * conflict) and one decision per revision (`..._decision_uq`).
+   */
   async appendTransition(
     _trx: Transaction<DB>,
     transition: NewTransition,
   ): Promise<{ id: string; occurredAt: Date }> {
+    const all = this.world.state.transitions;
+    if (
+      transition.prevTransitionId !== null &&
+      all.some(
+        (t) =>
+          t.courseId === transition.courseId && t.prevTransitionId === transition.prevTransitionId,
+      )
+    ) {
+      throw new VersionConflict();
+    }
+    const decisions: readonly string[] = ['APPROVE', 'REJECT', 'WITHDRAW'];
+    if (
+      decisions.includes(transition.action) &&
+      all.some((t) => t.revisionId === transition.revisionId && decisions.includes(t.action))
+    ) {
+      throw new InvalidStateTransition();
+    }
     const stored = { ...transition, id: testId(), occurredAt: this.world.now() };
     this.world.state.transitions.push(stored);
     return { id: stored.id, occurredAt: stored.occurredAt };
@@ -358,6 +471,180 @@ export class FakeCourseLifecycleRepository extends CourseLifecycleRepository {
       reason: latest.t.reason,
       decidedAt: latest.t.occurredAt,
     };
+  }
+
+  async findHeadAction(courseId: string): Promise<CourseTransitionAction | null> {
+    return headActionOf(this.world, courseId);
+  }
+
+  async listHistory(courseId: string): Promise<TransitionRecord[]> {
+    const chain = this.world.state.transitions.filter((t) => t.courseId === courseId);
+    const ordered: TransitionRecord[] = [];
+    let next = chain.find((t) => t.prevTransitionId === null);
+    while (next !== undefined) {
+      const current = next;
+      ordered.push({
+        ...current,
+        revisionNo:
+          current.revisionId === null
+            ? null
+            : (this.world.state.revisions.get(current.revisionId)?.revisionNo ?? null),
+      });
+      next = chain.find((t) => t.prevTransitionId === current.id);
+    }
+    return ordered;
+  }
+
+  async listReviewQueue(query: {
+    readonly limit: number;
+    readonly afterRevisionId: string | null;
+  }): Promise<ReviewQueueRecord[]> {
+    const after = query.afterRevisionId;
+    return [...this.world.state.courses.values()]
+      .filter((c) => c.deletedAt === null && c.pendingRevisionId !== null)
+      .filter((c) => after === null || (c.pendingRevisionId ?? '') > after)
+      .sort((a, b) => ((a.pendingRevisionId ?? '') < (b.pendingRevisionId ?? '') ? -1 : 1))
+      .slice(0, query.limit)
+      .flatMap((c) => {
+        const revision = this.world.state.snapshots.get(c.pendingRevisionId ?? '');
+        if (revision === undefined) return [];
+        return [
+          {
+            courseId: c.id,
+            ownerId: c.ownerId,
+            revisionId: revision.id,
+            revisionNo: revision.revisionNo,
+            kind: revision.kind,
+            title: revision.content.title,
+            submittedAt: revision.submittedAt,
+          },
+        ];
+      });
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Revisions, people, rate limits
+ * -------------------------------------------------------------------------------------- */
+
+export class FakeRevisionRepository extends RevisionRepository {
+  constructor(private readonly world: CatalogWorld) {
+    super();
+  }
+
+  async nextRevisionNo(_trx: Transaction<DB>, courseId: string): Promise<number> {
+    const numbers = [...this.world.state.revisions.values()]
+      .filter((r) => r.courseId === courseId)
+      .map((r) => r.revisionNo);
+    return Math.max(0, ...numbers) + 1;
+  }
+
+  async insert(_trx: Transaction<DB>, revision: NewRevision): Promise<InsertedRevision> {
+    const id = testId();
+    const submittedAt = this.world.now();
+    const lectures = new Map<string, RevisionLectureRecord>();
+    for (const section of revision.sections) {
+      section.lectures.forEach((l, position) =>
+        lectures.set(l.id, { ...l, sectionId: section.id, position }),
+      );
+    }
+    const owner = this.world.state.courses.get(revision.courseId)?.ownerId ?? '';
+    this.world.state.snapshots.set(id, {
+      id,
+      courseId: revision.courseId,
+      revisionNo: revision.revisionNo,
+      kind: revision.kind,
+      contentHashHex: revision.contentHash.toString('hex'),
+      submitterNote: revision.submitterNote,
+      submittedAt,
+      submittedBy: owner,
+      content: {
+        title: revision.title,
+        subtitle: revision.subtitle,
+        descriptionMd: revision.descriptionMd,
+        language: revision.language as RevisionRecord['content']['language'],
+        level: revision.level,
+        categoryId: revision.categoryId,
+        thumbnailAssetId: revision.thumbnailAssetId,
+        outcomes: [...revision.outcomes],
+        requirements: [...revision.requirements],
+        sections: revision.sections.map((s) => ({
+          id: s.id,
+          title: s.title,
+          objective: s.objective,
+          lectures: s.lectures.map((l) => ({
+            id: l.id,
+            type: l.type,
+            title: l.title,
+            descriptionMd: l.descriptionMd,
+            isPreview: l.isPreview,
+            mediaAssetId: l.mediaAssetId,
+            articleBodyMd: l.articleBodyMd,
+          })),
+        })),
+      },
+      lectures,
+    });
+    this.world.state.revisions.set(id, {
+      id,
+      courseId: revision.courseId,
+      revisionNo: revision.revisionNo,
+      kind: revision.kind,
+      submittedAt,
+    });
+    return { id, revisionNo: revision.revisionNo, submittedAt };
+  }
+
+  async findContentHashHex(revisionId: string): Promise<string | null> {
+    return this.world.state.snapshots.get(revisionId)?.contentHashHex ?? null;
+  }
+
+  async findById(revisionId: string): Promise<RevisionRecord | null> {
+    return this.world.state.snapshots.get(revisionId) ?? null;
+  }
+
+  async findDecisionAction(revisionId: string): Promise<'APPROVE' | 'REJECT' | 'WITHDRAW' | null> {
+    const t = this.world.state.transitions.find(
+      (x) =>
+        x.revisionId === revisionId &&
+        (x.action === 'APPROVE' || x.action === 'REJECT' || x.action === 'WITHDRAW'),
+    );
+    return t === undefined ? null : (t.action as 'APPROVE' | 'REJECT' | 'WITHDRAW');
+  }
+
+  async findPreviousApprovedId(courseId: string, beforeRevisionNo: number): Promise<string | null> {
+    const approved = this.world.state.transitions
+      .filter((t) => t.courseId === courseId && t.action === 'APPROVE' && t.revisionId !== null)
+      .map((t) => this.world.state.revisions.get(t.revisionId ?? ''))
+      .filter((r): r is RevisionSummaryRecord => r !== undefined && r.revisionNo < beforeRevisionNo)
+      .sort((a, b) => b.revisionNo - a.revisionNo);
+    return approved[0]?.id ?? null;
+  }
+}
+
+export class FakeCoursePeopleDirectory extends CoursePeopleDirectory {
+  readonly people = new Map<string, CoursePerson>();
+
+  async findPeople(userIds: readonly string[]): Promise<ReadonlyMap<string, CoursePerson>> {
+    return new Map(
+      userIds.flatMap((id) => {
+        const person = this.people.get(id);
+        return person === undefined ? [] : [[id, person] as const];
+      }),
+    );
+  }
+}
+
+export class FakeSubmissionRateLimiter extends SubmissionRateLimiter {
+  readonly hits: string[] = [];
+  /** Throws this error on the next hit (e.g. a RateLimitedError). */
+  failNext: Error | null = null;
+
+  async hitSubmit(userId: string): Promise<void> {
+    this.hits.push(userId);
+    const error = this.failNext;
+    this.failNext = null;
+    if (error !== null) throw error;
   }
 }
 
@@ -716,6 +1003,36 @@ export class FakeCatalogEventPublisher extends CatalogEventPublisher {
   async courseDeleted(_trx: Transaction<DB>, payload: CourseDeletedPayload): Promise<void> {
     this.world.state.events.push({ type: 'CourseDeleted', payload });
   }
+
+  async courseSubmittedForReview(
+    _trx: Transaction<DB>,
+    payload: CourseSubmittedForReviewPayload,
+  ): Promise<void> {
+    this.world.state.events.push({ type: 'CourseSubmittedForReview', payload });
+  }
+
+  async courseSubmissionWithdrawn(
+    _trx: Transaction<DB>,
+    payload: CourseSubmissionWithdrawnPayload,
+  ): Promise<void> {
+    this.world.state.events.push({ type: 'CourseSubmissionWithdrawn', payload });
+  }
+
+  async coursePublished(_trx: Transaction<DB>, payload: CoursePublishedPayload): Promise<void> {
+    this.world.state.events.push({ type: 'CoursePublished', payload });
+  }
+
+  async courseRejected(_trx: Transaction<DB>, payload: CourseRejectedPayload): Promise<void> {
+    this.world.state.events.push({ type: 'CourseRejected', payload });
+  }
+
+  async courseArchived(_trx: Transaction<DB>, payload: CourseArchivedPayload): Promise<void> {
+    this.world.state.events.push({ type: 'CourseArchived', payload });
+  }
+
+  async courseRestored(_trx: Transaction<DB>, payload: CourseRestoredPayload): Promise<void> {
+    this.world.state.events.push({ type: 'CourseRestored', payload });
+  }
 }
 
 const WORKING_TYPES = new Set(['catalog.lecture', 'catalog.course_thumbnail']);
@@ -805,6 +1122,21 @@ export class FakeMediaFacade {
       this.locked.push(usage.slice(0, usage.length - suffix.length));
     }
     return released.map((u) => u.slice(0, u.length - suffix.length));
+  }
+
+  async pinRevisionAssets(
+    _trx: Transaction<DB>,
+    input: { revisionId: string; assetIds: readonly string[] },
+  ): Promise<void> {
+    const ids = [...new Set(input.assetIds)].sort();
+    for (const id of ids) {
+      this.locked.push(id);
+      const asset = this.world.state.assets.get(id);
+      if (asset === undefined) throw new MediaAssetNotFound();
+      if (asset.purged || asset.status !== 'READY') throw new MediaAssetUnusable();
+    }
+    for (const id of ids)
+      this.world.state.usages.add(`${id}|catalog.course_revision|${input.revisionId}`);
   }
 
   asFacade(): MediaFacade {

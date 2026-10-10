@@ -4,15 +4,20 @@ import {
   COURSE_LANGUAGES,
   COURSE_LEVELS,
   COURSE_STATUSES,
+  COURSE_TRANSITION_ACTIONS,
   type CourseStatus,
+  type CourseTransitionAction,
 } from '@udemy/contracts';
 import { type DB, type Executor, escapeLikePattern, sql, type Transaction } from '@udemy/db';
 import { type Database, InjectDatabase } from '@udemy/nest-common';
 import {
+  type AdminCourseQuery,
+  type AdminCourseRecord,
   type CourseBullets,
   type CourseHeaderPatch,
   type CourseRecord,
   CourseRepository,
+  type LifecycleChange,
   type MyCourseRecord,
   type MyCoursesKeyset,
   type NewCourse,
@@ -73,9 +78,16 @@ function toCourseRecord(row: CourseRow): CourseRecord {
   };
 }
 
-function toDecisionAction(value: string): 'APPROVE' | 'REJECT' {
-  return narrow(['APPROVE', 'REJECT'] as const, value, 'catalog.course_transitions.action');
+function toHeadAction(value: string | null): CourseTransitionAction | null {
+  return narrowNullable(COURSE_TRANSITION_ACTIONS, value, 'catalog.course_transitions.action');
 }
+
+/** `action` of the chain head of `c.id` (the transition nothing points at), for badges. */
+const HEAD_ACTION = sql<string | null>`(
+  SELECT t.action FROM catalog.course_transitions t
+   WHERE t.course_id = c.id
+     AND NOT EXISTS (SELECT 1 FROM catalog.course_transitions n
+                      WHERE n.course_id = c.id AND n.prev_transition_id = t.id))`;
 
 /**
  * `catalog.courses` + `catalog.course_bullets` with Kysely. Deleted courses are filtered
@@ -222,6 +234,78 @@ export class KyselyCourseRepository extends CourseRepository {
     });
   }
 
+  async applyLifecycle(
+    trx: Transaction<DB>,
+    courseId: string,
+    change: LifecycleChange,
+  ): Promise<CourseRecord> {
+    const row = await mapCatalogConstraints(() =>
+      trx
+        .updateTable('catalog.courses')
+        .set({
+          status: change.status,
+          ...(change.pendingRevisionId === undefined
+            ? {}
+            : { pendingRevisionId: change.pendingRevisionId }),
+          ...(change.publishedRevisionId === undefined
+            ? {}
+            : { publishedRevisionId: change.publishedRevisionId }),
+          ...(change.markFirstPublished === true
+            ? { firstPublishedAt: sql<Date>`coalesce(first_published_at, now())` }
+            : {}),
+          version: sql<number>`version + 1`,
+        })
+        .where('id', '=', courseId)
+        .where('deletedAt', 'is', null)
+        .returning(COURSE_COLUMNS)
+        .executeTakeFirstOrThrow(),
+    );
+    return toCourseRecord(row);
+  }
+
+  async searchForAdmin(query: AdminCourseQuery): Promise<AdminCourseRecord[]> {
+    let builder = this.db
+      .selectFrom('catalog.courses as c')
+      .select([
+        'c.id',
+        'c.ownerId',
+        'c.slug',
+        'c.title',
+        'c.status',
+        'c.pendingRevisionId',
+        'c.publishedRevisionId',
+        'c.firstPublishedAt',
+        'c.updatedAt',
+        exactUtcText('c.updated_at').as('updatedAtText'),
+        HEAD_ACTION.as('headAction'),
+      ])
+      .where('c.deletedAt', 'is', null);
+    if (query.status !== undefined) builder = builder.where('c.status', '=', query.status);
+    if (query.ownerId !== undefined) builder = builder.where('c.ownerId', '=', query.ownerId);
+    if (query.q !== undefined && query.q !== '') {
+      const pattern = `%${escapeLikePattern(query.q)}%`;
+      builder = builder.where((eb) =>
+        eb.or([eb('c.title', 'ilike', pattern), eb('c.slug', 'ilike', pattern)]),
+      );
+    }
+    const after = query.after;
+    if (after !== null) {
+      builder = builder.where(
+        sql<boolean>`(c.updated_at, c.id) < (${after.updatedAt}::timestamptz, ${after.id}::uuid)`,
+      );
+    }
+    const rows = await builder
+      .orderBy('c.updatedAt', 'desc')
+      .orderBy('c.id', 'desc')
+      .limit(query.limit)
+      .execute();
+    return rows.map((row) => ({
+      ...row,
+      status: toCourseStatus(row.status),
+      headAction: toHeadAction(row.headAction),
+    }));
+  }
+
   async listByOwner(query: {
     readonly ownerId: string;
     readonly status: CourseStatus | undefined;
@@ -230,19 +314,6 @@ export class KyselyCourseRepository extends CourseRepository {
   }): Promise<MyCourseRecord[]> {
     let builder = this.db
       .selectFrom('catalog.courses as c')
-      .leftJoinLateral(
-        (eb) =>
-          eb
-            .selectFrom('catalog.courseTransitions as t')
-            .innerJoin('catalog.courseRevisions as r', 'r.id', 't.revisionId')
-            .select(['t.action', 't.revisionId'])
-            .whereRef('t.courseId', '=', 'c.id')
-            .where('t.action', 'in', ['APPROVE', 'REJECT'])
-            .orderBy('r.revisionNo', 'desc')
-            .limit(1)
-            .as('d'),
-        (join) => join.onTrue(),
-      )
       .select([
         'c.id',
         'c.slug',
@@ -254,8 +325,7 @@ export class KyselyCourseRepository extends CourseRepository {
         'c.firstPublishedAt',
         'c.updatedAt',
         exactUtcText('c.updated_at').as('updatedAtText'),
-        'd.action as decisionAction',
-        'd.revisionId as decisionRevisionId',
+        HEAD_ACTION.as('headAction'),
       ])
       .where('c.ownerId', '=', query.ownerId)
       .where('c.deletedAt', 'is', null);
@@ -282,10 +352,7 @@ export class KyselyCourseRepository extends CourseRepository {
       firstPublishedAt: row.firstPublishedAt,
       updatedAt: row.updatedAt,
       updatedAtText: row.updatedAtText,
-      latestDecision:
-        row.decisionAction === null || row.decisionRevisionId === null
-          ? null
-          : { action: toDecisionAction(row.decisionAction), revisionId: row.decisionRevisionId },
+      headAction: toHeadAction(row.headAction),
     }));
   }
 }

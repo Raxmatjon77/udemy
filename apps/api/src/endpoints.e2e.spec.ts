@@ -1427,6 +1427,19 @@ describe('§8 endpoint sweep (real AppModule, guards, Postgres, Redis)', () => {
       [`${V1}/admin/categories/order`, 'put'],
       [`${V1}/admin/categories/{id}`, 'patch'],
       [`${V1}/admin/categories/{id}`, 'delete'],
+      // Phase 2 catalog B (P2-T10); covered by modules/catalog/catalog-lifecycle.e2e.spec.ts.
+      [`${V1}/courses/{courseId}/submit`, 'post'],
+      [`${V1}/courses/{courseId}/withdraw`, 'post'],
+      [`${V1}/courses/{courseId}/archive`, 'post'],
+      [`${V1}/courses/{courseId}/restore`, 'post'],
+      [`${V1}/courses/{courseId}/history`, 'get'],
+      [`${V1}/admin/course-reviews`, 'get'],
+      [`${V1}/admin/course-revisions/{revisionId}`, 'get'],
+      [`${V1}/admin/courses/{courseId}/revisions/{revisionId}/approve`, 'post'],
+      [`${V1}/admin/courses/{courseId}/revisions/{revisionId}/reject`, 'post'],
+      [`${V1}/admin/courses`, 'get'],
+      [`${V1}/admin/courses/{courseId}/takedown`, 'post'],
+      [`${V1}/admin/courses/{courseId}/restore`, 'post'],
     ];
 
     it('documents exactly the §8 operations (plus health probes)', async (ctx) => {
