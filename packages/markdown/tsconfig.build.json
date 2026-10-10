@@ -1,0 +1,11 @@
+{
+  // Builds ONLY the Node-safe validate entry (no React, no DOM lib) to dist/ as ESM.
+  // The api (CommonJS, nodenext) loads it via Node's require(esm), like its other ESM-only deps.
+  "extends": "@udemy/tsconfig/library.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src/validate.ts", "src/url-policy.ts", "src/complexity.ts"]
+}

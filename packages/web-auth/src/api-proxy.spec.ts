@@ -247,6 +247,80 @@ describe('forwarding and header allowlist', () => {
   });
 });
 
+describe('HLS playlists (design D7)', () => {
+  const MASTER = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=2800000,RESOLUTION=1280x720\n720p.m3u8\n';
+  const VARIANT =
+    '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\n' +
+    'http://127.0.0.1:9000/udemy-media/a/720p/seg-00000.ts?X-Amz-Signature=abc&X-Amz-Expires=3600\n' +
+    '#EXT-X-ENDLIST\n';
+  const BASE = 'catalog/courses/c1/lectures/l1/hls';
+  const playlist = (body: string) =>
+    new Response(body, {
+      status: 200,
+      headers: {
+        'content-type': 'application/vnd.apple.mpegurl',
+        'cache-control': 'private, no-store',
+        'x-request-id': 'req-1',
+        'set-cookie': 'leak=1',
+        server: 'nest',
+      },
+    });
+
+  it('streams the master playlist byte for byte with its type and cache headers', async () => {
+    await stubApi({ [`GET /api/v1/${BASE}/master.m3u8`]: () => playlist(MASTER) });
+    const response = await proxy(
+      request('GET', `${BASE}/master.m3u8`, { headers: { accept: '*/*' } }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(MASTER);
+    expect(response.headers.get('content-type')).toBe('application/vnd.apple.mpegurl');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-request-id')).toBe('req-1');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(response.headers.get('server')).toBeNull();
+  });
+
+  it('passes variant playlists (presigned segment URLs) through unchanged', async () => {
+    const api = await stubApi({ [`GET /api/v1/${BASE}/720p.m3u8`]: () => playlist(VARIANT) });
+    const response = await proxy(request('GET', `${BASE}/720p.m3u8`));
+    expect(await response.text()).toBe(VARIANT);
+    expect(api.calls[0]!.headers.get('x-client-id')).toBe('student-bff');
+  });
+
+  it('forwards the Bearer token of a signed-in viewer (entitlement check)', async () => {
+    const at = await mintAccessToken();
+    const api = await stubApi({ [`GET /api/v1/${BASE}/master.m3u8`]: () => playlist(MASTER) });
+    await proxy(request('GET', `${BASE}/master.m3u8`, { cookies: { [AT]: at } }));
+    expect(api.calls[0]!.headers.get('authorization')).toBe(`Bearer ${at}`);
+  });
+
+  it('a text/plain body keeps its type too', async () => {
+    await stubApi({
+      [`GET /api/v1/${BASE}/master.m3u8`]: () =>
+        new Response('#EXTM3U\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } }),
+    });
+    const response = await proxy(request('GET', `${BASE}/master.m3u8`));
+    expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(response.headers.get('cache-control')).toBe('no-store'); // default when absent
+    expect(await response.text()).toBe('#EXTM3U\n');
+  });
+
+  it('a refused playlist (403 lecture_locked) reaches the player as 403', async () => {
+    await stubApi({ [`GET /api/v1/${BASE}/master.m3u8`]: () => problem(403, 'lecture_locked') });
+    const response = await proxy(request('GET', `${BASE}/master.m3u8`));
+    expect(response.status).toBe(403);
+    expect(response.headers.get('content-type')).toBe('application/problem+json');
+  });
+
+  it('HEAD answers headers only', async () => {
+    await stubApi({ [`HEAD /api/v1/${BASE}/master.m3u8`]: () => playlist(MASTER) });
+    const response = await proxy(request('HEAD', `${BASE}/master.m3u8`));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/vnd.apple.mpegurl');
+    expect(response.body).toBeNull();
+  });
+});
+
 describe('refresh in the proxy', () => {
   it('single-flight: N concurrent requests with an expiring at produce exactly 1 refresh', async () => {
     const expiring = await mintAccessToken({ expiresIn: 10 });

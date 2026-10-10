@@ -2,7 +2,8 @@
  * `@udemy/web-auth`: the BFF auth layer shared by the Next apps (design §9/§10).
  *
  * Server-only (every module imports `server-only`). Entries:
- * - `@udemy/web-auth`           config, cookies, API client, auth route handlers, API proxy
+ * - `@udemy/web-auth`           config, cookies, API client, auth route handlers, API proxy,
+ *                               signed media redirects, CSP builder
  * - `@udemy/web-auth/proxy`     `createAuthProxy` for `src/proxy.ts`
  * - `@udemy/web-auth/session`   `createGetSession` for server components (uses next/headers)
  * - `@udemy/web-auth/client`    `'use client'` helpers (logout broadcast, proxy fetch)
@@ -48,6 +49,18 @@ export type {
 } from './route-handlers';
 export { createApiProxyHandler, FORWARDED_RESPONSE_HEADERS } from './api-proxy';
 export type { ApiProxyHandler } from './api-proxy';
+export {
+  createSignedRedirectHandler,
+  isAllowedMediaUrl,
+  SIGNED_REDIRECT_SAFETY_MARGIN_S,
+} from './signed-redirect';
+export type {
+  SignedRedirectContext,
+  SignedRedirectHandler,
+  SignedRedirectOptions,
+} from './signed-redirect';
+export { buildContentSecurityPolicy, createNonce } from './csp';
+export type { CspInput } from './csp';
 export { refreshSingleFlight } from './refresh';
 export type { RefreshOutcome } from './refresh';
 export { verifyAccessToken, REFRESH_THRESHOLD_S } from './jwt';

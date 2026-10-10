@@ -81,9 +81,12 @@ describe('createAuthProxy redirect matrix', () => {
 
   it('protected page with a valid session continues untouched', async () => {
     const api = await stubApi({});
-    const res = await proxy(nav('/account', { [AT]: await mintAccessToken(), [RT]: 'rt' }));
+    const at = await mintAccessToken();
+    const res = await proxy(nav('/account', { [AT]: at, [RT]: 'rt' }));
     expect(isNext(res)).toBe(true);
-    expect(requestCookie(res)).toBeNull();
+    // The request headers are re-sent (for the CSP), the Cookie header unchanged.
+    expect(requestCookie(res)).toBe(cookieHeader({ theme: 'dark', [AT]: at, [RT]: 'rt' }));
+    expect(res.headers.getSetCookie()).toEqual([]);
     expect(api.calls).toHaveLength(0);
   });
 
@@ -356,5 +359,73 @@ describe('recommended matcher', () => {
     '/robots.txt',
   ])('excludes %s', (path) => {
     expect(regex.test(path)).toBe(false);
+  });
+});
+
+describe('Content-Security-Policy', () => {
+  const csp = (res: Response) => res.headers.get('content-security-policy');
+  const nonceOf = (policy: string | null) => policy?.match(/'nonce-([^']+)'/)?.[1];
+
+  it('every rendered page gets a fresh nonce, on the response and on the request for Next', async () => {
+    await stubApi({});
+    const a = await proxy(nav('/login'));
+    const b = await proxy(nav('/login'));
+    const nonceA = nonceOf(csp(a));
+    expect(nonceA).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect(nonceOf(csp(b))).not.toBe(nonceA);
+    expect(a.headers.get('x-middleware-request-content-security-policy')).toBe(csp(a));
+    expect(a.headers.get('x-middleware-request-x-nonce')).toBe(nonceA);
+    expect(a.headers.get('x-middleware-override-headers')).toContain('content-security-policy');
+  });
+
+  it('applies on every pass-through branch (public, protected, refreshed, always-render)', async () => {
+    const fresh = await mintAccessToken();
+    await stubApi({
+      'POST /api/v1/auth/refresh': () =>
+        json({ accessToken: fresh, accessTokenExpiresAt: isoIn(900) }),
+    });
+    const responses = [
+      await proxy(nav('/')),
+      await proxy(nav('/account', { [AT]: await mintAccessToken() })),
+      await proxy(nav('/account', { [AT]: await mintAccessToken({ expiresIn: -5 }), [RT]: 'r' })),
+      await proxy(nav('/verify-email')),
+    ];
+    for (const res of responses) {
+      expect(isNext(res)).toBe(true);
+      expect(csp(res)).toContain("script-src 'self' 'nonce-");
+    }
+    // The refreshed branch keeps rewriting the cookie as well.
+    expect(requestCookie(responses[2]!)).toContain(`${AT}=${fresh}`);
+  });
+
+  it('includes the media origin when configured', async () => {
+    await stubApi({});
+    const withMedia = createAuthProxy(testConfig({ mediaOrigin: 'http://127.0.0.1:9000' }));
+    const policy = csp(await withMedia(nav('/login')))!;
+    expect(policy).toContain("connect-src 'self' http://127.0.0.1:9000");
+    expect(policy).toContain("media-src 'self' blob: http://127.0.0.1:9000");
+    expect(policy).toContain("img-src 'self' data: blob: http://127.0.0.1:9000");
+  });
+
+  it('redirects carry no CSP (no content)', async () => {
+    await stubApi({});
+    const res = await proxy(nav('/account'));
+    expect(res.status).toBe(307);
+    expect(csp(res)).toBeNull();
+  });
+
+  it('/api/* is not touched', async () => {
+    await stubApi({});
+    const res = await proxy(nav('/api/proxy/me'));
+    expect(csp(res)).toBeNull();
+    expect(res.headers.get('x-middleware-override-headers')).toBeNull();
+  });
+
+  it('can be switched off', async () => {
+    await stubApi({});
+    const off = createAuthProxy(testConfig({ contentSecurityPolicy: false }));
+    const res = await off(nav('/login'));
+    expect(isNext(res)).toBe(true);
+    expect(csp(res)).toBeNull();
   });
 });

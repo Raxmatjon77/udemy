@@ -2,9 +2,9 @@ import path from 'node:path';
 import type { NextConfig } from 'next';
 
 /**
- * Baseline security headers for every route.
- * A Content-Security-Policy is intentionally not set yet: it needs per-request nonces
- * (via proxy.ts) once auth, Stripe and the video player land.
+ * Baseline security headers for every route. The Content-Security-Policy is not here: it carries
+ * a per-request nonce, so `createAuthProxy` (src/proxy.ts, @udemy/web-auth/csp) sets it on every
+ * page response.
  */
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },

@@ -1,0 +1,37 @@
+{
+  "name": "@udemy/storage",
+  "version": "0.0.0",
+  "private": true,
+  "description": "S3/MinIO object storage shared by @udemy/api (media), @udemy/transcoder and @udemy/worker: multipart uploads, presigning, objects, key layout.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1149.0",
+    "@aws-sdk/s3-request-presigner": "3.1149.0",
+    "@udemy/nest-common": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@udemy/eslint-config": "workspace:*",
+    "@udemy/tsconfig": "workspace:*",
+    "eslint": "10.12.0",
+    "typescript": "~6.0.3",
+    "vitest": "5.0.3"
+  }
+}

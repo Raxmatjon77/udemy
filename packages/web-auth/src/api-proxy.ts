@@ -69,13 +69,17 @@ const FORWARDED_REQUEST_HEADERS = [
 ] as const;
 
 /** Response headers the browser may see. Notably absent: set-cookie, content-length/encoding
- * (the body is re-streamed, already decoded by fetch), server, x-powered-by. */
+ * (the body is re-streamed, already decoded by fetch), server, x-powered-by.
+ * Non-JSON bodies pass through unchanged with their type and cache headers: the HLS playlists
+ * (`application/vnd.apple.mpegurl`, `Cache-Control: private, no-store`) are streamed as is, and
+ * their relative variant URIs resolve back through this proxy. */
 export const FORWARDED_RESPONSE_HEADERS = [
   'cache-control',
   'content-disposition',
   'content-language',
   'content-type',
   'etag',
+  'expires',
   'last-modified',
   'location',
   'ratelimit-limit',

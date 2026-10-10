@@ -18,6 +18,16 @@ const EnvSchema = z.object({
   JWT_AUDIENCE: z.string().min(1),
   JWKS_URL: z.string().min(1),
   COOKIE_SECURE: z.enum(['true', 'false']),
+  /**
+   * Origin of the media storage the browser reaches directly (HLS segments, images, downloads,
+   * upload parts). Used verbatim in the CSP and as the only allowed signed-redirect target, so
+   * it must be exactly `scheme://host[:port]` (no path, no trailing slash).
+   */
+  MEDIA_PUBLIC_ORIGIN: z
+    .url({ protocol: /^https?$/ })
+    .refine((url) => new URL(url).origin === url, {
+      message: 'Must be an origin only: scheme://host[:port], no path or trailing slash',
+    }),
 });
 
 export type ServerEnv = z.infer<typeof EnvSchema>;
@@ -35,6 +45,7 @@ export function serverEnv(): ServerEnv {
     JWT_AUDIENCE: process.env.JWT_AUDIENCE,
     JWKS_URL: process.env.JWKS_URL,
     COOKIE_SECURE: process.env.COOKIE_SECURE,
+    MEDIA_PUBLIC_ORIGIN: process.env.MEDIA_PUBLIC_ORIGIN,
   });
   if (!parsed.success) {
     throw new Error(`Invalid environment variables:\n${z.prettifyError(parsed.error)}`);

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import { connection } from 'next/server';
 import type { ReactNode } from 'react';
 
 import '@udemy/ui/globals.css';
@@ -28,7 +29,13 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+/**
+ * Every page renders per request: src/proxy.ts sends a Content-Security-Policy with a fresh
+ * nonce, and Next can only stamp that nonce on its scripts while rendering. A prerendered
+ * (static/ISR) page would carry no nonce and its scripts would be blocked.
+ */
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  await connection();
   return (
     <html lang="en" className={`${fontSans.variable} ${fontMono.variable}`}>
       <body className="flex min-h-dvh flex-col">

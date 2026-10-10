@@ -1,6 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 import { lazyWithConfig, type WebAuthConfig, type WebAuthConfigSource } from './config';
+import { buildContentSecurityPolicy, createNonce } from './csp';
 import {
   clearSetCookies,
   cookieNames,
@@ -51,6 +52,12 @@ import { safeNextPath } from './safe-next';
  *     `loginPath?error=forbidden`).
  * - `/api/*` is passed through untouched: the auth route handlers and the API proxy handle
  *   sessions themselves (so a request never refreshes twice).
+ *
+ * Content-Security-Policy (`contentSecurityPolicy`, on by default; see ./csp.ts): every page
+ * response that continues to the app gets a fresh nonce. The policy goes on the response and on
+ * the REQUEST headers (`Content-Security-Policy`, `x-nonce`), where Next picks the nonce up for
+ * its own scripts and server components can read it with `headers()`. Redirects carry no CSP:
+ * they have no content.
  */
 
 export const RECOMMENDED_PROXY_MATCHER =
@@ -86,6 +93,50 @@ function matchesPublic(pathname: string, patterns: readonly string[]): boolean {
     }
     return pathname === pattern;
   });
+}
+
+/** The CSP of one response: the header value and the nonce in it. */
+interface ResponseCsp {
+  policy: string;
+  nonce: string;
+}
+
+function responseCsp(config: WebAuthConfig): ResponseCsp | null {
+  if (!config.contentSecurityPolicy) return null;
+  const nonce = createNonce();
+  const production = process.env.NODE_ENV === 'production';
+  const policy = buildContentSecurityPolicy({
+    nonce,
+    mediaOrigin: config.mediaOrigin,
+    dev: process.env.NODE_ENV === 'development',
+    upgradeInsecureRequests: production && config.appOrigin.startsWith('https:'),
+  });
+  return { policy, nonce };
+}
+
+/**
+ * `NextResponse.next()`, optionally with a rewritten request `Cookie` header, plus the CSP on
+ * the request (for Next's nonce extraction and `headers()`) and on the response.
+ */
+function continueWith(
+  request: NextRequest,
+  csp: ResponseCsp | null,
+  cookie?: string,
+): NextResponse {
+  if (!csp && cookie === undefined) return NextResponse.next();
+  const headers = new Headers(request.headers);
+  if (cookie !== undefined) headers.set('cookie', cookie);
+  if (csp) {
+    headers.set('content-security-policy', csp.policy);
+    headers.set('x-nonce', csp.nonce);
+  } else {
+    // Never let a client-supplied value pose as ours.
+    headers.delete('content-security-policy');
+    headers.delete('x-nonce');
+  }
+  const response = NextResponse.next({ request: { headers } });
+  if (csp) response.headers.set('content-security-policy', csp.policy);
+  return response;
 }
 
 interface ProxySettings {
@@ -149,24 +200,24 @@ export function createAuthProxy(source: WebAuthConfigSource): AuthProxy {
   }
 
   /** Continue to the route, making the refreshed/cleared cookies visible to this render. */
-  function proceed(request: NextRequest, resolution: Resolution): NextResponse {
+  function proceed(
+    request: NextRequest,
+    resolution: Resolution,
+    csp: ResponseCsp | null,
+  ): NextResponse {
     const { config, names } = settings();
     const { session, newAccessToken, newRefreshToken, setCookies } = resolution;
     const ended = session.kind === 'ended';
-    if (!newAccessToken && !ended) return NextResponse.next();
+    if (!newAccessToken && !ended) return continueWith(request, csp);
 
-    const headers = new Headers(request.headers);
     const set: Record<string, string> = {};
     if (newAccessToken) set[names.access] = newAccessToken;
     if (newRefreshToken) set[names.refresh] = newRefreshToken;
-    headers.set(
-      'cookie',
-      rewriteCookieHeader(request.headers.get('cookie'), {
-        set,
-        remove: ended ? [names.access, names.refresh] : [],
-      }),
-    );
-    const response = NextResponse.next({ request: { headers } });
+    const cookie = rewriteCookieHeader(request.headers.get('cookie'), {
+      set,
+      remove: ended ? [names.access, names.refresh] : [],
+    });
+    const response = continueWith(request, csp, cookie);
     appendCookies(response, ended ? clearSetCookies(config) : setCookies);
     return response;
   }
@@ -201,9 +252,10 @@ export function createAuthProxy(source: WebAuthConfigSource): AuthProxy {
 
     if (pathname === '/api' || pathname.startsWith('/api/')) return NextResponse.next();
     const { config, guestOnly, forbiddenPathname } = settings();
+    const csp = responseCsp(config);
 
     if (ALWAYS_RENDER.has(pathname)) {
-      const response = NextResponse.next();
+      const response = continueWith(request, csp);
       response.headers.set('referrer-policy', 'no-referrer');
       return response;
     }
@@ -213,7 +265,7 @@ export function createAuthProxy(source: WebAuthConfigSource): AuthProxy {
     const { accessToken, refreshToken } = readAuthCookies(request, config);
 
     // Anonymous visitor on a public page: nothing to verify or refresh.
-    if (isPublic && !accessToken && !refreshToken) return NextResponse.next();
+    if (isPublic && !accessToken && !refreshToken) return continueWith(request, csp);
 
     const resolution = await resolveSession(request);
     const { session } = resolution;
@@ -222,16 +274,16 @@ export function createAuthProxy(source: WebAuthConfigSource): AuthProxy {
 
     if (isGuestOnly) {
       if (hasRole) return redirect(request, config.homePath, resolution.setCookies);
-      return proceed(request, resolution);
+      return proceed(request, resolution, csp);
     }
-    if (isPublic) return proceed(request, resolution);
+    if (isPublic) return proceed(request, resolution, csp);
 
     // Protected page.
     if (session.kind !== 'signed-in') return loginRedirect(request, resolution);
     if (!hasRole && pathname !== forbiddenPathname) {
       return redirect(request, config.forbiddenRedirect, resolution.setCookies);
     }
-    return proceed(request, resolution);
+    return proceed(request, resolution, csp);
   };
 }
 

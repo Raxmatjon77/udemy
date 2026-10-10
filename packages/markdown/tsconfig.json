@@ -1,0 +1,17 @@
+{
+  "extends": "@udemy/tsconfig/base.json",
+  "compilerOptions": {
+    // Typecheck everything with the Next apps' module settings: the react entry ships TypeScript
+    // source that the apps compile via transpilePackages. The validate entry is additionally
+    // compiled to dist/ with nodenext (tsconfig.build.json) for the CommonJS api.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vitest.config.mts"]
+}

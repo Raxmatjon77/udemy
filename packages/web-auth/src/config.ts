@@ -53,6 +53,21 @@ export const WebAuthConfigSchema = z
     appOrigin: httpUrl.refine((url) => new URL(url).origin === url, {
       message: 'APP_ORIGIN must be an origin only (scheme://host[:port], no path)',
     }),
+    /**
+     * `MEDIA_PUBLIC_ORIGIN`: origin of the media storage the browser talks to directly (HLS
+     * segments, images, downloads, upload part PUTs). Added to the CSP (`img-src`, `media-src`,
+     * `connect-src`) and the only redirect target `createSignedRedirectHandler` accepts.
+     */
+    mediaOrigin: httpUrl
+      .refine((url) => new URL(url).origin === url, {
+        message: 'MEDIA_PUBLIC_ORIGIN must be an origin only (scheme://host[:port], no path)',
+      })
+      .optional(),
+    /**
+     * Send a nonce-based Content-Security-Policy on every page `createAuthProxy` handles
+     * (see ./csp.ts). On by default; `false` only to debug a CSP problem locally.
+     */
+    contentSecurityPolicy: z.boolean().default(true),
     /** `JWT_ISSUER` (the API's `API_PUBLIC_URL`). */
     jwtIssuer: z.string().min(1),
     /** `JWT_AUDIENCE` (`udemy-api`). */
