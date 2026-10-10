@@ -60,10 +60,13 @@ describe('runProcess', () => {
     const error = await runProcess(
       NODE,
       script('process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000)'),
-      { timeoutMs: 300, killGraceMs: 200 },
+      // The child must have installed its SIGTERM handler before the timeout fires, or SIGTERM
+      // simply kills it and SIGKILL is never needed. A cold `node` start took > 300 ms under a full
+      // parallel turbo run, so give it a realistic window; escalation is what is under test.
+      { timeoutMs: 2_500, killGraceMs: 200 },
     ).catch((e: unknown) => e);
     expect(error).toMatchObject({ kind: 'timeout', details: { signal: 'SIGKILL' } });
-  });
+  }, 15_000);
 
   it('kills a child that stops reporting progress', async () => {
     const error = await runProcess(
