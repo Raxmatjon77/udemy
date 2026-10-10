@@ -29,6 +29,16 @@ export async function insertReadyVideo(
   durationMs = 9_000,
 ): Promise<string> {
   const assetId = await insertTestAsset(db, { ownerId, purpose: 'LECTURE_VIDEO', durationMs });
+  await writeVideoOutputs(db, storage, assetId);
+  return assetId;
+}
+
+/** The `360p` rendition row, its variant playlist and two fake segments of a video asset. */
+async function writeVideoOutputs(
+  db: Kysely<DB>,
+  storage: ObjectStorage,
+  assetId: string,
+): Promise<void> {
   const prefix = prefixOf(assetId);
   await db
     .insertInto('media.assetRenditions')
@@ -57,7 +67,6 @@ export async function insertReadyVideo(
       contentType: 'video/mp2t',
     });
   }
-  return assetId;
 }
 
 /** A READY COURSE_THUMBNAIL with its `w750` / `w480` JPEG renditions. */
@@ -67,6 +76,16 @@ export async function insertReadyThumbnail(
   ownerId: string,
 ): Promise<string> {
   const assetId = await insertTestAsset(db, { ownerId, purpose: 'COURSE_THUMBNAIL' });
+  await writeThumbnailOutputs(db, storage, assetId);
+  return assetId;
+}
+
+/** The `w750` / `w480` rendition rows and JPEG objects of a thumbnail asset. */
+async function writeThumbnailOutputs(
+  db: Kysely<DB>,
+  storage: ObjectStorage,
+  assetId: string,
+): Promise<void> {
   const prefix = prefixOf(assetId);
   for (const [name, width, height] of [
     ['w750', 750, 422],
@@ -83,7 +102,36 @@ export async function insertReadyThumbnail(
       contentType: 'image/jpeg',
     });
   }
-  return assetId;
+}
+
+/**
+ * Stands in for the transcoder on an asset that was really uploaded over HTTP (UPLOADED): walks
+ * UPLOADED -> PROCESSING -> READY with the attempt-1 output prefix and writes the outputs the
+ * transcoder would leave (video: one `360p` HLS variant with two fake segments; thumbnail: the
+ * `w750`/`w480` JPEGs). For e2e flows without a transcoder process.
+ */
+export async function finishTranscodeLikeTranscoder(
+  db: Kysely<DB>,
+  storage: ObjectStorage,
+  assetId: string,
+  options: { purpose: 'LECTURE_VIDEO' | 'COURSE_THUMBNAIL'; durationMs?: number },
+): Promise<void> {
+  const video = options.purpose === 'LECTURE_VIDEO';
+  await sql`UPDATE media.assets SET status = 'PROCESSING' WHERE id = ${assetId} AND status = 'UPLOADED'`.execute(
+    db,
+  );
+  const ready = await sql`
+    UPDATE media.assets
+       SET status = 'READY', output_prefix = ${prefixOf(assetId)}, ready_at = now(),
+           duration_ms = ${video ? (options.durationMs ?? 9_000) : null},
+           width = ${video ? 640 : 1280}, height = ${video ? 360 : 720}
+     WHERE id = ${assetId} AND status = 'PROCESSING'
+  `.execute(db);
+  if (Number(ready.numAffectedRows ?? 0n) !== 1) {
+    throw new Error(`finishTranscodeLikeTranscoder: asset ${assetId} was not UPLOADED`);
+  }
+  if (video) await writeVideoOutputs(db, storage, assetId);
+  else await writeThumbnailOutputs(db, storage, assetId);
 }
 
 /** A READY LECTURE_RESOURCE whose copied file exists. */

@@ -265,6 +265,8 @@ describe('catalog lifecycle endpoints (e2e: real AppModule, Postgres, Redis)', (
     );
     expect(review.revision).toMatchObject({ state: 'PENDING', submitterNote: 'Please review' });
     expect(review.diff.baseRevisionId).toBeNull();
+    expect(review.diff.fieldChanges).toEqual([]);
+    expect(review.revision.category?.parent?.name).toBe(`Lc ${tag}`);
     expectProblem(await instructorA().get(`${V1}/admin/course-revisions/${r1.revisionId}`), 403);
     expectProblem(await admin().get(`${V1}/admin/course-revisions/${randomUUID()}`), 404);
 
@@ -351,6 +353,8 @@ describe('catalog lifecycle endpoints (e2e: real AppModule, Postgres, Redis)', (
     );
     expect(updateReview.diff).toMatchObject({
       baseRevisionId: r3.revisionId,
+      changedFields: [],
+      fieldChanges: [],
       lectures: { changed: [articleIds[0]] },
     });
 
@@ -407,6 +411,18 @@ describe('catalog lifecycle endpoints (e2e: real AppModule, Postgres, Redis)', (
     );
     expectProblem(await admin().post(takedown).send({ reason: 'short' }), 400);
     await admin().post(takedown).send({ reason: 'Violates the content policy.' }).expect(200);
+    const takenDown = AdminCoursePageSchema.parse(
+      (
+        await admin()
+          .get(`${V1}/admin/courses?ownerId=${fixtures().users.a.userId}&status=ARCHIVED`)
+          .expect(200)
+      ).body,
+    ).items.find((r) => r.id === courseId);
+    expect(takenDown).toMatchObject({
+      status: 'ARCHIVED',
+      archivedBy: { id: fixtures().users.admin.userId, isModerator: true },
+      archiveReason: 'Violates the content policy.',
+    });
     expectProblem(await instructorA().post(`${course}/restore`), 403, ErrorCode.RestoreForbidden);
     expectProblem(await instructorA().post(`${V1}/admin/courses/${courseId}/restore`), 403);
     const restored = CourseDetailSchema.parse(

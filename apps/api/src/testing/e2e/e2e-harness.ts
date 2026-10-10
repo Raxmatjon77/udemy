@@ -77,6 +77,7 @@ export interface BearerClient {
   call(method: HttpMethod, path: string): request.Test;
   get(path: string): request.Test;
   post(path: string): request.Test;
+  put(path: string): request.Test;
   patch(path: string): request.Test;
   delete(path: string): request.Test;
 }
@@ -272,6 +273,7 @@ export function useE2eApp(): E2eHarness {
       call,
       get: (path) => call('get', path),
       post: (path) => call('post', path),
+      put: (path) => call('put', path),
       patch: (path) => call('patch', path),
       delete: (path) => call('delete', path),
     };

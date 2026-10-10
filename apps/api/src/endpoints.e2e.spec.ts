@@ -33,6 +33,7 @@ import {
   useE2eApp,
   withoutTraceId,
 } from './testing/e2e/e2e-harness';
+import { SECTION_8 } from './testing/e2e/section-8';
 
 /*
  * T16: a systematic sweep over every endpoint of design §8 through the REAL AppModule (all
@@ -1364,105 +1365,8 @@ describe('§8 endpoint sweep (real AppModule, guards, Postgres, Redis)', () => {
   });
 
   describe('GET /api/docs-json (Swagger)', () => {
-    /** Every §8 route as an OpenAPI path + method. */
-    const SECTION_8: readonly (readonly [string, HttpMethod | 'put'])[] = [
-      ['/.well-known/jwks.json', 'get'],
-      [`${V1}/auth/signup`, 'post'],
-      [`${V1}/auth/login`, 'post'],
-      [`${V1}/auth/refresh`, 'post'],
-      [`${V1}/auth/logout`, 'post'],
-      [`${V1}/auth/logout-all`, 'post'],
-      [`${V1}/auth/sessions`, 'get'],
-      [`${V1}/auth/sessions/{sessionId}`, 'delete'],
-      [`${V1}/auth/email/verification-requests`, 'post'],
-      [`${V1}/auth/email/verify`, 'post'],
-      [`${V1}/auth/password/forgot`, 'post'],
-      [`${V1}/auth/password/reset`, 'post'],
-      [`${V1}/auth/password/change`, 'post'],
-      [`${V1}/me`, 'get'],
-      [`${V1}/me/profile`, 'get'],
-      [`${V1}/me/profile`, 'patch'],
-      [`${V1}/users/{userId}/profile`, 'get'],
-      [`${V1}/me/instructor-applications`, 'post'],
-      [`${V1}/me/instructor-applications`, 'get'],
-      [`${V1}/me/instructor-applications/{id}/withdraw`, 'post'],
-      [`${V1}/instructor-applications/{id}`, 'get'],
-      [`${V1}/admin/instructor-applications`, 'get'],
-      [`${V1}/admin/instructor-applications/{id}/approve`, 'post'],
-      [`${V1}/admin/instructor-applications/{id}/reject`, 'post'],
-      [`${V1}/admin/users`, 'get'],
-      [`${V1}/admin/users/{userId}`, 'get'],
-      [`${V1}/admin/users/{userId}/ban`, 'post'],
-      [`${V1}/admin/users/{userId}/unban`, 'post'],
-      // Phase 2 media (catalog-media design §8); covered by modules/media/media.e2e.spec.ts.
-      [`${V1}/media/uploads`, 'post'],
-      [`${V1}/media/uploads/{assetId}`, 'get'],
-      [`${V1}/media/uploads/{assetId}`, 'delete'],
-      [`${V1}/media/uploads/{assetId}/part-urls`, 'post'],
-      [`${V1}/media/uploads/{assetId}/complete`, 'post'],
-      [`${V1}/media/assets`, 'get'],
-      [`${V1}/media/assets/{assetId}`, 'get'],
-      // Phase 2 catalog A (P2-T9); covered by modules/catalog/catalog.e2e.spec.ts.
-      [`${V1}/instructor/courses`, 'get'],
-      [`${V1}/instructor/courses`, 'post'],
-      [`${V1}/courses/{courseId}`, 'get'],
-      [`${V1}/courses/{courseId}`, 'patch'],
-      [`${V1}/courses/{courseId}`, 'delete'],
-      [`${V1}/courses/{courseId}/thumbnail`, 'put'],
-      [`${V1}/courses/{courseId}/thumbnail`, 'delete'],
-      [`${V1}/courses/{courseId}/curriculum`, 'get'],
-      [`${V1}/courses/{courseId}/curriculum/order`, 'put'],
-      [`${V1}/courses/{courseId}/sections`, 'post'],
-      [`${V1}/courses/{courseId}/sections/{sectionId}`, 'patch'],
-      [`${V1}/courses/{courseId}/sections/{sectionId}`, 'delete'],
-      [`${V1}/courses/{courseId}/sections/{sectionId}/lectures`, 'post'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}`, 'patch'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}`, 'delete'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/article`, 'get'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/article`, 'put'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/media`, 'put'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/media`, 'delete'],
-      [`${V1}/admin/categories`, 'get'],
-      [`${V1}/admin/categories`, 'post'],
-      [`${V1}/admin/categories/order`, 'put'],
-      [`${V1}/admin/categories/{id}`, 'patch'],
-      [`${V1}/admin/categories/{id}`, 'delete'],
-      // Phase 2 catalog B (P2-T10); covered by modules/catalog/catalog-lifecycle.e2e.spec.ts.
-      [`${V1}/courses/{courseId}/submit`, 'post'],
-      [`${V1}/courses/{courseId}/withdraw`, 'post'],
-      [`${V1}/courses/{courseId}/archive`, 'post'],
-      [`${V1}/courses/{courseId}/restore`, 'post'],
-      [`${V1}/courses/{courseId}/history`, 'get'],
-      [`${V1}/admin/course-reviews`, 'get'],
-      [`${V1}/admin/course-revisions/{revisionId}`, 'get'],
-      [`${V1}/admin/courses/{courseId}/revisions/{revisionId}/approve`, 'post'],
-      [`${V1}/admin/courses/{courseId}/revisions/{revisionId}/reject`, 'post'],
-      [`${V1}/admin/courses`, 'get'],
-      [`${V1}/admin/courses/{courseId}/takedown`, 'post'],
-      [`${V1}/admin/courses/{courseId}/restore`, 'post'],
-      // Phase 2 catalog C (P2-T11); covered by modules/catalog/catalog-public.e2e.spec.ts.
-      [`${V1}/catalog/categories`, 'get'],
-      [`${V1}/catalog/courses`, 'get'],
-      [`${V1}/catalog/courses/by-slug/{slug}`, 'get'],
-      [`${V1}/catalog/courses/{courseId}/images/thumbnail`, 'get'],
-      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/hls/master.m3u8`, 'get'],
-      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/hls/{rendition}.m3u8`, 'get'],
-      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/article`, 'get'],
-      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/download`, 'get'],
-      [`${V1}/courses/{courseId}/thumbnail`, 'get'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/preview/hls/master.m3u8`, 'get'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/preview/hls/{rendition}.m3u8`, 'get'],
-      [`${V1}/courses/{courseId}/lectures/{lectureId}/download`, 'get'],
-      [`${V1}/admin/course-revisions/{revisionId}/thumbnail`, 'get'],
-      [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/hls/master.m3u8`, 'get'],
-      [
-        `${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/hls/{rendition}.m3u8`,
-        'get',
-      ],
-      [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/article`, 'get'],
-      [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/download`, 'get'],
-    ];
-
+    // SECTION_8 (testing/e2e/section-8.ts) is shared with phase2.e2e.spec.ts, which also checks
+    // the Phase 2 part against the routes Express really serves.
     it('documents exactly the §8 operations (plus health probes)', async (ctx) => {
       e2e.skip(ctx);
       const res = await e2e.http().get('/api/docs-json').expect(200);

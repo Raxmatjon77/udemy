@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { MediaPurged } from '@udemy/contracts';
 import { sql } from '@udemy/db';
+import { useIntegrationS3 } from '@udemy/storage/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { WorkerConfigService } from '../shared/config';
 import type { WorkerEnv } from '../shared/config/worker-env.schema';
 import { deleteTestData, insertTestUser, useIntegrationStack } from '../testing/integration';
-import { useIntegrationS3 } from '../testing/integration-s3';
 import { MEDIA_CLEANUP_LOCK_KEY, MediaCleanupJob } from './media-cleanup.job';
 import { type MediaCleanupOptions, mediaCleanupSteps } from './media-cleanup.steps';
 

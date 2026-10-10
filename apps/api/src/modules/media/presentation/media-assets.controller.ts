@@ -12,8 +12,12 @@ import {
 import {
   type AssetIdParams,
   AssetIdParamsSchema,
+  type AssetPage,
+  AssetPageSchema,
   type AssetView,
   AssetViewSchema,
+  type ListAssetsQuery as ListAssetsQueryParams,
+  ListAssetsQuerySchema,
 } from '@udemy/contracts';
 import type { Request } from 'express';
 import {
@@ -23,8 +27,7 @@ import {
   type Principal,
 } from '../../../shared/auth';
 import { GetAssetQuery } from '../application/use-cases/get-asset.query';
-import { type AssetListPage, ListAssetsQuery } from '../application/use-cases/list-assets.query';
-import { AssetPageSchema, type MediaAssetListQuery, MediaAssetListQuerySchema } from './media-http';
+import { ListAssetsQuery } from '../application/use-cases/list-assets.query';
 
 /** `/api/v1/media/assets`: asset state for the builder (owner) and moderation (admin). */
 @ApiTags('media')
@@ -52,9 +55,9 @@ export class MediaAssetsController {
   @ApiBadRequestResponse({ description: 'validation_failed' })
   @ApiForbiddenResponse({ description: 'forbidden' })
   list(
-    @Query({ schema: MediaAssetListQuerySchema }) query: MediaAssetListQuery,
+    @Query({ schema: ListAssetsQuerySchema }) query: ListAssetsQueryParams,
     @CurrentPrincipal() principal: Principal,
-  ): Promise<AssetListPage> {
+  ): Promise<AssetPage> {
     return this.listAssets.execute({
       principal,
       ids: query.ids,

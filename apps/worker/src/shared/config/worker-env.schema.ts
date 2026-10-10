@@ -126,6 +126,14 @@ export const workerEnvSchema = baseEnvSchema
     MEDIA_UNUSED_GRACE_DAYS: envInt.min(1).max(3650).default(7),
     /** D. Delete the uploaded original this many days after READY (decision Q5: 7; 1 in dev). */
     MEDIA_SOURCE_RETENTION_DAYS: envInt.min(0).max(3650).default(7),
+
+    // ---- Phase 2: transcode enqueue (design D6, §14 P2-T12 follow-up)
+    /**
+     * Attempts per job before it fails for good, written to `media.transcode_jobs.max_attempts`
+     * when the worker enqueues the job. Same variable, bounds and default as the transcoder
+     * (`.env.example`); 1..10 (`MAX_TRANSCODE_ATTEMPTS_LIMIT` in `@udemy/db`).
+     */
+    TRANSCODER_MAX_ATTEMPTS: envInt.min(1).max(10).default(3),
   })
   // Refuse the `change-me` dev placeholders from .env.example when NODE_ENV=production.
   .superRefine(refuseDevPlaceholdersInProduction());

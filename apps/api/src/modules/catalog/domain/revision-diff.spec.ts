@@ -1,3 +1,4 @@
+import { RevisionFieldChangeSchema } from '@udemy/contracts';
 import { describe, expect, it } from 'vitest';
 import { diffRevisions } from './revision-diff';
 import type { SnapshotContent, SnapshotLecture } from './revision-snapshot';
@@ -44,6 +45,7 @@ describe('diffRevisions', () => {
     expect(diffRevisions(base, null)).toEqual({
       baseRevisionId: null,
       changedFields: [],
+      fieldChanges: [],
       sections: { added: ['s1', 's2', 's3'], removed: [], changed: [], moved: [] },
       lectures: { added: ['l1', 'l2', 'l3', 'l4'], removed: [], changed: [], moved: [] },
     });
@@ -53,6 +55,7 @@ describe('diffRevisions', () => {
     const diff = diffRevisions(base, { id: 'r1', content: base });
     expect(diff.baseRevisionId).toBe('r1');
     expect(diff.changedFields).toEqual([]);
+    expect(diff.fieldChanges).toEqual([]);
     expect(diff.sections).toEqual({ added: [], removed: [], changed: [], moved: [] });
     expect(diff.lectures).toEqual({ added: [], removed: [], changed: [], moved: [] });
   });
@@ -83,6 +86,11 @@ describe('diffRevisions', () => {
     expect(diffRevisions(next, { id: 'r1', content: base })).toEqual({
       baseRevisionId: 'r1',
       changedFields: ['title', 'thumbnailAssetId', 'outcomes'],
+      fieldChanges: [
+        { field: 'title', before: 'Course title', after: 'New course title' },
+        { field: 'thumbnailAssetId', before: 't1', after: 't2' },
+        { field: 'outcomes', before: ['a', 'b'], after: ['b', 'a'] },
+      ],
       sections: {
         added: ['s4'],
         removed: [{ id: 's3', title: 'Gone' }],
@@ -91,10 +99,51 @@ describe('diffRevisions', () => {
       },
       lectures: {
         added: ['l5', 'l6'],
-        removed: [{ id: 'l4', title: 'Removed lecture', type: 'VIDEO' }],
+        removed: [
+          {
+            id: 'l4',
+            title: 'Removed lecture',
+            type: 'VIDEO',
+            sectionId: 's3',
+            sectionTitle: 'Gone',
+          },
+        ],
         changed: ['l1'],
         moved: ['l1', 'l2'],
       },
     });
+  });
+
+  it('field changes carry null and list values, and are valid RevisionFieldChanges', () => {
+    const next: SnapshotContent = {
+      ...base,
+      subtitle: null,
+      level: 'EXPERT',
+      categoryId: null,
+      requirements: ['git'],
+    };
+    const diff = diffRevisions(next, { id: 'r1', content: { ...base, level: null } });
+    expect(diff.changedFields).toEqual(['subtitle', 'level', 'categoryId', 'requirements']);
+    expect(diff.fieldChanges).toEqual([
+      { field: 'subtitle', before: 'A subtitle here', after: null },
+      { field: 'level', before: null, after: 'EXPERT' },
+      { field: 'categoryId', before: 'c1', after: null },
+      { field: 'requirements', before: [], after: ['git'] },
+    ]);
+    for (const change of diff.fieldChanges ?? []) {
+      expect(RevisionFieldChangeSchema.parse(change)).toEqual(change);
+    }
+  });
+
+  it('a removed lecture of a kept section names that section', () => {
+    const next: SnapshotContent = {
+      ...base,
+      sections: base.sections.map((s) =>
+        s.id === 's1' ? { ...s, lectures: s.lectures.filter((l) => l.id !== 'l2') } : s,
+      ),
+    };
+    expect(diffRevisions(next, { id: 'r1', content: base }).lectures.removed).toEqual([
+      { id: 'l2', title: 'L2', type: 'VIDEO', sectionId: 's1', sectionTitle: 'One' },
+    ]);
   });
 });

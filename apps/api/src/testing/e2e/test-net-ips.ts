@@ -41,7 +41,16 @@ export class TestNetIpAllocator {
   }
 }
 
-/** The per-IP Redis rate-limit keys of design §6 ("Redis keys"). */
+/**
+ * The per-IP Redis rate-limit keys: Phase 1 design §6 ("Redis keys") plus the Phase 2 public
+ * catalog limits (P2-T11: playlists/articles/downloads, thumbnail presigns).
+ */
 export function ipRateLimitKeys(ip: string): string[] {
-  return [`rl:login:ip:${ip}`, `rl:signup:ip:${ip}`, `rl:forgot:ip:${ip}`];
+  return [
+    `rl:login:ip:${ip}`,
+    `rl:signup:ip:${ip}`,
+    `rl:forgot:ip:${ip}`,
+    `rl:catalog:playlist:ip:${ip}`,
+    `rl:catalog:image:ip:${ip}`,
+  ];
 }

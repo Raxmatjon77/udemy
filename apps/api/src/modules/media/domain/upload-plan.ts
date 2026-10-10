@@ -1,12 +1,10 @@
 import {
   assertValidPartPlan,
   checkUploadedParts,
-  DEFAULT_MIN_PART_SIZE,
   type PartCheck,
   type PartPlan,
   partRange,
   planParts,
-  S3_MIN_PART_SIZE,
   type UploadedPartSize,
 } from '@udemy/storage';
 import { InvalidMediaField } from './media.errors';
@@ -17,17 +15,13 @@ export type { PartPlan };
  * The server-chosen part plan of a new upload (design §4, D10):
  * `partSize = max(8 MiB, ceilMiB(size / 1000))`, so at most ~1000 parts.
  *
- * `planParts` shrinks the part size of a small (single-part) upload to the object size, but the
- * `assets_part_size_bytes_ck` CHECK requires `part_size_bytes >= 5 MiB`. For one part the stored
- * part size only bounds the slice (`partRange` clips the last part to the object), so a
- * single-part plan keeps the 8 MiB default part size and signs exactly `sizeBytes`.
+ * `exactSinglePart: false` keeps a small (single-part) upload at the planned 8 MiB part size
+ * instead of shrinking it to the object size, so the stored row satisfies the
+ * `assets_part_size_bytes_ck` CHECK (`part_size_bytes >= 5 MiB`). The signed Content-Length is
+ * still exact: `partRange` clips the last (here: only) part to `sizeBytes`.
  */
 export function planUpload(sizeBytes: number): PartPlan {
-  const plan = planParts(sizeBytes);
-  if (plan.partSize >= S3_MIN_PART_SIZE) return plan;
-  const singlePart: PartPlan = { sizeBytes, partSize: DEFAULT_MIN_PART_SIZE, partCount: 1 };
-  assertValidPartPlan(singlePart);
-  return singlePart;
+  return planParts(sizeBytes, { exactSinglePart: false });
 }
 
 /** The persisted plan columns of an asset. */

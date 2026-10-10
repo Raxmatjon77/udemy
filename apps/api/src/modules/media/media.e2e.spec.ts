@@ -49,7 +49,8 @@ describe('media endpoints (e2e: real AppModule, Postgres, Redis, MinIO)', () => 
     if (fx === undefined) throw new Error('fixtures not created (infra unavailable?)');
     return fx;
   };
-  const available = (): boolean => e2e.pg.available && e2e.redis.available && s3.available;
+  const available = (): boolean =>
+    e2e.pg.available && e2e.redis.available && s3.unavailableReason === undefined;
 
   const instructorA = (): BearerClient => e2e.as('instructor', fixtures().tokens.a.accessToken);
   const instructorB = (): BearerClient => e2e.as('instructor', fixtures().tokens.b.accessToken);

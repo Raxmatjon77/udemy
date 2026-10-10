@@ -266,6 +266,21 @@ export class KyselyCourseRepository extends CourseRepository {
   async searchForAdmin(query: AdminCourseQuery): Promise<AdminCourseRecord[]> {
     let builder = this.db
       .selectFrom('catalog.courses as c')
+      // The latest ARCHIVE transition of an ARCHIVED course (owner archive or admin takedown).
+      .leftJoinLateral(
+        (eb) =>
+          eb
+            .selectFrom('catalog.courseTransitions as a')
+            .select(['a.actorId', 'a.reason'])
+            .whereRef('a.courseId', '=', 'c.id')
+            .where('a.action', '=', 'ARCHIVE')
+            .where(sql<boolean>`c.status = 'ARCHIVED'`)
+            .orderBy('a.occurredAt', 'desc')
+            .orderBy('a.id', 'desc')
+            .limit(1)
+            .as('arch'),
+        (join) => join.onTrue(),
+      )
       .select([
         'c.id',
         'c.ownerId',
@@ -278,6 +293,8 @@ export class KyselyCourseRepository extends CourseRepository {
         'c.updatedAt',
         exactUtcText('c.updated_at').as('updatedAtText'),
         HEAD_ACTION.as('headAction'),
+        'arch.actorId as archiveActorId',
+        'arch.reason as archiveReason',
       ])
       .where('c.deletedAt', 'is', null);
     if (query.status !== undefined) builder = builder.where('c.status', '=', query.status);
@@ -299,10 +316,11 @@ export class KyselyCourseRepository extends CourseRepository {
       .orderBy('c.id', 'desc')
       .limit(query.limit)
       .execute();
-    return rows.map((row) => ({
+    return rows.map(({ archiveActorId, archiveReason, ...row }) => ({
       ...row,
       status: toCourseStatus(row.status),
       headAction: toHeadAction(row.headAction),
+      archive: archiveActorId === null ? null : { actorId: archiveActorId, reason: archiveReason },
     }));
   }
 

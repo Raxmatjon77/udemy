@@ -1,4 +1,4 @@
-import { type CourseReadinessIssue, ErrorCode } from '@udemy/contracts';
+import { type CourseReadinessIssue, ErrorCode, type MarkdownIssue } from '@udemy/contracts';
 import {
   ConflictError,
   type DomainFieldIssue,
@@ -317,13 +317,24 @@ export class CategoryInUse extends ConflictError {
  * Input rules (422)
  * -------------------------------------------------------------------------------------- */
 
-/** 422 `markdown_not_allowed` (D14): raw HTML, images or unsafe links; `issues` per construct. */
+/**
+ * 422 `markdown_not_allowed` (D14): raw HTML, images or unsafe links, or markdown too complex to
+ * process. `markdownIssues` is the structured form (contracts `MarkdownIssue`: path, line,
+ * column, kind, construct, detail); `issues` keeps one `{ path, message }` per construct for the
+ * generic `errors[]`. The presentation layer renders both (`MarkdownNotAllowedProblem`).
+ */
 export class MarkdownNotAllowed extends ValidationError {
-  constructor(issues: readonly DomainFieldIssue[]) {
+  readonly markdownIssues: readonly MarkdownIssue[];
+
+  constructor(markdownIssues: readonly MarkdownIssue[]) {
     super('The text contains markdown that is not allowed (HTML, images or unsafe links).', {
       code: ErrorCode.MarkdownNotAllowed,
-      issues,
+      issues: markdownIssues.map((issue) => ({
+        path: issue.path,
+        message: `Line ${issue.line}, column ${issue.column}: ${issue.detail} (${issue.kind}).`,
+      })),
     });
+    this.markdownIssues = markdownIssues;
   }
 }
 

@@ -187,6 +187,15 @@ function headActionOf(world: CatalogWorld, courseId: string): CourseTransitionAc
   return headOf(world, courseId)?.action ?? null;
 }
 
+/** The latest ARCHIVE transition of an ARCHIVED course (insertion order is chain order). */
+function archiveOf(world: CatalogWorld, course: StoredCourse): AdminCourseRecord['archive'] {
+  if (course.status !== 'ARCHIVED') return null;
+  const last = world.state.transitions
+    .filter((t) => t.courseId === course.id && t.action === 'ARCHIVE')
+    .at(-1);
+  return last === undefined ? null : { actorId: last.actorId, reason: last.reason };
+}
+
 export class FakeCourseRepository extends CourseRepository {
   /**
    * Slugs a concurrent transaction takes between our slug lookup and our insert: the insert
@@ -399,6 +408,7 @@ export class FakeCourseRepository extends CourseRepository {
         updatedAt: c.updatedAt,
         updatedAtText: text(c.updatedAt),
         headAction: headActionOf(this.world, c.id),
+        archive: archiveOf(this.world, c),
       }));
   }
 }

@@ -74,7 +74,8 @@ describe('public catalog and playback endpoints (e2e: AppModule, Postgres, Redis
     if (fx === undefined) throw new Error('fixtures not created (infra unavailable?)');
     return fx;
   };
-  const available = (): boolean => e2e.pg.available && e2e.redis.available && s3.available;
+  const available = (): boolean =>
+    e2e.pg.available && e2e.redis.available && s3.unavailableReason === undefined;
   const get = <T>(token: abstract new (...args: never[]) => T): T =>
     e2e.app.get(token, { strict: false });
 

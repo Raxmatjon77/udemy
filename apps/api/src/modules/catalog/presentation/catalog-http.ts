@@ -1,7 +1,7 @@
 import { UnprocessableEntityException } from '@nestjs/common';
 import { ErrorCode } from '@udemy/contracts';
 import type { Request } from 'express';
-import { CourseNotReady } from '../domain/catalog.errors';
+import { CourseNotReady, MarkdownNotAllowed } from '../domain/catalog.errors';
 
 /** Absolute path of a course (the `Location` of a 201), as the BFFs see it. */
 export function courseLocation(courseId: string): string {
@@ -31,6 +31,31 @@ export async function withSubmitProblems<T>(work: () => Promise<T>): Promise<T> 
           message: error.message,
           code: ErrorCode.CourseNotReady,
           issues: [...error.readinessIssues],
+        },
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Runs a use case and turns `MarkdownNotAllowed` into the contract's
+ * `MarkdownNotAllowedProblem` (422 + structured `issues[]`: path, line, column, kind, construct,
+ * detail), with the same technique as `withSubmitProblems`. `errors[]` (one `{ path, message }`
+ * per construct) is kept for generic clients that only read field errors.
+ */
+export async function withMarkdownProblems<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof MarkdownNotAllowed) {
+      throw new UnprocessableEntityException(
+        {
+          message: error.message,
+          code: ErrorCode.MarkdownNotAllowed,
+          errors: [...error.issues],
+          issues: [...error.markdownIssues],
         },
         { cause: error },
       );

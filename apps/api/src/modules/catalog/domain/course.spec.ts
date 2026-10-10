@@ -1,4 +1,4 @@
-import { ErrorCode } from '@udemy/contracts';
+import { ErrorCode, MarkdownIssueSchema } from '@udemy/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   CourseInReview,
@@ -118,5 +118,28 @@ describe('assertMarkdownAllowed (D14)', () => {
     expect(problem.issues.map((i) => i.message).join('\n')).toMatch(/raw_html/);
     expect(problem.issues.map((i) => i.message).join('\n')).toMatch(/image/);
     expect(problem.issues.map((i) => i.message).join('\n')).toMatch(/unsafe_link/);
+    // The structured form (MarkdownNotAllowedProblem.issues), one entry per field issue.
+    expect(problem.markdownIssues).toHaveLength(problem.issues.length);
+    expect(problem.markdownIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'bodyMd',
+          line: 1,
+          column: 7,
+          kind: 'raw_html',
+          construct: 'html_inline',
+        }),
+        expect.objectContaining({ path: 'bodyMd', line: 3, kind: 'image', construct: 'image' }),
+        expect.objectContaining({
+          path: 'bodyMd',
+          line: 5,
+          kind: 'unsafe_link',
+          construct: 'link',
+        }),
+      ]),
+    );
+    for (const issue of problem.markdownIssues) {
+      expect(MarkdownIssueSchema.parse(issue)).toEqual(issue);
+    }
   });
 });

@@ -36,7 +36,8 @@ function toRevisionSections(revision: RevisionRecord): RevisionSection[] {
 /**
  * `GetRevisionForReview` (admin, design §5): the full immutable snapshot of any revision (its
  * derived state, D1), a diff against the revision that was live before it (the latest
- * approved revision with a lower number; none for an INITIAL submission) and the views of
+ * approved revision with a lower number; none for an INITIAL submission), the snapshot's
+ * category with its depth-1 group (`parent`), and the views of
  * every asset it references (fresh state, for the reviewer's players). 404 `not_found` for an
  * unknown revision or a deleted course.
  */
@@ -63,6 +64,10 @@ export class GetRevisionReviewQuery {
       revision.content.categoryId === null
         ? null
         : await this.categories.findById(revision.content.categoryId);
+    const parent =
+      category === null || category.parentId === null
+        ? null
+        : await this.categories.findById(category.parentId);
     const people = await this.people.findPeople([course.ownerId, revision.submittedBy]);
     const name = (id: string): string => people.get(id)?.displayName ?? UNKNOWN_PERSON;
     const content = revision.content;
@@ -90,7 +95,16 @@ export class GetRevisionReviewQuery {
         language: content.language,
         level: content.level,
         category:
-          category === null ? null : { id: category.id, slug: category.slug, name: category.name },
+          category === null
+            ? null
+            : {
+                id: category.id,
+                slug: category.slug,
+                name: category.name,
+                ...(parent === null
+                  ? {}
+                  : { parent: { id: parent.id, slug: parent.slug, name: parent.name } }),
+              },
         thumbnailAssetId: content.thumbnailAssetId,
         outcomes: [...content.outcomes],
         requirements: [...content.requirements],

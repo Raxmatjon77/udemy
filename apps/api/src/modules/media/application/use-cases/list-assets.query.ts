@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AssetView } from '@udemy/contracts';
+import type { AssetPage } from '@udemy/contracts';
 import { type AuthorizationSubject, Authorizer } from '../../../access';
 import { MediaReadForbidden } from '../../domain/media.errors';
 import { decodeAssetCursor, encodeAssetCursor } from '../asset-cursor';
@@ -15,11 +15,6 @@ export interface ListAssetsInput {
   readonly limit: number;
   /** Admins only: restrict the page to one owner. Ignored for `:own` callers. */
   readonly ownerId?: string;
-}
-
-export interface AssetListPage {
-  items: AssetView[];
-  nextCursor: string | null;
 }
 
 /**
@@ -38,7 +33,7 @@ export class ListAssetsQuery {
     private readonly authorizer: Authorizer,
   ) {}
 
-  async execute(input: ListAssetsInput): Promise<AssetListPage> {
+  async execute(input: ListAssetsInput): Promise<AssetPage> {
     const any = this.authorizer.can(input.principal, 'media_asset:read:any');
     const own = this.authorizer.can(input.principal, 'media_asset:read:own');
     if (!any && !own) throw new MediaReadForbidden();

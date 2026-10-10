@@ -1,4 +1,5 @@
 import {
+  AdminCourseRowSchema,
   CourseArchived,
   CoursePublished,
   CourseRejected,
@@ -34,10 +35,12 @@ const ARTICLE = 'An article body that is clearly longer than fifty characters in
 describe('course lifecycle and moderation (use cases with fakes)', () => {
   let h: CatalogHarness;
   let leafId: string;
+  let groupId: string;
 
   beforeEach(async () => {
     h = createCatalogHarness(new CatalogSettings({ minLectures: 2, minVideoSeconds: 600 }));
     const group = await h.createCategory.execute({ name: 'Development' });
+    groupId = group.id;
     leafId = (await h.createCategory.execute({ name: 'Web Development', parentId: group.id })).id;
     h.people.people.set(OWNER, { displayName: 'Owner Name', banned: false });
     h.people.people.set(ADMIN, { displayName: 'Admin Name', banned: false });
@@ -357,6 +360,43 @@ describe('course lifecycle and moderation (use cases with fakes)', () => {
     });
   });
 
+  it('admin course list: archive actor and reason of ARCHIVED courses only', async () => {
+    const { courseId } = await readyCourse();
+    const r1 = await h.submit.execute({ actorId: OWNER, courseId });
+    await h.approve.execute({ actorId: ADMIN, courseId, revisionId: r1.revisionId });
+    const row = async () => (await h.adminCourses.execute({ limit: 10 })).items[0];
+    expect(await row()).toMatchObject({
+      status: 'PUBLISHED',
+      archivedBy: null,
+      archiveReason: null,
+    });
+
+    await h.archive.execute({ actorId: OWNER, courseId, byAdmin: false });
+    expect(await row()).toMatchObject({
+      status: 'ARCHIVED',
+      archivedBy: { id: OWNER, displayName: 'Owner Name', isModerator: false },
+      archiveReason: null,
+    });
+
+    await h.restore.execute({ actorId: OWNER, courseId, byAdmin: false });
+    expect(await row()).toMatchObject({ archivedBy: null, archiveReason: null });
+
+    // A later takedown wins over the earlier owner archive.
+    await h.archive.execute({
+      actorId: ADMIN,
+      courseId,
+      reason: 'Violates the content policy.',
+      byAdmin: true,
+    });
+    const takenDown = await row();
+    expect(takenDown).toMatchObject({
+      status: 'ARCHIVED',
+      archivedBy: { id: ADMIN, displayName: 'Admin Name', isModerator: true },
+      archiveReason: 'Violates the content policy.',
+    });
+    expect(AdminCourseRowSchema.parse(takenDown)).toEqual(takenDown);
+  });
+
   it('admin queue (oldest first, keyset), revision review with diff, admin course list', async () => {
     const a = await readyCourse();
     const b = await readyCourse();
@@ -373,6 +413,14 @@ describe('course lifecycle and moderation (use cases with fakes)', () => {
     const initial = await h.revisionReview.execute(ra.revisionId);
     expect(initial.revision).toMatchObject({ state: 'PENDING', kind: 'INITIAL', revisionNo: 1 });
     expect(initial.diff.baseRevisionId).toBeNull();
+    expect(initial.diff.fieldChanges).toEqual([]);
+    // The snapshot's leaf category carries its depth-1 group.
+    expect(initial.revision.category).toEqual({
+      id: leafId,
+      slug: 'web-development',
+      name: 'Web Development',
+      parent: { id: groupId, slug: 'development', name: 'Development' },
+    });
     expect(initial.diff.lectures.added).toEqual([a.videoId, a.articleId]);
     expect(initial.assets).toHaveLength(2);
 
@@ -383,11 +431,20 @@ describe('course lifecycle and moderation (use cases with fakes)', () => {
       lectureId: a.videoId,
       patch: { title: 'Video renamed' },
     });
+    await h.updateCourse.execute({
+      actorId: OWNER,
+      courseId: a.courseId,
+      changes: { title: 'Ready course title v2', requirements: ['A laptop'] },
+    });
     const update = await h.submit.execute({ actorId: OWNER, courseId: a.courseId });
     const review = await h.revisionReview.execute(update.revisionId);
     expect(review.diff).toMatchObject({
       baseRevisionId: ra.revisionId,
-      changedFields: [],
+      changedFields: ['title', 'requirements'],
+      fieldChanges: [
+        { field: 'title', before: 'Ready course title', after: 'Ready course title v2' },
+        { field: 'requirements', before: [], after: ['A laptop'] },
+      ],
       lectures: { added: [], removed: [], changed: [a.videoId], moved: [] },
     });
     expect((await h.revisionReview.execute(ra.revisionId)).revision.state).toBe('LIVE');

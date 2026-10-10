@@ -205,4 +205,17 @@ describe('plainTextLength (readiness character counts)', () => {
     expect(plainTextLength('😀😀')).toBe(2);
     expect(plainTextLength('   \n\n  ')).toBe(0);
   });
+
+  it('is exact where a regex stripper was not (same parse as the renderer)', () => {
+    // Emphasis markers that do not form emphasis are visible text.
+    expect(plainTextLength('2 * 3 * 4')).toBe('2 * 3 * 4'.length);
+    expect(plainTextLength('snake_case_name')).toBe('snake_case_name'.length);
+    // Inline code keeps its content; escapes render as the escaped character.
+    expect(plainTextLength('Use `a|b` and \\*')).toBe('Use a|b and *'.length);
+  });
+
+  it('counts markdown that trips the cost guard as 0 instead of throwing', () => {
+    // Write-path validation rejects this (too_deeply_nested), so it only exists in legacy data.
+    expect(plainTextLength(`${'> '.repeat(40)}deep`)).toBe(0);
+  });
 });

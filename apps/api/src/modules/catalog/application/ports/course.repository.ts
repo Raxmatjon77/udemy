@@ -105,6 +105,11 @@ export interface AdminCourseRecord {
   /** `updated_at` as exact UTC text with microseconds (the keyset). */
   readonly updatedAtText: string;
   readonly headAction: CourseTransitionAction | null;
+  /**
+   * ARCHIVED courses: the actor and reason of the latest ARCHIVE transition (the owner, or a
+   * moderator's takedown). Null for every other status.
+   */
+  readonly archive: { readonly actorId: string; readonly reason: string | null } | null;
 }
 
 export interface AdminCourseQuery {

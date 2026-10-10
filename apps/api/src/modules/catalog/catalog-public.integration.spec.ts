@@ -72,7 +72,8 @@ describe('public catalog and playback (integration: AppModule, Postgres, Redis, 
     if (app === undefined) throw new Error('app not started');
     return app.get(token, { strict: false });
   };
-  const available = (): boolean => pg.available && itRedis.available && s3.available;
+  const available = (): boolean =>
+    pg.available && itRedis.available && s3.unavailableReason === undefined;
 
   beforeAll(async () => {
     if (!available()) return;

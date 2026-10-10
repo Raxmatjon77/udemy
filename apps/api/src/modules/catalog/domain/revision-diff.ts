@@ -1,4 +1,4 @@
-import type { RevisionDiff, RevisionDiffField } from '@udemy/contracts';
+import type { RevisionDiff, RevisionDiffField, RevisionFieldChange } from '@udemy/contracts';
 import type { SnapshotContent, SnapshotLecture, SnapshotSection } from './revision-snapshot';
 
 /** Header fields in contract order (`REVISION_DIFF_FIELDS`). */
@@ -54,8 +54,10 @@ function lectureChanged(a: SnapshotLecture, b: SnapshotLecture): boolean {
  * Diff of a revision against a base revision (the one live before it), by stable section and
  * lecture ids (D1: ids survive across revisions). `changed` = content differs; `moved` =
  * position (or, for lectures, section) differs; an id can be both. Removed items are not in
- * the revision, so they carry their titles. Without a base (INITIAL) everything is `added`.
- * All id lists follow the curriculum order of the side they come from.
+ * the revision, so they carry their titles (removed lectures also their base section). Every
+ * `changedFields` entry has a `fieldChanges` entry (same order) with the base (`before`) and
+ * revision (`after`) values. Without a base (INITIAL) everything is `added` and no field is
+ * "changed". All id lists follow the curriculum order of the side they come from.
  */
 export function diffRevisions(
   revision: SnapshotContent,
@@ -67,19 +69,25 @@ export function diffRevisions(
     return {
       baseRevisionId: null,
       changedFields: [],
+      fieldChanges: [],
       sections: { added: allSectionIds, removed: [], changed: [], moved: [] },
       lectures: { added: allLectureIds, removed: [], changed: [], moved: [] },
     };
   }
 
   const before = base.content;
-  const changedFields: RevisionDiffField[] = [];
+  const fieldChanges: RevisionFieldChange[] = [];
   for (const field of SCALAR_FIELDS) {
-    if (revision[field] !== before[field]) changedFields.push(field);
+    if (revision[field] !== before[field]) {
+      fieldChanges.push({ field, before: before[field], after: revision[field] });
+    }
   }
   for (const field of LIST_FIELDS) {
-    if (!sameList(revision[field], before[field])) changedFields.push(field);
+    if (!sameList(revision[field], before[field])) {
+      fieldChanges.push({ field, before: [...before[field]], after: [...revision[field]] });
+    }
   }
+  const changedFields: RevisionDiffField[] = fieldChanges.map((change) => change.field);
 
   const oldSections = sectionsById(before);
   const newSections = sectionsById(revision);
@@ -115,9 +123,16 @@ export function diffRevisions(
   }
   for (const [id, then] of oldLectures) {
     if (!newLectures.has(id)) {
-      lectures.removed.push({ id, title: then.item.title, type: then.item.type });
+      lectures.removed.push({
+        id,
+        title: then.item.title,
+        type: then.item.type,
+        sectionId: then.sectionId,
+        // Always found: `then.sectionId` comes from the same base content.
+        sectionTitle: oldSections.get(then.sectionId)?.item.title ?? '',
+      });
     }
   }
 
-  return { baseRevisionId: base.id, changedFields, sections, lectures };
+  return { baseRevisionId: base.id, changedFields, fieldChanges, sections, lectures };
 }

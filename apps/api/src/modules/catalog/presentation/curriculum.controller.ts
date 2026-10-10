@@ -67,7 +67,7 @@ import { ReorderCurriculumCommand } from '../application/use-cases/reorder-curri
 import { SaveArticleCommand } from '../application/use-cases/save-article.command';
 import { UpdateLectureCommand } from '../application/use-cases/update-lecture.command';
 import { UpdateSectionCommand } from '../application/use-cases/update-section.command';
-import { courseIdOf } from './catalog-http';
+import { courseIdOf, withMarkdownProblems } from './catalog-http';
 
 const NESTED_404 =
   "not_found (another instructor's course) / course_not_found / section_not_found / lecture_not_found";
@@ -226,18 +226,22 @@ export class CurriculumController {
   @ApiBadRequestResponse({ description: 'validation_failed' })
   @ApiNotFoundResponse({ description: NESTED_404 })
   @ApiConflictResponse({ description: 'course_in_review / course_not_editable' })
-  @ApiUnprocessableEntityResponse({ description: 'preview_not_allowed / markdown_not_allowed' })
+  @ApiUnprocessableEntityResponse({
+    description: 'preview_not_allowed / markdown_not_allowed (+ issues[])',
+  })
   patchLecture(
     @Param({ schema: LectureParamsSchema }) params: LectureParams,
     @Body({ schema: UpdateLectureRequestSchema }) body: UpdateLectureRequest,
     @CurrentPrincipal() principal: Principal,
   ): Promise<Lecture> {
-    return this.updateLecture.execute({
-      actorId: principal.userId,
-      courseId: params.courseId,
-      lectureId: params.lectureId,
-      patch: { title: body.title, descriptionMd: body.descriptionMd, isPreview: body.isPreview },
-    });
+    return withMarkdownProblems(() =>
+      this.updateLecture.execute({
+        actorId: principal.userId,
+        courseId: params.courseId,
+        lectureId: params.lectureId,
+        patch: { title: body.title, descriptionMd: body.descriptionMd, isPreview: body.isPreview },
+      }),
+    );
   }
 
   @Delete('lectures/:lectureId')
@@ -275,18 +279,22 @@ export class CurriculumController {
   @ApiBadRequestResponse({ description: 'validation_failed' })
   @ApiNotFoundResponse({ description: NESTED_404 })
   @ApiConflictResponse({ description: 'course_in_review / course_not_editable' })
-  @ApiUnprocessableEntityResponse({ description: 'markdown_not_allowed / lecture_type_mismatch' })
+  @ApiUnprocessableEntityResponse({
+    description: 'markdown_not_allowed (+ issues[]) / lecture_type_mismatch',
+  })
   putArticle(
     @Param({ schema: LectureParamsSchema }) params: LectureParams,
     @Body({ schema: SaveArticleRequestSchema }) body: SaveArticleRequest,
     @CurrentPrincipal() principal: Principal,
   ): Promise<Article> {
-    return this.saveArticle.execute({
-      actorId: principal.userId,
-      courseId: params.courseId,
-      lectureId: params.lectureId,
-      bodyMd: body.bodyMd,
-    });
+    return withMarkdownProblems(() =>
+      this.saveArticle.execute({
+        actorId: principal.userId,
+        courseId: params.courseId,
+        lectureId: params.lectureId,
+        bodyMd: body.bodyMd,
+      }),
+    );
   }
 
   @Put('lectures/:lectureId/media')

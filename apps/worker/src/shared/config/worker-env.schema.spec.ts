@@ -83,6 +83,7 @@ describe('workerEnvSchema (Phase 2 storage and media cleanup)', () => {
       MEDIA_UNATTACHED_GRACE_HOURS: 24,
       MEDIA_UNUSED_GRACE_DAYS: 7,
       MEDIA_SOURCE_RETENTION_DAYS: 7,
+      TRANSCODER_MAX_ATTEMPTS: 3,
     });
   });
 
@@ -93,12 +94,14 @@ describe('workerEnvSchema (Phase 2 storage and media cleanup)', () => {
       S3_FORCE_PATH_STYLE: 'false',
       MEDIA_CLEANUP_ENABLED: 'false',
       MEDIA_SOURCE_RETENTION_DAYS: '1',
+      TRANSCODER_MAX_ATTEMPTS: '3',
     });
     expect(env).toMatchObject({
       S3_PUBLIC_ENDPOINT: 'http://127.0.0.1:9000',
       S3_FORCE_PATH_STYLE: false,
       MEDIA_CLEANUP_ENABLED: false,
       MEDIA_SOURCE_RETENTION_DAYS: 1,
+      TRANSCODER_MAX_ATTEMPTS: 3,
     });
   });
 
@@ -111,6 +114,8 @@ describe('workerEnvSchema (Phase 2 storage and media cleanup)', () => {
     ['MEDIA_UPLOAD_TTL_HOURS', '0'],
     ['MEDIA_UNUSED_GRACE_DAYS', '4000'],
     ['MEDIA_SOURCE_RETENTION_DAYS', '-1'],
+    ['TRANSCODER_MAX_ATTEMPTS', '0'],
+    ['TRANSCODER_MAX_ATTEMPTS', '11'],
   ])('rejects an invalid %s (%s)', (key, value) => {
     expect(() => validateEnv(workerEnvSchema, { ...validEnv, [key]: value })).toThrow(
       new RegExp(key),

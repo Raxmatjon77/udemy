@@ -11,6 +11,7 @@ import {
   CurriculumSchema,
   ErrorCode,
   LectureSchema,
+  MarkdownNotAllowedProblemSchema,
   MyCoursePageSchema,
   SectionSchema,
 } from '@udemy/contracts';
@@ -209,12 +210,35 @@ describe('catalog endpoints (e2e: real AppModule, Postgres, Redis)', () => {
         bodyMd: 'Hello <script>alert(1)</script>',
       });
       const problem = expectProblem(article, 422, ErrorCode.MarkdownNotAllowed);
+      // errors[] stays for generic clients; issues[] is the structured contract form.
       expect(problem.errors?.[0]).toMatchObject({ path: 'bodyMd' });
       expect(problem.errors?.[0]?.message).toMatch(/raw_html/);
+      const structured = MarkdownNotAllowedProblemSchema.parse(article.body);
+      expect(structured.issues[0]).toMatchObject({
+        path: 'bodyMd',
+        line: 1,
+        column: 7,
+        kind: 'raw_html',
+        construct: 'html_inline',
+      });
+      expect(structured.issues).toHaveLength(structured.errors?.length ?? 0);
+
       const description = await instructorA()
         .patch(`${V1}/courses/${courseId}`)
         .send({ descriptionMd: '<script>alert(1)</script>' });
       expectProblem(description, 422, ErrorCode.MarkdownNotAllowed);
+      expect(MarkdownNotAllowedProblemSchema.parse(description.body).issues[0]).toMatchObject({
+        path: 'descriptionMd',
+        kind: 'raw_html',
+        construct: 'html_block',
+      });
+      const lectureDescription = await instructorA()
+        .patch(`${V1}/courses/${courseId}/lectures/${articleId}`)
+        .send({ descriptionMd: 'See ![x](https://e.test/a.png)' });
+      expectProblem(lectureDescription, 422, ErrorCode.MarkdownNotAllowed);
+      expect(
+        MarkdownNotAllowedProblemSchema.parse(lectureDescription.body).issues[0],
+      ).toMatchObject({ path: 'descriptionMd', kind: 'image', construct: 'image' });
 
       const saved = await putAsA(`${V1}/courses/${courseId}/lectures/${articleId}/article`)
         .send({ bodyMd: 'Safe *text*\n' })

@@ -1,131 +1,34 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, type Kysely, sql } from '@udemy/db';
-import { ObjectStorage, type StorageConfig } from '@udemy/storage';
+import type { ObjectStorage } from '@udemy/storage';
+import { type IntegrationS3, itStorageConfig, useIntegrationS3 } from '@udemy/storage/testing';
 import type { Redis } from 'ioredis';
-import { afterAll, beforeAll } from 'vitest';
-import { deleteTestUsers, isCi, type SkippableContext } from '../../../testing/integration';
+import { deleteTestUsers } from '../../../testing/integration';
 
 /**
- * Integration-test support for media against the dev MinIO, following the IT conventions of
- * `src/testing/integration.ts` and `@udemy/storage`'s `it-s3.ts`:
+ * Integration-test support for media against the dev MinIO. The S3 harness itself is
+ * `@udemy/storage/testing` (`useIntegrationS3`: `IT_S3_*` variables, SKIP locally / FAIL with
+ * `CI=true` when MinIO is unreachable); this file adds the app's `S3_*` env and media cleanup.
  *
- * - `IT_S3_ENDPOINT` (default http://localhost:9000), `IT_S3_PUBLIC_ENDPOINT`
- *   (http://127.0.0.1:9000), `IT_S3_REGION`, `IT_S3_ACCESS_KEY`, `IT_S3_SECRET_KEY`,
- *   `IT_S3_BUCKET_UPLOADS`, `IT_S3_BUCKET_MEDIA`: the dev compose stack.
- * - Unreachable MinIO: SKIP locally, FAIL with `CI=true`.
- * - Every object a test writes lives under keys derived from its own fresh owner/asset ids
- *   (`uploads/{owner}/...`, `assets/{asset}/...`); cleanup deletes exactly those prefixes.
+ * Every object a test writes lives under keys derived from its own fresh owner/asset ids
+ * (`uploads/{owner}/...`, `assets/{asset}/...`); `deleteMediaTestData` deletes exactly those
+ * prefixes.
  */
-export const IT_S3_PROBE_TIMEOUT_MS = 25_000;
+export { useIntegrationS3 };
+export type { IntegrationS3 };
 
-function env(name: string, fallback: string): string {
-  const value = process.env[name];
-  return value === undefined || value.trim() === '' ? fallback : value.trim();
-}
-
-/** The app's `S3_*` variables, pointed at the integration MinIO. */
+/** The app's `S3_*` variables, pointed at the integration MinIO (`IT_S3_*`). */
 export function itS3AppEnv(): Record<string, string> {
+  const config = itStorageConfig();
   return {
-    S3_ENDPOINT: env('IT_S3_ENDPOINT', 'http://localhost:9000'),
-    S3_PUBLIC_ENDPOINT: env('IT_S3_PUBLIC_ENDPOINT', 'http://127.0.0.1:9000'),
-    S3_REGION: env('IT_S3_REGION', 'us-east-1'),
-    S3_ACCESS_KEY: env('IT_S3_ACCESS_KEY', 'minio'),
-    S3_SECRET_KEY: env('IT_S3_SECRET_KEY', 'minio12345'),
-    S3_BUCKET_UPLOADS: env('IT_S3_BUCKET_UPLOADS', 'udemy-uploads'),
-    S3_BUCKET_MEDIA: env('IT_S3_BUCKET_MEDIA', 'udemy-media'),
+    S3_ENDPOINT: config.endpoint,
+    S3_PUBLIC_ENDPOINT: config.publicEndpoint,
+    S3_REGION: config.region,
+    S3_ACCESS_KEY: config.accessKeyId,
+    S3_SECRET_KEY: config.secretAccessKey,
+    S3_BUCKET_UPLOADS: config.buckets.uploads,
+    S3_BUCKET_MEDIA: config.buckets.media,
     S3_FORCE_PATH_STYLE: 'true',
-  };
-}
-
-export function itStorageConfig(): StorageConfig {
-  const e = itS3AppEnv();
-  return {
-    endpoint: e.S3_ENDPOINT ?? '',
-    publicEndpoint: e.S3_PUBLIC_ENDPOINT ?? '',
-    region: e.S3_REGION ?? '',
-    accessKeyId: e.S3_ACCESS_KEY ?? '',
-    secretAccessKey: e.S3_SECRET_KEY ?? '',
-    forcePathStyle: true,
-    buckets: { uploads: e.S3_BUCKET_UPLOADS ?? '', media: e.S3_BUCKET_MEDIA ?? '' },
-    connectionTimeoutMs: 5_000,
-    maxAttempts: 1,
-  };
-}
-
-export interface IntegrationS3 {
-  readonly storage: ObjectStorage;
-  readonly available: boolean;
-  skipIfUnavailable(ctx: SkippableContext): void;
-}
-
-const NETWORK_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET']);
-
-function isUnreachable(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  if (error instanceof AggregateError) return error.errors.some(isUnreachable);
-  const code = (error as { code?: unknown }).code;
-  if (typeof code === 'string' && NETWORK_CODES.has(code)) return true;
-  return error instanceof Error && error.cause !== undefined && isUnreachable(error.cause);
-}
-
-/** Registers beforeAll/afterAll hooks: a test-owned `ObjectStorage`, probed on both buckets. */
-export function useIntegrationS3(): IntegrationS3 {
-  let storage: ObjectStorage | undefined;
-  let reason: string | undefined = 'not connected yet (used outside a test?)';
-
-  beforeAll(async () => {
-    const config = itStorageConfig();
-    storage = new ObjectStorage(config);
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      await Promise.race([
-        storage.ping(),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`MinIO did not answer within ${IT_S3_PROBE_TIMEOUT_MS} ms`)),
-            IT_S3_PROBE_TIMEOUT_MS,
-          );
-        }),
-      ]);
-      reason = undefined;
-    } catch (error) {
-      if (!isUnreachable(error)) {
-        throw new Error(
-          `[integration] MinIO at ${config.endpoint} answered but the probe failed; check the ` +
-            `buckets ${config.buckets.uploads} / ${config.buckets.media} and the credentials.`,
-          { cause: error },
-        );
-      }
-      const why = `MinIO at ${config.endpoint} is unreachable. Start infra/docker/docker-compose.dev.yml or set IT_S3_ENDPOINT.`;
-      if (isCi()) {
-        throw new Error(`[integration] ${why} CI=true: integration tests must not be skipped.`, {
-          cause: error,
-        });
-      }
-      process.stderr.write(`[integration] ${why} Skipping its integration tests.\n`);
-      reason = why;
-    } finally {
-      clearTimeout(timer);
-    }
-  });
-
-  afterAll(() => {
-    storage?.destroy();
-  });
-
-  return {
-    get storage(): ObjectStorage {
-      if (storage === undefined || reason !== undefined) {
-        throw new Error(`[integration] MinIO is not available: ${reason ?? 'not connected'}`);
-      }
-      return storage;
-    },
-    get available(): boolean {
-      return storage !== undefined && reason === undefined;
-    },
-    skipIfUnavailable(ctx: SkippableContext): void {
-      ctx.skip(reason !== undefined, reason);
-    },
   };
 }
 

@@ -49,7 +49,9 @@ describe('media.asset consumers (integration: Postgres + Mailpit)', () => {
       topic: 'media.asset',
       eventType: 'MediaUploaded',
       consumerName: 'it.media.transcode-enqueuer',
-      handler: new TranscodeEnqueuerHandler(new TranscodeJobQueue()),
+      handler: new TranscodeEnqueuerHandler(
+        new TranscodeJobQueue(fakeConfig({ TRANSCODER_MAX_ATTEMPTS: 5 })),
+      ),
     };
     failedMailer = {
       topic: 'media.asset',
@@ -127,6 +129,13 @@ describe('media.asset consumers (integration: Postgres + Mailpit)', () => {
     await expect(processor.process(enqueuer, event)).resolves.toBe('processed');
     await expect(processor.process(enqueuer, event)).resolves.toBe('duplicate');
     expect(await jobCount(assetId)).toBe(1);
+    // TRANSCODER_MAX_ATTEMPTS is written to the job (the column default would be 3).
+    const job = await it_.db
+      .selectFrom('media.transcodeJobs')
+      .select(['maxAttempts', 'status'])
+      .where('assetId', '=', assetId)
+      .executeTakeFirstOrThrow();
+    expect(job).toEqual({ maxAttempts: 5, status: 'QUEUED' });
 
     // A second MediaUploaded for the same asset (new event id): claimed, but ON CONFLICT inserts nothing.
     await expect(

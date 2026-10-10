@@ -66,6 +66,9 @@ const failed = (overrides: Record<string, unknown> = {}, version = 1): EventEnve
 class FakeQueue extends TranscodeJobQueue {
   readonly jobs = new Set<string>();
   readonly calls: { trx: Transaction<DB>; assetId: string }[] = [];
+  constructor() {
+    super(fakeConfig({ TRANSCODER_MAX_ATTEMPTS: 3 }));
+  }
   override async enqueue(trx: Transaction<DB>, assetId: string): Promise<boolean> {
     this.calls.push({ trx, assetId });
     if (this.jobs.has(assetId)) return false;

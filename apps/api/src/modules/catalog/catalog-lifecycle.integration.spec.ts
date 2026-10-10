@@ -13,6 +13,7 @@ import { RevisionRepository } from './application/ports/revision.repository';
 import { TransactionRunner } from './application/ports/transaction-runner';
 import { AddLectureCommand } from './application/use-cases/add-lecture.command';
 import { AddSectionCommand } from './application/use-cases/add-section.command';
+import { AdminSearchCoursesQuery } from './application/use-cases/admin-search-courses.query';
 import { ApproveRevisionCommand } from './application/use-cases/approve-revision.command';
 import { ArchiveCourseCommand } from './application/use-cases/archive-course.command';
 import { AttachLectureMediaCommand } from './application/use-cases/attach-lecture-media.command';
@@ -57,6 +58,7 @@ describe('catalog lifecycle (integration: real AppModule, Postgres)', () => {
   const tag = randomUUID().slice(0, 8);
   let app: NestExpressApplication | undefined;
   let leafId = '';
+  let groupId = '';
   let adminId = '';
 
   const get = <T>(token: abstract new (...args: never[]) => T): T => {
@@ -77,6 +79,7 @@ describe('catalog lifecycle (integration: real AppModule, Postgres)', () => {
     });
     categoryIds.push(group.id, leaf.id);
     leafId = leaf.id;
+    groupId = group.id;
     adminId = await insertCatalogTestUser(pg.db, 'admin');
     owners.push(adminId);
   });
@@ -235,12 +238,31 @@ describe('catalog lifecycle (integration: real AppModule, Postgres)', () => {
       bodyMd: 'An edited article body, still comfortably longer than fifty characters.',
     });
     expect((await get(GetCourseQuery).execute(c.courseId)).hasUnpublishedChanges).toBe(true);
+    await get(UpdateCourseCommand).execute({
+      ...as,
+      changes: {
+        subtitle: 'A sharper subtitle',
+        outcomes: ['One', 'Two', 'Three', 'Four', 'Five'],
+      },
+    });
     const r2 = await get(SubmitCourseCommand).execute(as);
     const review = await get(GetRevisionReviewQuery).execute(r2.revisionId);
     expect(review.revision).toMatchObject({ kind: 'UPDATE', state: 'PENDING', revisionNo: 2 });
+    expect(review.revision.category).toMatchObject({
+      id: leafId,
+      parent: { id: groupId, name: `Lifecycle IT ${tag}` },
+    });
     expect(review.diff).toMatchObject({
       baseRevisionId: r1.revisionId,
-      changedFields: [],
+      changedFields: ['subtitle', 'outcomes'],
+      fieldChanges: [
+        { field: 'subtitle', before: 'A subtitle for the course', after: 'A sharper subtitle' },
+        {
+          field: 'outcomes',
+          before: ['One', 'Two', 'Three', 'Four'],
+          after: ['One', 'Two', 'Three', 'Four', 'Five'],
+        },
+      ],
       lectures: { changed: [c.articleIds[0]], added: [], removed: [], moved: [] },
     });
     await get(RejectRevisionCommand).execute({
@@ -339,6 +361,16 @@ describe('catalog lifecycle (integration: real AppModule, Postgres)', () => {
       byAdmin: true,
     });
     expect(down).toMatchObject({ status: 'ARCHIVED', pendingRevision: null });
+    // The admin list names the takedown actor and reason (the latest ARCHIVE transition).
+    const listed = await get(AdminSearchCoursesQuery).execute({ ownerId: c.ownerId, limit: 5 });
+    expect(listed.items).toEqual([
+      expect.objectContaining({
+        id: c.courseId,
+        status: 'ARCHIVED',
+        archivedBy: expect.objectContaining({ id: adminId, isModerator: true }),
+        archiveReason: 'Violates the content policy.',
+      }),
+    ]);
     expect(await pinsOf(r2.revisionId)).toEqual([]);
     expect(await pinsOf(r1.revisionId)).toEqual(c.assetIds); // live content is kept
 
@@ -378,6 +410,8 @@ describe('catalog lifecycle (integration: real AppModule, Postgres)', () => {
       byAdmin: true,
     });
     expect(restored).toMatchObject({ status: 'PUBLISHED', badge: 'LIVE' });
+    const relisted = await get(AdminSearchCoursesQuery).execute({ ownerId: c.ownerId, limit: 5 });
+    expect(relisted.items[0]).toMatchObject({ archivedBy: null, archiveReason: null });
     const events = (await outbox(c.courseId)).map((e) => e.type).slice(-3);
     expect(events).toEqual(['CourseSubmissionWithdrawn', 'CourseArchived', 'CourseRestored']);
     const archived = (await outbox(c.courseId)).find((e) => e.type === 'CourseArchived');

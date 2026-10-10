@@ -18,7 +18,8 @@ export interface AdminSearchCoursesInput {
  * `AdminSearchCourses` (admin, design §5/§8): every non-deleted course, newest change first
  * (keyset `(updated_at DESC, id DESC)` on the exact timestamp text), filtered by status, owner
  * and a title/slug substring, with the derived badge and the owner's ban flag (§13 Q4: banned
- * instructors' courses are taken down manually from this list).
+ * instructors' courses are taken down manually from this list). ARCHIVED rows carry who archived
+ * the course and why (the latest ARCHIVE transition); admins see every actor by name.
  */
 @Injectable()
 export class AdminSearchCoursesQuery {
@@ -37,7 +38,9 @@ export class AdminSearchCoursesQuery {
       limit: input.limit + 1,
     });
     const page = rows.slice(0, input.limit);
-    const people = await this.people.findPeople(page.map((r) => r.ownerId));
+    const people = await this.people.findPeople(
+      page.flatMap((r) => (r.archive === null ? [r.ownerId] : [r.ownerId, r.archive.actorId])),
+    );
     const last = page.at(-1);
     return {
       items: page.map((row) => {
@@ -57,6 +60,16 @@ export class AdminSearchCoursesQuery {
           liveRevisionId: row.publishedRevisionId,
           firstPublishedAt: row.firstPublishedAt?.toISOString() ?? null,
           updatedAt: row.updatedAt.toISOString(),
+          archivedBy:
+            row.archive === null
+              ? null
+              : {
+                  id: row.archive.actorId,
+                  displayName: people.get(row.archive.actorId)?.displayName ?? UNKNOWN_PERSON,
+                  // Only the owner and admins can archive (design §5): anyone else is a moderator.
+                  isModerator: row.archive.actorId !== row.ownerId,
+                },
+          archiveReason: row.archive?.reason ?? null,
         };
       }),
       nextCursor:

@@ -38,7 +38,7 @@ import { DeleteCourseCommand } from '../application/use-cases/delete-course.comm
 import { GetCourseQuery } from '../application/use-cases/get-course.query';
 import { SetCourseThumbnailCommand } from '../application/use-cases/set-course-thumbnail.command';
 import { UpdateCourseCommand } from '../application/use-cases/update-course.command';
-import { courseIdOf } from './catalog-http';
+import { courseIdOf, withMarkdownProblems } from './catalog-http';
 
 /**
  * `/api/v1/courses/:courseId`: the course working copy (design §8). `@CheckPolicy` on the
@@ -84,7 +84,7 @@ export class CoursesController {
       'version_conflict / course_in_review / course_not_editable / slug_frozen / slug_taken',
   })
   @ApiUnprocessableEntityResponse({
-    description: 'markdown_not_allowed / category_inactive / category_not_leaf',
+    description: 'markdown_not_allowed (+ issues[]) / category_inactive / category_not_leaf',
   })
   update(
     @Param({ schema: CourseIdParamsSchema }) params: CourseIdParams,
@@ -92,12 +92,14 @@ export class CoursesController {
     @CurrentPrincipal() principal: Principal,
   ): Promise<CourseDetail> {
     const { expectedVersion, ...changes } = body;
-    return this.updateCourse.execute({
-      actorId: principal.userId,
-      courseId: params.courseId,
-      changes,
-      expectedVersion,
-    });
+    return withMarkdownProblems(() =>
+      this.updateCourse.execute({
+        actorId: principal.userId,
+        courseId: params.courseId,
+        changes,
+        expectedVersion,
+      }),
+    );
   }
 
   @Delete(':courseId')
