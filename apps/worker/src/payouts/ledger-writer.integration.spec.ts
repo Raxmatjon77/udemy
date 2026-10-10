@@ -280,6 +280,9 @@ describe('payouts.ledger-writer (integration: Postgres)', () => {
     // The bound from the database clock: after the order was paid, before the refund succeeds.
     const { rows } = await sql<{ now: Date }>`SELECT clock_timestamp() AS now`.execute(it_.db);
     const bound = rows[0]!.now;
+    // `Date` keeps milliseconds only (Postgres keeps microseconds): let the database clock move
+    // past the bound so the refund's succeeded_at cannot truncate to the same millisecond.
+    await sql`SELECT pg_sleep(0.005)`.execute(it_.db);
     const succeeded = await seedSucceededRefund(it_.db, o, line);
     expect(succeeded.succeededAt.getTime()).toBeGreaterThan(bound.getTime());
 
