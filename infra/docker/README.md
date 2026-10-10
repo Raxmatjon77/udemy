@@ -197,6 +197,118 @@ The Kafka CLI prints `WARNING: Due to limitations in metric names, topics with a
 underscore ('_') could collide` for names like `users.instructor_application`. It is harmless here,
 because no two topic names differ only in `.` vs `_`.
 
+## Event pipeline operations
+
+The pipeline is: domain write + `outbox.events` row in one transaction → Debezium (slot
+`udemy_outbox`, connector `udemy-outbox`) → Kafka topic → worker handler (deduped through
+`outbox.processed_events`) → on failure, retries and then `<topic>.dlq`.
+
+### Health at a glance
+
+```bash
+# readiness detail "pipeline": connector + task states, slot lag, last consumer lag sample
+curl -s http://localhost:4001/health/ready | jq .details.pipeline
+
+# consumer lag of the shared group per topic (the worker also logs "Consumer lag" every
+# PIPELINE_METRICS_INTERVAL_MS, 60 s by default; warn level from 1000 messages)
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec kafka \
+  /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:19092 --describe --group udemy-worker
+```
+
+- The connector part needs `KAFKA_CONNECT_URL=http://localhost:8083` in `.env`; without it,
+  that check is skipped.
+- `pipeline` is **informational**. A FAILED or UNASSIGNED task, an unreachable Connect, or a
+  missing or inactive slot turns it `degraded`, with a message saying what to do. The HTTP status
+  stays 200 and the overall status becomes `degraded`; it never becomes 503. The reason: the
+  worker serves no traffic, so a failing readiness would only block worker rollouts (including the
+  fix) and would not help Debezium, which runs elsewhere.
+- `lagBytes` is `pg_current_wal_lsn() - confirmed_flush_lsn`. It counts all WAL, and the slot only
+  advances when outbox rows flow, so an idle pipeline shows some lag. Watch the trend, not the
+  absolute value.
+
+### Restarting the connector
+
+```bash
+curl -s http://localhost:8083/connectors/udemy-outbox/status | jq '{c: .connector.state, t: [.tasks[].state]}'
+```
+
+| State                                                        | Fix                                                                                                               |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| task `FAILED` (e.g. it started before the migrations)        | `curl -s -X POST 'http://localhost:8083/connectors/udemy-outbox/restart?includeTasks=true&onlyFailed=true'`       |
+| connector/task `UNASSIGNED` (typically after Kafka was down) | `docker restart udemy-dev-kafka-connect-1`: the Connect worker lost its assignment and does not recover by itself |
+| `PAUSED`                                                     | `curl -s -X PUT http://localhost:8083/connectors/udemy-outbox/resume`                                             |
+| not registered (404)                                         | `docker compose --env-file .env -f infra/docker/docker-compose.dev.yml up debezium-init`                          |
+
+After a restart, poll the status until it shows `RUNNING` / `[RUNNING]` (a Connect restart takes
+about as long as its healthcheck `start_period`, 30 s). Nothing is lost while the connector is down: the slot keeps the WAL and
+Debezium resumes from its last confirmed LSN. The cost is disk: an inactive slot retains WAL
+without bound. **Never drop the slot of a lagging connector** (`pg_drop_replication_slot`): the
+events it has not delivered are then only in `outbox.events`.
+
+### Outbox retention (`OutboxRetentionJob`)
+
+The worker deletes, every `OUTBOX_RETENTION_INTERVAL_MS` (1 h), in batches of
+`OUTBOX_RETENTION_BATCH_SIZE` (5000) and at most `OUTBOX_RETENTION_MAX_BATCHES_PER_RUN` (100)
+batches per table, under advisory lock `0x75646d79_10`:
+
+- **`outbox.events`** rows older than `OUTBOX_EVENTS_RETENTION_HOURS` (72), and **only** rows the
+  replication slot has confirmed: `age(xmin) > age(catalog_xmin)`, i.e. the inserting
+  transaction finished before a WAL position that Debezium confirmed after writing to Kafka.
+  Debezium reads the WAL, not the table, so a captured row is not needed any more. If the slot
+  is missing, no row is deleted. Older rows the slot has not confirmed yet are kept and logged as
+  `heldBack` (warning: is the connector running?). The full argument is in
+  `apps/worker/src/maintenance/outbox-retention.steps.ts`.
+- **`outbox.processed_events`** rows older than `PROCESSED_EVENTS_RETENTION_DAYS` (30). A
+  duplicate can only arrive while a copy of the event is still in Kafka (7-day topic retention
+  here), so a 30-day dedupe window cannot be outrun. The minimum is 8 days. Raise it if a consumed
+  topic gets a longer `retention.ms`.
+
+Each run logs `Outbox retention completed` with `deleted`, `batches`, `heldBack`, `slot` and
+`durationMs`. To check by hand:
+
+```bash
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec postgres psql -U udemy -c "
+  select count(*) filter (where age(e.xmin) > age(s.catalog_xmin)) as captured,
+         count(*) filter (where not age(e.xmin) > age(s.catalog_xmin)) as not_yet_confirmed
+    from outbox.events e, pg_replication_slots s where s.slot_name = 'udemy_outbox'"
+```
+
+### Dead letters: list and replay
+
+The CLI is built and run from `dist` (`pnpm --filter @udemy/worker build` first). It reads
+`KAFKA_BROKERS` from `.env`. Each run reads through its own throw-away consumer group
+(`udemy-worker-dlq-cli-<random>`, nothing committed, deleted afterwards), so it never joins or
+moves the worker's `udemy-worker` group and can run while the worker is up. stdout is JSON lines;
+the summary goes to stderr.
+
+```bash
+# oldest 20 messages: offset, key, eventType/eventId, dlq.* error headers, payload preview
+pnpm --filter @udemy/worker cli dlq:list catalog.course.dlq --limit 20 --preview 200
+
+# what would be replayed (publishes nothing)
+pnpm --filter @udemy/worker cli dlq:replay catalog.course.dlq --all --dry-run
+
+# replay one event, or all of them, to catalog.course
+pnpm --filter @udemy/worker cli dlq:replay catalog.course.dlq --event-id 01a1254c-3a8d-74a2-bafd-4c0d7a8af45d
+pnpm --filter @udemy/worker cli dlq:replay catalog.course.dlq --all
+```
+
+- A replay republishes the original key, value and headers (all `dlq.*` headers removed) to the
+  original topic and partition.
+- A failed handler rolled back its `processed_events` row, so it **will** run again on replay,
+  which is the point. Handlers that already succeeded for the same event skip it as a duplicate.
+- Each event is published once per run, even if it failed for several handlers.
+- Unreadable messages (no `eventId` header) are skipped: they would fail the same way again.
+- Fix the cause first (deploy the handler fix, restart the worker), then replay. Otherwise the
+  message just lands in the DLQ again.
+- Kafka can't delete single messages, so the DLQ copy stays. Replaying it again is harmless, only
+  noisy.
+- Messages that failed more than `PROCESSED_EVENTS_RETENTION_DAYS` ago are skipped unless
+  `--allow-stale` is given: by then the dedupe rows of the handlers that succeeded may be gone,
+  and those handlers would run twice.
+- A replayed event arrives after newer events of the same aggregate. Handlers must not assume
+  that order.
+
 ## CI
 
 The GitHub Actions `E2E` workflow (`.github/workflows/e2e.yml`, see `apps/e2e/README.md`) starts

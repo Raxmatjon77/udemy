@@ -22,6 +22,7 @@ import { createKafkaLogger } from './kafka-logger';
 export const KAFKA_CONSUMER = Symbol('KAFKA_CONSUMER');
 export const KAFKA_PRODUCER = Symbol('KAFKA_PRODUCER');
 export const KAFKA_ADMIN = Symbol('KAFKA_ADMIN');
+export const KAFKA_MONITORING_ADMIN = Symbol('KAFKA_MONITORING_ADMIN');
 
 function createKafka(config: WorkerConfigService): KafkaJS.Kafka {
   return new KafkaJS.Kafka({
@@ -67,6 +68,16 @@ export const kafkaProducerProvider: Provider = {
 /** Used once at startup to create missing topics (see kafka-topics.ts). */
 export const kafkaAdminProvider: Provider = {
   provide: KAFKA_ADMIN,
+  inject: [WorkerConfigService],
+  useFactory: (config: WorkerConfigService): KafkaJS.Admin => createKafka(config).admin(),
+};
+
+/**
+ * Long-lived, read-only admin client for the consumer lag metrics (offset and watermark lookups).
+ * Separate from KAFKA_ADMIN, which ensureTopics connects and disconnects once at startup.
+ */
+export const kafkaMonitoringAdminProvider: Provider = {
+  provide: KAFKA_MONITORING_ADMIN,
   inject: [WorkerConfigService],
   useFactory: (config: WorkerConfigService): KafkaJS.Admin => createKafka(config).admin(),
 };

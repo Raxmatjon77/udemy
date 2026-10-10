@@ -9,6 +9,7 @@ import { type DB, sql, type Transaction, withTransaction } from '@udemy/db';
 import { type Database, InjectDatabase } from '@udemy/nest-common';
 import { ObjectStorage } from '@udemy/storage';
 import { WorkerConfigService } from '../shared/config';
+import { ADVISORY_LOCK_KEYS } from './advisory-lock-keys';
 import {
   type CleanupStorage,
   dbMediaCleanupSql,
@@ -19,8 +20,8 @@ import {
   mediaCleanupSteps,
 } from './media-cleanup.steps';
 
-/** Advisory-lock key of the media cleanup (`udmy` + 2 in hex; design §5). */
-export const MEDIA_CLEANUP_LOCK_KEY = 0x75646d79_02;
+/** Advisory-lock key of the media cleanup (`udmy` + 2 in hex; design §5; all keys: advisory-lock-keys.ts). */
+export const MEDIA_CLEANUP_LOCK_KEY = ADVISORY_LOCK_KEYS.mediaCleanup;
 
 export interface MediaCleanupRunResult {
   readonly status: 'completed' | 'locked';

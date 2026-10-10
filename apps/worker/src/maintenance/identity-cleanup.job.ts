@@ -8,13 +8,13 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { type DB, sql, type Transaction, withTransaction } from '@udemy/db';
 import { type Database, InjectDatabase } from '@udemy/nest-common';
 import { WorkerConfigService } from '../shared/config';
+import { ADVISORY_LOCK_KEYS } from './advisory-lock-keys';
 import { type CleanupStep, identityCleanupSteps } from './identity-cleanup.steps';
 
 /**
- * Advisory-lock key of the identity cleanup (any constant unique among the app's advisory
- * locks; `udmy` + 1 in hex).
+ * Advisory-lock key of the identity cleanup (`udmy` + 1 in hex; all keys: advisory-lock-keys.ts).
  */
-export const IDENTITY_CLEANUP_LOCK_KEY = 0x75646d79_01;
+export const IDENTITY_CLEANUP_LOCK_KEY = ADVISORY_LOCK_KEYS.identityCleanup;
 
 export type CleanupRunResult =
   | { readonly status: 'completed'; readonly deleted: Readonly<Record<string, number>> }

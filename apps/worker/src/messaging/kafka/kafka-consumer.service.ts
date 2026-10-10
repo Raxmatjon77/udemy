@@ -6,29 +6,13 @@ import {
   Logger,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
-import type { InboundRecord } from '../envelope/inbound-record';
 import { EventHandlerRegistry } from '../event-handler.registry';
 import { WorkerConfigService } from '../../shared/config';
 import { MessageDispatcher } from '../message-dispatcher';
 import { KafkaGroupMembership } from './kafka-group-membership';
+import { toInboundRecord } from './kafka-record';
 import { ensureTopics } from './kafka-topics';
 import { KAFKA_ADMIN, KAFKA_CONSUMER, KAFKA_PRODUCER } from './kafka.providers';
-
-function toInboundRecord(
-  topic: string,
-  partition: number,
-  message: KafkaJS.KafkaMessage,
-): InboundRecord {
-  return {
-    topic,
-    partition,
-    offset: message.offset,
-    key: message.key,
-    value: message.value,
-    headers: message.headers ?? {},
-    timestamp: message.timestamp,
-  };
-}
 
 /**
  * Owns the Kafka connections. Startup: create missing topics -> producer (for the DLQ) ->

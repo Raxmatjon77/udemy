@@ -35,12 +35,49 @@ const s3Endpoint = z
 /** S3 bucket naming rules (as checked by `@udemy/storage`). */
 const bucketName = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'Invalid bucket name');
 
+/** `KAFKA_BROKERS`: comma-separated `host:port` list (shared with the worker CLI env). */
+export const kafkaBrokersEnv = envList(brokerAddress).refine(
+  (list) => list.length > 0,
+  'At least one broker',
+);
+
+/** Optional origin (`http(s)://host[:port]`); an empty value counts as unset. */
+const optionalOrigin = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+  z
+    .url({ protocol: /^https?$/ })
+    .refine(
+      (value) => new URL(value).origin === value.replace(/\/+$/, ''),
+      'Expected an origin without path',
+    )
+    .transform((value) => value.replace(/\/+$/, ''))
+    .optional(),
+);
+
+/** PostgreSQL identifier as used for replication slot names (`[a-z0-9_]`, at most 63 chars). */
+const replicationSlotName = z
+  .string()
+  .regex(/^[a-z0-9_]{1,63}$/, 'Expected a replication slot name ([a-z0-9_], max 63)');
+
+/** 0 disables; otherwise at least 5 s so the lag log cannot flood. */
+const intervalOrOff = envInt.refine(
+  (n) => n === 0 || n >= 5_000,
+  'Expected 0 (disabled) or at least 5000 ms',
+);
+
+/**
+ * Lower bound of PROCESSED_EVENTS_RETENTION_DAYS: one day more than the longest topic retention
+ * of the dev/CI cluster (7 days: the PII topics and the broker default `log.retention.hours=168`).
+ * See OutboxRetentionJob for why the dedupe window must outlive Kafka retention.
+ */
+export const MIN_PROCESSED_EVENTS_RETENTION_DAYS = 8;
+
 /** Everything the worker reads from the environment. Validated once at startup. */
 export const workerEnvSchema = baseEnvSchema
   .extend({
     /** Tiny HTTP server for k8s probes only (/health/live, /health/ready). Not PORT: the root .env sets that for the api. */
     WORKER_HEALTH_PORT: envPort.default(4001),
-    KAFKA_BROKERS: envList(brokerAddress).refine((list) => list.length > 0, 'At least one broker'),
+    KAFKA_BROKERS: kafkaBrokersEnv,
     KAFKA_CLIENT_ID: z.string().min(1).default('udemy-worker'),
     /** All worker replicas share this group, so each partition is consumed by one replica. */
     KAFKA_GROUP_ID: z.string().min(1).default('udemy-worker'),
@@ -134,6 +171,42 @@ export const workerEnvSchema = baseEnvSchema
      * (`.env.example`); 1..10 (`MAX_TRANSCODE_ATTEMPTS_LIMIT` in `@udemy/db`).
      */
     TRANSCODER_MAX_ATTEMPTS: envInt.min(1).max(10).default(3),
+
+    // ---- Phase 3: event pipeline operations (outbox retention, pipeline health, consumer lag)
+    /** Run the scheduled outbox retention in this replica (an advisory lock still makes runs exclusive). */
+    OUTBOX_RETENTION_ENABLED: envBoolean.default(true),
+    /** Time between two outbox retention runs. */
+    OUTBOX_RETENTION_INTERVAL_MS: envInt.min(10_000).default(60 * 60 * 1000),
+    /** Delay of the first run after startup. */
+    OUTBOX_RETENTION_INITIAL_DELAY_MS: envInt.default(180_000),
+    /**
+     * `outbox.events` rows older than this are deleted, but only once the replication slot has
+     * confirmed them (see OutboxRetentionJob). The age floor only keeps recent rows for debugging.
+     */
+    OUTBOX_EVENTS_RETENTION_HOURS: envInt
+      .min(1)
+      .max(24 * 365)
+      .default(72),
+    /**
+     * `outbox.processed_events` (the consumers' dedupe keys) older than this are deleted. Must be
+     * longer than the retention of every consumed topic, so a redelivery can't slip past dedupe.
+     */
+    PROCESSED_EVENTS_RETENTION_DAYS: envInt
+      .min(MIN_PROCESSED_EVENTS_RETENTION_DAYS)
+      .max(3650)
+      .default(30),
+    /** Rows per delete batch (one transaction each). */
+    OUTBOX_RETENTION_BATCH_SIZE: envInt.min(1).max(50_000).default(5_000),
+    /** Upper bound of batches per table and run. */
+    OUTBOX_RETENTION_MAX_BATCHES_PER_RUN: envInt.min(1).default(100),
+    /** Debezium's logical replication slot (`slot.name` in infra/debezium/outbox-connector.json). */
+    OUTBOX_REPLICATION_SLOT: replicationSlotName.default('udemy_outbox'),
+    /** Kafka Connect REST API for the readiness "pipeline" detail. Unset: connector check skipped. */
+    KAFKA_CONNECT_URL: optionalOrigin,
+    /** Name of the Debezium outbox connector in Kafka Connect. */
+    DEBEZIUM_CONNECTOR_NAME: z.string().trim().min(1).default('udemy-outbox'),
+    /** How often the consumer lag of the handled topics is logged. 0 = off. */
+    PIPELINE_METRICS_INTERVAL_MS: intervalOrOff.default(60_000),
   })
   // Refuse the `change-me` dev placeholders from .env.example when NODE_ENV=production.
   .superRefine(refuseDevPlaceholdersInProduction());

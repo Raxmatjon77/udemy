@@ -131,3 +131,53 @@ describe('workerEnvSchema (Phase 2 storage and media cleanup)', () => {
     },
   );
 });
+
+describe('workerEnvSchema (Phase 3 event pipeline operations)', () => {
+  it('applies the defaults (retention 72 h / 30 days, connector check off)', () => {
+    const env = validateEnv(workerEnvSchema, validEnv);
+    expect(env).toMatchObject({
+      OUTBOX_RETENTION_ENABLED: true,
+      OUTBOX_RETENTION_INTERVAL_MS: 3_600_000,
+      OUTBOX_RETENTION_INITIAL_DELAY_MS: 180_000,
+      OUTBOX_EVENTS_RETENTION_HOURS: 72,
+      PROCESSED_EVENTS_RETENTION_DAYS: 30,
+      OUTBOX_RETENTION_BATCH_SIZE: 5_000,
+      OUTBOX_RETENTION_MAX_BATCHES_PER_RUN: 100,
+      OUTBOX_REPLICATION_SLOT: 'udemy_outbox',
+      DEBEZIUM_CONNECTOR_NAME: 'udemy-outbox',
+      PIPELINE_METRICS_INTERVAL_MS: 60_000,
+    });
+    expect(env.KAFKA_CONNECT_URL).toBeUndefined();
+  });
+
+  it('accepts a Connect origin (trailing slash dropped), treats an empty value as unset, allows metrics off', () => {
+    expect(
+      validateEnv(workerEnvSchema, {
+        ...validEnv,
+        KAFKA_CONNECT_URL: 'http://localhost:8083/',
+        PIPELINE_METRICS_INTERVAL_MS: '0',
+      }),
+    ).toMatchObject({
+      KAFKA_CONNECT_URL: 'http://localhost:8083',
+      PIPELINE_METRICS_INTERVAL_MS: 0,
+    });
+    expect(
+      validateEnv(workerEnvSchema, { ...validEnv, KAFKA_CONNECT_URL: '' }).KAFKA_CONNECT_URL,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ['KAFKA_CONNECT_URL', 'http://localhost:8083/connectors'],
+    ['KAFKA_CONNECT_URL', 'ftp://localhost:8083'],
+    ['OUTBOX_EVENTS_RETENTION_HOURS', '0'],
+    ['PROCESSED_EVENTS_RETENTION_DAYS', '7'],
+    ['OUTBOX_RETENTION_BATCH_SIZE', '50001'],
+    ['OUTBOX_RETENTION_INTERVAL_MS', '1000'],
+    ['OUTBOX_REPLICATION_SLOT', 'Udemy-Outbox'],
+    ['PIPELINE_METRICS_INTERVAL_MS', '1000'],
+  ])('rejects an invalid %s (%s)', (key, value) => {
+    expect(() => validateEnv(workerEnvSchema, { ...validEnv, [key]: value })).toThrow(
+      new RegExp(key),
+    );
+  });
+});

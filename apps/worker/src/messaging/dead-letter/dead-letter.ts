@@ -24,8 +24,24 @@ export interface DeadLetterMessage {
 
 const MAX_ERROR_MESSAGE_LENGTH = 1_000;
 
+export const DEAD_LETTER_SUFFIX = '.dlq';
+
+/** Every header the DLQ adds starts with this; a replay strips them again. */
+export const DLQ_HEADER_PREFIX = 'dlq.';
+
+export const DLQ_HEADERS = {
+  originalTopic: 'dlq.original.topic',
+  originalPartition: 'dlq.original.partition',
+  originalOffset: 'dlq.original.offset',
+  errorName: 'dlq.error.name',
+  errorMessage: 'dlq.error.message',
+  attempts: 'dlq.attempts',
+  failedAt: 'dlq.failed.at',
+  consumer: 'dlq.consumer',
+} as const;
+
 export function deadLetterTopic(topic: string): string {
-  return `${topic}.dlq`;
+  return `${topic}${DEAD_LETTER_SUFFIX}`;
 }
 
 /**
@@ -40,16 +56,16 @@ export function buildDeadLetterMessage(
   const err = error instanceof Error ? error : new Error(String(error));
   const headers: RecordHeaders = {
     ...record.headers,
-    'dlq.original.topic': record.topic,
-    'dlq.original.partition': String(record.partition),
-    'dlq.original.offset': record.offset,
-    'dlq.error.name': err.name,
-    'dlq.error.message': err.message.slice(0, MAX_ERROR_MESSAGE_LENGTH),
-    'dlq.attempts': String(deadLetter.attempts),
-    'dlq.failed.at': now.toISOString(),
+    [DLQ_HEADERS.originalTopic]: record.topic,
+    [DLQ_HEADERS.originalPartition]: String(record.partition),
+    [DLQ_HEADERS.originalOffset]: record.offset,
+    [DLQ_HEADERS.errorName]: err.name,
+    [DLQ_HEADERS.errorMessage]: err.message.slice(0, MAX_ERROR_MESSAGE_LENGTH),
+    [DLQ_HEADERS.attempts]: String(deadLetter.attempts),
+    [DLQ_HEADERS.failedAt]: now.toISOString(),
   };
   if (deadLetter.consumerName !== undefined) {
-    headers['dlq.consumer'] = deadLetter.consumerName;
+    headers[DLQ_HEADERS.consumer] = deadLetter.consumerName;
   }
   return { topic: deadLetterTopic(record.topic), key: record.key, value: record.value, headers };
 }

@@ -2,6 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { HealthCheck, type HealthCheckResult, HealthCheckService } from '@nestjs/terminus';
 import { DbHealthIndicator } from '@udemy/nest-common';
 import { KafkaHealthIndicator } from './kafka-health.indicator';
+import { PipelineHealthIndicator } from './pipeline-health.indicator';
 import { S3HealthIndicator } from './s3-health.indicator';
 
 /** The worker's only HTTP surface: probes for Kubernetes on WORKER_HEALTH_PORT. */
@@ -12,6 +13,7 @@ export class HealthController {
     private readonly db: DbHealthIndicator,
     private readonly kafka: KafkaHealthIndicator,
     private readonly s3: S3HealthIndicator,
+    private readonly pipeline: PipelineHealthIndicator,
   ) {}
 
   @Get('live')
@@ -20,6 +22,7 @@ export class HealthController {
     return this.health.check([]);
   }
 
+  /** `pipeline` is informational: it can make the result `degraded` (200), never `error` (503). */
   @Get('ready')
   @HealthCheck()
   ready(): Promise<HealthCheckResult> {
@@ -27,6 +30,7 @@ export class HealthController {
       () => this.db.check('database'),
       () => this.kafka.check('kafka'),
       () => this.s3.check('s3'),
+      () => this.pipeline.check('pipeline'),
     ]);
   }
 }
