@@ -33,6 +33,13 @@ What the script grants:
 - Because 0003 revokes renditions/attempts writes from `udemy_app`, the transcoder deployment
   must connect as `udemy_transcoder` in prod (dev is a single superuser).
 
+- Phase 4 (`commerce`, `enrollment`, `payouts`, migration 0004) needs no change here: `udemy_app`
+  gets them through the default privileges, and 0004 revokes UPDATE/DELETE/TRUNCATE on the
+  append-only tables (price history, order lines, transition logs, the payouts ledger) and
+  DELETE/TRUNCATE on the state tables; `payouts.account_balances` is SELECT-only. API and worker
+  share `udemy_app`, so "payouts is written by the worker only" is a convention, not a privilege
+  (a future `udemy_worker` role could take payouts INSERT away from the API).
+
 ## When to run
 
 Run it on every new environment, and again after any deploy that adds schemas or outbox tables.

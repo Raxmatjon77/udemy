@@ -149,11 +149,15 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 -- Global (no IN SCHEMA) so schemas added by later migrations (e.g. `users` in 0002) are covered.
 -- Per-table exceptions (no UPDATE/DELETE/TRUNCATE on append-only tables, read-only access.roles)
 -- are REVOKEd by the migrations themselves in their `IF EXISTS (udemy_app)` blocks.
--- Phase 4 (docs/phase-4-commerce-enrollment-design.md §6): the commerce, enrollment and payouts
--- schemas need nothing here. udemy_app (API and worker; payouts is written by the worker) gets
--- them through these defaults, and migration 0004 REVOKEs UPDATE/DELETE on the append-only tables
--- and DELETE on orders, payments, refunds, coupons, coupon_redemptions, enrollments and
--- provider_events. udemy_transcoder and udemy_debezium get no access to them.
+-- Phase 4 (docs/phase-4-schema-design.md §4): the commerce, enrollment and payouts schemas need
+-- nothing here. udemy_app (API and worker; payouts is written by the worker by convention, both
+-- share the role) gets them through these defaults, plus EXECUTE on commerce.coupon_discount.
+-- Migration 0004 REVOKEs UPDATE/DELETE/TRUNCATE on the append-only tables (course_price_changes,
+-- order_lines, the three *_transitions tables, payouts.accounts/journal_entries/postings),
+-- DELETE/TRUNCATE on course_prices, coupons, coupon_redemptions, orders, payments, refunds,
+-- provider_events and enrollments, and leaves payouts.account_balances SELECT-only. It keeps
+-- UPDATE on coupons and orders: the guard triggers row-lock them as the invoker.
+-- udemy_transcoder and udemy_debezium get no access to them.
 ALTER DEFAULT PRIVILEGES FOR ROLE udemy_owner GRANT USAGE ON SCHEMAS TO udemy_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE udemy_owner
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO udemy_app;

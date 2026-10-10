@@ -18,7 +18,14 @@ describe('@udemy/db/testing', () => {
       types: './dist/testing/index.d.mts',
       default: './dist/testing/index.mjs',
     });
-    for (const name of ['useIntegrationDb', 'scriptedDb', 'createAsset', 'deleteTestData']) {
+    for (const name of [
+      'useIntegrationDb',
+      'scriptedDb',
+      'createAsset',
+      'deleteTestData',
+      'createOrder',
+      'payOrder',
+    ]) {
       expect(Object.keys(main)).not.toContain(name);
       expect(typeof (testing as Record<string, unknown>)[name]).toBe('function');
     }

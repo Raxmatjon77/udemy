@@ -24,6 +24,8 @@ export type JsonPrimitive = boolean | number | string | null;
 
 export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
+export type Numeric = ColumnType<string, number | string, number | string>;
+
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface AccessRoleChanges {
@@ -265,6 +267,218 @@ export interface CatalogSections {
   position: number;
   title: string;
   updatedAt: Generated<Timestamp>;
+}
+
+export interface CommerceCartItems {
+  addedAt: Generated<Timestamp>;
+  courseId: string;
+  userId: string;
+}
+
+export interface CommerceCarts {
+  couponCode: string | null;
+  createdAt: Generated<Timestamp>;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface CommerceCouponRedemptions {
+  consumedAt: Timestamp | null;
+  couponId: string;
+  orderId: string;
+  releasedAt: Timestamp | null;
+  reservedAt: Generated<Timestamp>;
+  status: string;
+  userId: string;
+}
+
+export interface CommerceCoupons {
+  amountOff: Numeric | null;
+  /**
+   * Uppercase ASCII (app normalises). text + CHECK instead of citext: the alphabet is ASCII so the CHECK is exact, and citext would make ~ and LIKE case-insensitive.
+   */
+  code: string;
+  courseId: string | null;
+  createdAt: Generated<Timestamp>;
+  createdBy: string;
+  currency: string | null;
+  deactivatedAt: Timestamp | null;
+  deactivatedBy: string | null;
+  discountType: string;
+  endsAt: Timestamp;
+  id: Generated<string>;
+  maxRedemptions: number | null;
+  percentOff: number | null;
+  scope: string;
+  startsAt: Timestamp;
+}
+
+export interface CommerceCoursePriceChanges {
+  amount: Numeric;
+  changedAt: Generated<Timestamp>;
+  changedBy: string;
+  courseId: string;
+  currency: string;
+  id: Generated<string>;
+}
+
+export interface CommerceCoursePrices {
+  amount: Numeric;
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  currency: string;
+  updatedAt: Generated<Timestamp>;
+  updatedBy: string;
+}
+
+export interface CommerceOrderLines {
+  couponId: string | null;
+  courseId: string;
+  courseTitle: string;
+  discountAmount: Generated<Numeric>;
+  /**
+   * Generated (list - discount). FK target of refunds.amount (full-line refunds only). Never written by the app.
+   */
+  finalAmount: ColumnType<string, never, never>;
+  id: Generated<string>;
+  instructorId: string;
+  instructorShareAmount: ColumnType<string, never, never>;
+  lineNo: number;
+  listAmount: Numeric;
+  orderId: string;
+  platformShareAmount: ColumnType<string, never, never>;
+  revenueShareBps: number;
+}
+
+export interface CommerceOrders {
+  closedAt: Timestamp | null;
+  currency: string;
+  id: Generated<string>;
+  idempotencyKey: string;
+  orderNumber: ColumnType<string, never, never>;
+  /**
+   * When the order was accepted as paid (enrollments granted). PAYMENT_REVIEW has none; the provider capture time is payments.succeeded_at. Refund window starts here.
+   */
+  paidAt: Timestamp | null;
+  placedAt: Generated<Timestamp>;
+  /**
+   * SHA-256 of the quote fingerprint (sorted courseId:final pairs, coupon id, currency). Same Idempotency-Key with another fingerprint -> idempotency_key_reused.
+   */
+  requestFingerprint: Buffer;
+  status: string;
+  totalAmount: Numeric;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface CommerceOrderTransitions {
+  actorId: string | null;
+  cause: string;
+  fromStatus: string | null;
+  occurredAt: Generated<Timestamp>;
+  orderId: string;
+  prevSeq: ColumnType<number | null, never, never>;
+  provider: string | null;
+  providerEventId: string | null;
+  reason: string | null;
+  seq: number;
+  toStatus: string;
+}
+
+export interface CommercePayments {
+  amount: Numeric;
+  checkoutSessionId: string | null;
+  checkoutUrl: string | null;
+  createdAt: Generated<Timestamp>;
+  currency: string;
+  orderId: string;
+  paymentIntentId: string | null;
+  provider: Generated<string>;
+  receivedAmount: Numeric | null;
+  receivedCurrency: string | null;
+  sessionExpiresAt: Timestamp;
+  status: Generated<string>;
+  succeededAt: Timestamp | null;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface CommerceProviderEvents {
+  eventId: string;
+  livemode: boolean;
+  objectId: string | null;
+  orderId: string | null;
+  outcome: string | null;
+  payloadSha256: Buffer;
+  processedAt: Timestamp | null;
+  provider: string;
+  providerCreatedAt: Timestamp;
+  receivedAt: Generated<Timestamp>;
+  type: string;
+}
+
+export interface CommerceRefunds {
+  amount: Numeric;
+  approvedAt: Timestamp | null;
+  attempt: Generated<number>;
+  comment: string | null;
+  createdAt: Generated<Timestamp>;
+  dispatchStartedAt: Timestamp | null;
+  failureCode: string | null;
+  id: Generated<string>;
+  initiatedBy: string;
+  orderId: string;
+  orderLineId: string;
+  providerRefundId: string | null;
+  reasonCode: string;
+  status: string;
+  succeededAt: Timestamp | null;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface CommerceRefundTransitions {
+  actorId: string | null;
+  failureCode: string | null;
+  fromStatus: string | null;
+  occurredAt: Generated<Timestamp>;
+  prevSeq: ColumnType<number | null, never, never>;
+  provider: string | null;
+  providerEventId: string | null;
+  providerRefundId: string | null;
+  reason: string | null;
+  refundId: string;
+  seq: number;
+  toStatus: string;
+}
+
+export interface EnrollmentEnrollments {
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  grantedAt: Generated<Timestamp>;
+  id: Generated<string>;
+  orderLineId: string | null;
+  revokedAt: Timestamp | null;
+  revokeReason: string | null;
+  source: string;
+  status: Generated<string>;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface EnrollmentEnrollmentTransitions {
+  action: string;
+  actorId: string | null;
+  enrollmentId: string;
+  fromStatus: string | null;
+  occurredAt: Generated<Timestamp>;
+  orderLineId: string | null;
+  prevSeq: ColumnType<number | null, never, never>;
+  reason: string | null;
+  refundId: string | null;
+  revokeReason: string | null;
+  seq: number;
+  source: string | null;
+  toStatus: string;
 }
 
 export interface IdentityOneTimeTokens {
@@ -548,6 +762,42 @@ export interface OutboxProcessedEvents {
   processedAt: Generated<Timestamp>;
 }
 
+export interface PayoutsAccountBalances {
+  accountId: string | null;
+  balance: Numeric | null;
+  currency: string | null;
+  ownerId: string | null;
+  postingCount: Int8 | null;
+  type: string | null;
+}
+
+export interface PayoutsAccounts {
+  createdAt: Generated<Timestamp>;
+  currency: string;
+  id: Generated<string>;
+  ownerId: string | null;
+  type: string;
+}
+
+export interface PayoutsJournalEntries {
+  createdAt: Generated<Timestamp>;
+  currency: string;
+  id: Generated<string>;
+  kind: string;
+  occurredAt: Timestamp;
+  orderLineId: string;
+  refundId: string | null;
+  sourceEventId: string;
+}
+
+export interface PayoutsPostings {
+  accountId: string;
+  amount: Numeric;
+  currency: string;
+  entryId: string;
+  lineNo: number;
+}
+
 export interface UsersInstructorApplications {
   applicantId: string;
   experienceLevel: string;
@@ -613,6 +863,21 @@ export interface DB {
   'catalog.revisionLectures': CatalogRevisionLectures;
   'catalog.revisionSections': CatalogRevisionSections;
   'catalog.sections': CatalogSections;
+  'commerce.cartItems': CommerceCartItems;
+  'commerce.carts': CommerceCarts;
+  'commerce.couponRedemptions': CommerceCouponRedemptions;
+  'commerce.coupons': CommerceCoupons;
+  'commerce.coursePriceChanges': CommerceCoursePriceChanges;
+  'commerce.coursePrices': CommerceCoursePrices;
+  'commerce.orderLines': CommerceOrderLines;
+  'commerce.orders': CommerceOrders;
+  'commerce.orderTransitions': CommerceOrderTransitions;
+  'commerce.payments': CommercePayments;
+  'commerce.providerEvents': CommerceProviderEvents;
+  'commerce.refunds': CommerceRefunds;
+  'commerce.refundTransitions': CommerceRefundTransitions;
+  'enrollment.enrollments': EnrollmentEnrollments;
+  'enrollment.enrollmentTransitions': EnrollmentEnrollmentTransitions;
   'identity.oneTimeTokens': IdentityOneTimeTokens;
   'identity.refreshTokens': IdentityRefreshTokens;
   'identity.securityEvents': IdentitySecurityEvents;
@@ -626,6 +891,10 @@ export interface DB {
   'media.transcodeJobs': MediaTranscodeJobs;
   'outbox.events': OutboxEvents;
   'outbox.processedEvents': OutboxProcessedEvents;
+  'payouts.accountBalances': PayoutsAccountBalances;
+  'payouts.accounts': PayoutsAccounts;
+  'payouts.journalEntries': PayoutsJournalEntries;
+  'payouts.postings': PayoutsPostings;
   'users.instructorApplications': UsersInstructorApplications;
   'users.instructorApplicationTransitions': UsersInstructorApplicationTransitions;
   'users.profiles': UsersProfiles;

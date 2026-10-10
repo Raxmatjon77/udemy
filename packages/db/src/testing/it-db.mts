@@ -76,7 +76,7 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
-/** Registers beforeAll/afterAll: connect + probe a 0003 table, then close the pool. */
+/** Registers beforeAll/afterAll: connect + probe the newest migration's table (0004), then close the pool. */
 export function useIntegrationDb(options: { max?: number } = {}): IntegrationDb {
   const url = itDatabaseUrl();
   let db: Kysely<DB> | undefined;
@@ -90,10 +90,7 @@ export function useIntegrationDb(options: { max?: number } = {}): IntegrationDb 
       applicationName: testPath === undefined ? 'udemy-db-it' : `udemy-db-it:${basename(testPath)}`,
     });
     try {
-      await withDeadline(
-        sql`select 1 from media.transcode_attempts limit 0`.execute(db),
-        PROBE_TIMEOUT_MS,
-      );
+      await withDeadline(sql`select 1 from payouts.postings limit 0`.execute(db), PROBE_TIMEOUT_MS);
       reason = undefined;
     } catch (error) {
       const message = `Postgres unavailable at ${redact(url)} (IT_DATABASE_URL): ${describeError(error)}`;
@@ -205,20 +202,83 @@ export function signal(): { promise: Promise<void>; resolve: () => void } {
 }
 
 /**
- * Deletes everything the tests committed for these users (their assets with jobs, attempts,
- * renditions and usages; their courses with all catalog children and history; categories by id;
- * then the users). `session_replication_role = replica` disables the append-only triggers and FK
- * checks for this transaction only; it needs a superuser (dev compose and CI connect as one).
+ * Phase 4 rows of these users (as buyer, instructor, coupon creator, price author or payee),
+ * plus the given provider events. Runs inside deleteTestData's replica-role transaction: the
+ * append-only and guard triggers and the FK checks are off, so order doesn't matter.
+ */
+async function deleteCommerceRows(
+  trx: Transaction<DB>,
+  ids: readonly string[],
+  eventIds: readonly string[],
+): Promise<void> {
+  const u = sql`${[...ids]}::uuid[]`;
+  const orders = sql`
+    SELECT id FROM commerce.orders WHERE user_id = ANY(${u})
+    UNION SELECT order_id FROM commerce.order_lines WHERE instructor_id = ANY(${u})`;
+  const lines = sql`SELECT id FROM commerce.order_lines WHERE order_id IN (${orders})`;
+  const refunds = sql`SELECT id FROM commerce.refunds WHERE order_id IN (${orders})`;
+  const coupons = sql`SELECT id FROM commerce.coupons WHERE created_by = ANY(${u}) OR deactivated_by = ANY(${u})`;
+  const entries = sql`SELECT id FROM payouts.journal_entries WHERE order_line_id IN (${lines})`;
+  await sql`
+    DELETE FROM payouts.postings WHERE entry_id IN (${entries})
+       OR account_id IN (SELECT id FROM payouts.accounts WHERE owner_id = ANY(${u}))
+  `.execute(trx);
+  await sql`DELETE FROM payouts.journal_entries WHERE order_line_id IN (${lines})`.execute(trx);
+  await sql`DELETE FROM payouts.accounts WHERE owner_id = ANY(${u})`.execute(trx);
+  await sql`
+    DELETE FROM enrollment.enrollment_transitions
+     WHERE enrollment_id IN (SELECT id FROM enrollment.enrollments WHERE user_id = ANY(${u})) OR actor_id = ANY(${u})
+  `.execute(trx);
+  await sql`DELETE FROM enrollment.enrollments WHERE user_id = ANY(${u})`.execute(trx);
+  const events = sql`
+    SELECT provider_event_id FROM commerce.order_transitions WHERE order_id IN (${orders}) AND provider_event_id IS NOT NULL
+    UNION SELECT provider_event_id FROM commerce.refund_transitions WHERE refund_id IN (${refunds}) AND provider_event_id IS NOT NULL
+    UNION SELECT event_id FROM commerce.provider_events WHERE order_id IN (${orders})
+    UNION SELECT unnest(${[...eventIds]}::text[])`;
+  const eventList = await sql<{
+    id: string;
+  }>`SELECT DISTINCT e AS id FROM (${events}) x(e)`.execute(trx);
+  await sql`DELETE FROM commerce.refund_transitions WHERE refund_id IN (${refunds})`.execute(trx);
+  await sql`DELETE FROM commerce.refunds WHERE order_id IN (${orders})`.execute(trx);
+  await sql`DELETE FROM commerce.order_transitions WHERE order_id IN (${orders})`.execute(trx);
+  await sql`
+    DELETE FROM commerce.provider_events WHERE provider = 'STRIPE' AND event_id = ANY(${eventList.rows.map((r) => r.id)}::text[])
+  `.execute(trx);
+  await sql`DELETE FROM commerce.payments WHERE order_id IN (${orders})`.execute(trx);
+  await sql`
+    DELETE FROM commerce.coupon_redemptions WHERE order_id IN (${orders}) OR coupon_id IN (${coupons})
+  `.execute(trx);
+  await sql`DELETE FROM commerce.order_lines WHERE order_id IN (${orders})`.execute(trx);
+  await sql`DELETE FROM commerce.orders WHERE id IN (${orders})`.execute(trx);
+  await sql`DELETE FROM commerce.coupons WHERE id IN (${coupons})`.execute(trx);
+  await sql`DELETE FROM commerce.cart_items WHERE user_id = ANY(${u})`.execute(trx);
+  await sql`DELETE FROM commerce.carts WHERE user_id = ANY(${u})`.execute(trx);
+  await sql`
+    DELETE FROM commerce.course_price_changes
+     WHERE changed_by = ANY(${u}) OR course_id IN (SELECT course_id FROM commerce.course_prices WHERE updated_by = ANY(${u}))
+  `.execute(trx);
+  await sql`DELETE FROM commerce.course_prices WHERE updated_by = ANY(${u})`.execute(trx);
+}
+
+/**
+ * Deletes everything the tests committed for these users (their commerce / enrollment / payouts
+ * rows and `providerEventIds`; their assets with jobs, attempts, renditions and usages; their
+ * courses with all catalog children and history; categories by id; then the users).
+ * `session_replication_role = replica` disables the append-only triggers and FK checks for this
+ * transaction only; it needs a superuser (dev compose and CI connect as one).
  */
 export async function deleteTestData(
   db: Kysely<DB>,
   userIds: readonly string[],
   categoryIds: readonly string[] = [],
+  options: { providerEventIds?: readonly string[] } = {},
 ): Promise<void> {
   const ids = [...new Set(userIds)];
-  if (ids.length === 0 && categoryIds.length === 0) return;
+  const eventIds = [...new Set(options.providerEventIds ?? [])];
+  if (ids.length === 0 && categoryIds.length === 0 && eventIds.length === 0) return;
   await db.transaction().execute(async (trx) => {
     await sql`set local session_replication_role = replica`.execute(trx);
+    if (ids.length > 0 || eventIds.length > 0) await deleteCommerceRows(trx, ids, eventIds);
     if (ids.length > 0) {
       await sql`
         WITH a AS (SELECT id FROM media.assets WHERE owner_id = ANY(${ids}::uuid[]))

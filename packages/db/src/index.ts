@@ -81,4 +81,104 @@ export {
   findLecturesWithoutUsage,
   findLeakedUsages,
 } from './catalog/consistency';
+// Phase 4 operational SQL (docs/phase-4-schema-design.md §8). All at READ COMMITTED.
+export {
+  REFUND_DISPATCH_LOCK_KEY,
+  COMMERCE_RECONCILE_LOCK_KEY,
+  type LockedOrder,
+  tryAdvisoryXactLock,
+  lockUserCart,
+  lockOrder,
+  findOrderOwner,
+} from './commerce/locks';
+export {
+  type QuoteLine,
+  type CouponState,
+  type CouponCandidate,
+  type CartQuote,
+  quoteCart,
+  lockCheckoutCoupons,
+} from './commerce/quote';
+export {
+  type ReserveCouponInput,
+  reserveCouponRedemption,
+  consumeCouponRedemptions,
+  releaseCouponRedemptions,
+} from './commerce/coupons';
+export {
+  PROVIDER_EVENT_OUTCOMES,
+  type ProviderEventOutcome,
+  type ClaimProviderEventInput,
+  type FinishProviderEventInput,
+  claimProviderEvent,
+  finishProviderEvent,
+} from './commerce/provider-events';
+export {
+  type OrderStatus,
+  type OrderTransitionCause,
+  type AppendOrderTransitionInput,
+  type PaidOrderLine,
+  type MarkOrderPaidInput,
+  type MarkOrderPaidResult,
+  appendOrderTransition,
+  markOrderPaid,
+} from './commerce/orders';
+export {
+  type LeasedRefund,
+  type LeaseRefundsOptions,
+  type LeaseRefundsResult,
+  type RefundFence,
+  type RefundDispatchResult,
+  leaseRefundsForDispatch,
+  completeRefundDispatch,
+  failRefundDispatch,
+  releaseRefundDispatchLease,
+  applySucceededRefundsToOrder,
+} from './commerce/refunds';
+export {
+  type StaleCreatingPayment,
+  type OverdueOpenSession,
+  findStaleCreatingPayments,
+  findOverdueOpenSessions,
+} from './commerce/reconcile';
+export {
+  MAX_SALES_RANGE_DAYS,
+  type SalesSummaryRow,
+  type SalesSummary,
+  type RecentSaleCursor,
+  type RecentSale,
+  getInstructorSalesSummary,
+  listRecentSales,
+} from './commerce/sales';
+export {
+  type EnrollmentSource,
+  type RevokeReason,
+  type GrantEnrollmentInput,
+  type GrantOutcome,
+  type GrantEnrollmentResult,
+  type RevokeEnrollmentInput,
+  type RevokeOutcome,
+  type RevokeEnrollmentResult,
+  grantEnrollment,
+  revokeEnrollment,
+} from './enrollment/enrollments';
+export {
+  findOrderEnrollmentsWithoutPaidLine,
+  findActiveEnrollmentsWithLiveRefund,
+} from './enrollment/consistency';
+export {
+  type LedgerAccountType,
+  type PostOutcome,
+  type PostResult,
+  type PostSaleInput,
+  type PostRefundInput,
+  type LedgerScope,
+  type LedgerDifference,
+  type LedgerTotals,
+  ensureLedgerAccount,
+  postSaleEntry,
+  postRefundEntry,
+  reconcileLedger,
+  getLedgerTotals,
+} from './payouts/ledger';
 export { sql, Kysely, Transaction } from 'kysely';
