@@ -1,22 +1,57 @@
 # @udemy/e2e
 
-Playwright journeys across the three Next apps against the **real** stack: the built api and
-worker, the three BFFs (`next start`), Postgres, Redis, Kafka + Debezium and Mailpit. Nothing is
-mocked; emails are read back from Mailpit.
+Playwright journeys across the three Next apps against the **real** stack: the built api, worker and
+transcoder, the three BFFs (`next start`), Postgres, Redis, Kafka + Debezium, MinIO and Mailpit.
+Nothing is mocked; emails are read back from Mailpit, videos are really transcoded and played.
 
-| Spec                           | Journey                                                                                             |
-| ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `tests/onboarding.spec.ts`     | signup → verify-pending → mail link (`#token`) → login → apply → admin approves → instructor app    |
-| `tests/password-reset.spec.ts` | forgot-password → mail → reset page → new password works, old fails, old session ends               |
-| `tests/sessions.spec.ts`       | two browsers → `/account/sessions` lists 2 → "sign out everywhere" ends the other one               |
-| `tests/refresh-reuse.spec.ts`  | rotate the refresh token, replay the old one after the 10 s grace → whole session ends + alert mail |
-| `tests/access-control.spec.ts` | a student cannot reach web-admin; a protected student page → `/login?next=` → back to `next`        |
-| `tests/admin-ban.spec.ts`      | admin bans from `/users/[id]` → session ends, banned login message, mail → unban → login works      |
+| Spec                             | Journey                                                                                             |
+| -------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `tests/onboarding.spec.ts`       | signup → verify-pending → mail link (`#token`) → login → apply → admin approves → instructor app    |
+| `tests/password-reset.spec.ts`   | forgot-password → mail → reset page → new password works, old fails, old session ends               |
+| `tests/sessions.spec.ts`         | two browsers → `/account/sessions` lists 2 → "sign out everywhere" ends the other one               |
+| `tests/refresh-reuse.spec.ts`    | rotate the refresh token, replay the old one after the 10 s grace → whole session ends + alert mail |
+| `tests/access-control.spec.ts`   | a student cannot reach web-admin; a protected student page → `/login?next=` → back to `next`        |
+| `tests/admin-ban.spec.ts`        | admin bans from `/users/[id]` → session ends, banned login message, mail → unban → login works      |
+| `tests/course-lifecycle.spec.ts` | Phase 2, see below: build a course → review → reject → resubmit → approve → public preview → update |
+
+### The course journey (`tests/course-lifecycle.spec.ts`, Phase 2)
+
+One test, about 25 s locally (most of it waiting for uploads to be processed), in **Google Chrome**:
+
+1. Setup through the UI: a student signs up, verifies, applies; the e2e admin approves. The admin
+   creates a category group and a subcategory (`e2e-…` slugs).
+2. The instructor creates a course in web-instructor, fills in the details (markdown description,
+   4 outcomes, a requirement, language, level, category, URL), uploads the PNG course image (waits
+   for READY and for the image to load), adds a section with a VIDEO lecture, uploads the MP4 and
+   waits for READY (the transcoder ran; the owner preview streams a segment), marks it as a free
+   preview, adds an ARTICLE lecture, checks that the readiness panel is clear and submits.
+3. The admin opens the review queue and the revision, plays the video (a segment from MinIO with
+   status 200 and `currentTime > 0`) and rejects with a reason.
+4. The instructor sees the reason, edits the subtitle and resubmits; the admin approves (a rejected
+   first submission never went live, so the page says there is nothing to diff against).
+5. An anonymous student finds the course via browse (`?q=`), checks the landing page (title,
+   subtitle, outcomes, requirements, description, instructor card, totals), plays the free preview
+   (segment from MinIO with 200: signed URLs, CORS and CSP in a real browser) and sees the article
+   lecture locked.
+6. The instructor renames the course without resubmitting: the public landing still shows the old
+   title (snapshot model). They submit the update; the admin sees the title's before/after diff and
+   approves; the landing now shows the new title.
+7. Mail: "Review requested" to the admin for every submission, "not approved" (with the reason),
+   "is live" and "update is live" to the instructor. No CSP violation was logged in any app.
+
+`CATALOG_SUBMIT_MIN_LECTURES=1` and `CATALOG_SUBMIT_MIN_VIDEO_SECONDS=0` are passed to the api.
+The media fixtures (a 5 s 640×360 H.264/AAC MP4 and a 1280×720 PNG) are generated by global setup
+with `ffmpeg -f lavfi` into `.output/fixtures/` and deleted by global teardown; nothing binary is in
+git. ffmpeg is the host's when it runs, else the one in the transcoder image (`docker run`).
+
+**Why Chrome:** Playwright's Chromium has no H.264/AAC decoders, so the journey runs in the
+`chrome` project (`channel: 'chrome'`, branded Google Chrome); the Phase 1 journeys keep the
+bundled Chromium (project `chromium`). Install Chrome normally on macOS; `ubuntu-latest` ships it.
 
 ## Prerequisites
 
-1. Node 22 (`nvm use` in the repo root), `pnpm install`, and Chromium for Playwright:
-   `pnpm --filter @udemy/e2e browsers:install`.
+1. Node 22 (`nvm use` in the repo root), `pnpm install`, Chromium for Playwright
+   (`pnpm --filter @udemy/e2e browsers:install`) and Google Chrome for the course journey.
 2. The docker dev stack, healthy, with the migrations applied (root README /
    `infra/docker/README.md`):
    ```bash
@@ -27,9 +62,13 @@ mocked; emails are read back from Mailpit.
    `apps/web-*/.env.local` (copied from the `.env.example` files).
 4. Production builds of everything the suite starts:
    ```bash
-   pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*'
+   pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter=@udemy/transcoder \
+     --filter='@udemy/web-*'
    ```
    `pnpm turbo run e2e` does this for you (the `e2e` task depends on those builds).
+5. The MinIO buckets (`docker compose … run --rm minio-init`, part of the dev stack setup) and the
+   Phase 2 Kafka topics (`docker compose … run --rm kafka-init`).
+6. A transcoder: ffmpeg/ffprobe ≥ 6 on PATH, **or** Docker (see "The transcoder" below).
 
 ## Run
 
@@ -38,53 +77,85 @@ pnpm --filter @udemy/e2e e2e        # headless, all journeys
 pnpm --filter @udemy/e2e e2e:ui     # Playwright UI mode
 pnpm turbo run e2e                  # builds api/worker/apps first, then runs the suite
 E2E_SKIP_SLOW=1 pnpm --filter @udemy/e2e e2e   # skip the reuse journey (waits ~11 s)
+pnpm --filter @udemy/e2e e2e tests/course-lifecycle.spec.ts   # only the Phase 2 journey
 ```
+
+### The transcoder
+
+`E2E_TRANSCODER` picks how the suite runs it (default: `host` when `ffmpeg -version` works, else
+`compose`):
+
+| Mode       | What Playwright starts                                                                                                                                                                                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `host`     | `node dist/main.js` in apps/transcoder with the host ffmpeg (as in CI), health on `E2E_TRANSCODER_PORT` (4002)                                                                                                                                                                                                   |
+| `compose`  | `docker compose … -f infra/docker/docker-compose.e2e.yml --profile transcoder up --no-deps transcoder` in the foreground: the production image (pinned ffmpeg 8.1, 768 MB / 1 CPU caps), internal `postgres:5432` / `minio:9000`, health port published on `127.0.0.1:${E2E_TRANSCODER_PORT}` by the e2e overlay |
+| `external` | nothing: a transcoder you started yourself against the same database and MinIO                                                                                                                                                                                                                                   |
+
+Locally without ffmpeg (this Mac), `compose` is used. The image `udemy-transcoder:dev` is built on
+first use; after changing the transcoder, rebuild it with `E2E_TRANSCODER_BUILD=1` (adds `--build`)
+or `docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile transcoder build transcoder`.
+`infra/ci/e2e-local.sh` rebuilds it for you. When the run ends Playwright sends SIGTERM to
+`docker compose up`, which stops the container (the app releases its lease); `e2e-local.sh` also
+removes it. Stop any other transcoder first (host `pnpm dev` or the compose service): it would
+lease the journey's jobs too (safe, but its logs are not in `.output/logs/`).
 
 `e2e` is deliberately **not** part of `pnpm test`: it needs the docker stack.
 
 What a run does:
 
-1. Playwright starts five servers (`webServer` in `playwright.config.ts`) and waits for their
+1. Playwright starts six servers (`webServer` in `playwright.config.ts`) and waits for their
    health checks: api `node dist/main.js` (`/api/health/ready`), worker `node dist/main.js`
-   (`/health/ready`), and `next start` for web-student / web-instructor / web-admin
-   (`/api/health`). `reuseExistingServer` is off: a taken port fails the run instead of testing
-   someone else's process. All five are stopped (SIGTERM) when the run ends.
+   (`/health/ready`), the transcoder (`/health/ready` on 4002, see above), and `next start` for
+   web-student / web-instructor / web-admin (`/api/health`). `reuseExistingServer` is off: a taken
+   port fails the run instead of testing someone else's process. All six are stopped (SIGTERM)
+   when the run ends.
 2. Global setup (`src/global-setup.ts`) checks that Postgres (with migrations), Redis, Kafka, the
-   Debezium connector and Mailpit answer; removes leftovers of an aborted run (`e2e-…@example.test`
-   users and mail only); and bootstraps a **fresh e2e admin** with
+   Debezium connector, MinIO and Mailpit answer; removes leftovers of an aborted run
+   (`e2e-…@example.test` users with their courses and media, `e2e-…` categories, e2e mail only);
+   generates the media fixtures; and bootstraps a **fresh e2e admin** with
    `api cli admin:bootstrap --password-stdin` and a random password. The password is passed to the
    test workers in memory (`process.env`) and never written to disk. The dev admin
    (`admin@udemy.local`) is not used.
 3. Each test creates its own users (`e2e-<random>@example.test`) and deletes them afterwards with
-   SQL (`src/db.ts`, the same statements as the api's `deleteTestUsers`), plus their Mailpit
-   messages. Global teardown deletes the e2e admin and any e2e leftovers.
+   SQL (`src/db.ts`, the same statements as the api's `deleteTestUsers` and
+   `deleteCatalogTestData`: their courses, revisions, media rows and jobs go too), then their
+   MinIO objects (`src/cleanup.ts`: `assets/{id}/`, `uploads/{owner}/`, open multipart uploads),
+   plus their Mailpit messages. Global teardown deletes the e2e admin, any e2e leftovers, the
+   `e2e-…` categories, every mail about an `E2E course …` (review requests also go to non-e2e
+   admins) and the fixtures.
 
 Output (all gitignored, under `.output/`): `logs/<server>.log` (server stdout/stderr of the last
-run), `test-results/` (trace, screenshot and video of failed tests), `report/` (HTML report:
+run, `transcoder.log` included), `fixtures/` (during a run), `test-results/` (trace, screenshot and video of failed tests), `report/` (HTML report:
 `pnpm --filter @udemy/e2e e2e:report`). Open a trace with `npx playwright show-trace <trace.zip>`.
 
 ## Ports and env
 
-Defaults: student 3000, instructor 3001, admin 3002, api 4000, worker health 4001. If one is taken
-by a process you did not start, move the suite instead of killing it:
+Defaults: student 3000, instructor 3001, admin 3002, api 4000, worker health 4001, transcoder
+health 4002. If one is taken by a process you did not start, move the suite instead of killing it:
 
 ```bash
 E2E_STUDENT_PORT=3100 E2E_INSTRUCTOR_PORT=3101 E2E_ADMIN_PORT=3102 \
-E2E_API_PORT=4100 E2E_WORKER_PORT=4101 pnpm --filter @udemy/e2e e2e
+E2E_API_PORT=4100 E2E_WORKER_PORT=4101 E2E_TRANSCODER_PORT=4102 pnpm --filter @udemy/e2e e2e
 ```
+
+MinIO only allows the CORS origins `http://localhost:3000-3002` (`MINIO_CORS_ALLOW_ORIGIN` in the
+dev compose file): with other web ports, add them there (and recreate `minio`) or the uploads and
+the players fail with CORS errors.
 
 Everything that depends on a port is derived from these in `src/env.ts`, because the cookie, Origin
 and CSRF checks need every origin to match the URL the browser uses:
 
-| Process       | Env set by the suite                                                                                                                                                                                                   |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| api           | `PORT`, `API_PUBLIC_URL` (= the JWT `iss`); the rest from the root `.env`                                                                                                                                              |
-| worker        | `WORKER_HEALTH_PORT`, `STUDENT_/INSTRUCTOR_/ADMIN_APP_ORIGIN` (links in emails); the rest from root `.env`                                                                                                             |
-| web-\* (BFFs) | `PORT`, `APP_ORIGIN`, `API_INTERNAL_URL`, `JWT_ISSUER`, `JWKS_URL`, `JWT_AUDIENCE`, `COOKIE_SECURE=true`, the client id/secret from the app's `.env.local` (else `.env.example`); instructor also `STUDENT_APP_ORIGIN` |
+| Process       | Env set by the suite                                                                                                                                                                                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| api           | `PORT`, `API_PUBLIC_URL` (= the JWT `iss`), `CATALOG_SUBMIT_MIN_LECTURES=1`, `CATALOG_SUBMIT_MIN_VIDEO_SECONDS=0`; the rest from the root `.env`                                                                                                                                                                    |
+| transcoder    | host mode: `TRANSCODER_HEALTH_PORT`, `TRANSCODER_MAX_HEIGHT=720`; the rest from the root `.env`. Compose mode: the service's own env (same buckets and credentials)                                                                                                                                                 |
+| worker        | `WORKER_HEALTH_PORT`, `STUDENT_/INSTRUCTOR_/ADMIN_APP_ORIGIN` (links in emails); the rest from root `.env`                                                                                                                                                                                                          |
+| web-\* (BFFs) | `PORT`, `APP_ORIGIN`, `API_INTERNAL_URL`, `JWT_ISSUER`, `JWKS_URL`, `JWT_AUDIENCE`, `COOKIE_SECURE=true`, `MEDIA_PUBLIC_ORIGIN` (the origin of the api's `S3_PUBLIC_ENDPOINT`, for the CSP), the client id/secret from the app's `.env.local` (else `.env.example`); instructor and admin also `STUDENT_APP_ORIGIN` |
 
 Other knobs: `E2E_DATABASE_URL`, `E2E_REDIS_URL`, `E2E_KAFKA_BROKERS` (default: the root `.env`),
 `E2E_MAILPIT_URL` (`http://localhost:8025`), `E2E_KAFKA_CONNECT_URL` (`http://localhost:8083`),
-`E2E_DEBEZIUM_CONNECTOR` (`udemy-outbox`), `E2E_SERVER_LOG_LEVEL` (`info`), `E2E_SKIP_SLOW=1`, and
+`E2E_DEBEZIUM_CONNECTOR` (`udemy-outbox`), `E2E_SERVER_LOG_LEVEL` (`info`), `E2E_SKIP_SLOW=1`,
+`E2E_TRANSCODER` (`host` | `compose` | `external`), `E2E_TRANSCODER_BUILD=1`, and
 `E2E_STUDENT_/INSTRUCTOR_/ADMIN_CLIENT_SECRET` (a BFF's client secret instead of the one in its
 `.env.local`; the api then needs the matching `CLIENT_<APP>_SECRET_HASH`, as in CI).
 
@@ -111,9 +182,12 @@ stays). Timeout 30 min; it runs separately from `ci.yml` (lint/typecheck/test/bu
 
 - **Runner:** `ubuntu-latest` (4 vCPU / 16 GB for public repos). Node from `.nvmrc`, pnpm from
   `packageManager`, Chromium installed with `playwright install --with-deps chromium` and cached in
-  `~/.cache/ms-playwright` by Playwright version.
+  `~/.cache/ms-playwright` by Playwright version. Google Chrome (course journey) is the runner's
+  own `/opt/google/chrome/chrome` (installed with `playwright install chrome` only if missing).
+  ffmpeg from Ubuntu (`.github/actions/ffmpeg`, ≥ 6): the transcoder runs as a host process
+  (`E2E_TRANSCODER=host`) and global setup generates the fixtures with it.
 - **Stack:** the dev compose file itself (`COMPOSE_FILE=infra/docker/docker-compose.dev.yml`),
-  started with `up -d` for postgres, redis, mailpit, kafka and kafka-connect: the same images, settings
+  started with `up -d` for postgres, redis, mailpit, kafka, kafka-connect and minio: the same images, settings
   (`wal_level=logical`, KRaft, 512 MB heap caps, `CONNECT_PLUGIN_DISCOVERY=service_load`) and host
   ports as in dev, so the `E2E_*` defaults apply. Service containers are not used because they
   cannot pass `-c wal_level=logical` to Postgres.
@@ -122,13 +196,15 @@ stays). Timeout 30 min; it runs separately from `ci.yml` (lint/typecheck/test/bu
   `CLIENT_<APP>_SECRET_HASH` (all masked), an ephemeral JWT key, the builds, the migrations, the
   topics via the one-shot `kafka-init` container (`infra/kafka/create-topics.sh`), and
   `infra/ci/register-connector.mjs` (PUTs `infra/debezium/outbox-connector.json` and waits for
-  RUNNING). Nothing secret is committed or stored.
+  RUNNING), the MinIO buckets (`minio-init`). Nothing secret is committed or stored.
 - **On failure** the run uploads `apps/e2e/.output/` as the artifact `e2e-output-<run>-<attempt>`
-  (7 days): `report/`, `test-results/` (traces), `logs/` (the five servers) and `ci/` (connector
-  status, `docker compose ps` and the container logs).
+  (7 days): `report/`, `test-results/` (traces), `logs/` (the six servers, `transcoder.log`
+  included) and `ci/` (connector status, `docker compose ps`, the container logs and the
+  transcoder's scratch directory listing).
 
 Reproduce it locally against the docker dev stack (same steps, random secrets, the dev
-containers are not restarted):
+containers are not restarted; without ffmpeg on the host it rebuilds the transcoder image and runs
+the transcoder from compose):
 
 ```bash
 infra/ci/e2e-local.sh                       # all journeys

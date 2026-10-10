@@ -1,6 +1,6 @@
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 
-import { expect, type TestUser } from './fixtures';
+import { expect, type AdminCredentials, type TestUser } from './fixtures';
 import { cookieName, urls, type AppName } from './env';
 import { extractTokenLink, type Mailpit } from './mailpit';
 
@@ -14,6 +14,11 @@ export const SUBJECTS = {
   banned: 'Your account has been suspended',
   unbanned: 'Your account access has been restored',
   approved: "You're now an instructor",
+  // Phase 2 moderation (apps/worker/src/catalog/mail/catalog-mail.templates.ts).
+  reviewRequested: (courseTitle: string) => `Review requested: "${courseTitle}"`,
+  courseRejected: 'Your course was not approved',
+  coursePublished: 'Your course is live',
+  courseUpdatePublished: 'Your course update is live',
 } as const;
 
 export const MESSAGES = {
@@ -120,4 +125,63 @@ export async function getCookie(
 ): Promise<string | undefined> {
   const cookies = await context.cookies(urls[app]);
   return cookies.find((c) => c.name === cookieName(app, kind))?.value;
+}
+
+const APPLICATION_MOTIVATION =
+  'I have taught TypeScript to junior developers for five years. My learners will be able to ' +
+  'build and test a production web API on their own after finishing the course.';
+
+/**
+ * A verified student who applied and was approved by the e2e admin, all through the UI (the
+ * onboarding journey's steps). Afterwards `user` can log in to web-instructor.
+ */
+export async function becomeInstructor(
+  newPage: () => Promise<Page>,
+  mailpit: Mailpit,
+  admin: AdminCredentials,
+  user: TestUser,
+): Promise<void> {
+  const page = await newPage();
+  await signUp(page, user);
+  await verifyEmailFromMail(page, mailpit, user);
+  await logIn(page, 'student', user, '/');
+  await page.goto(`${urls.student}/become-instructor`);
+  await page.getByLabel('What will you teach?').fill('Web development with TypeScript');
+  await page
+    .getByLabel('Teaching experience')
+    .selectOption({ label: 'Professionally (classes, workshops)' });
+  await page.getByLabel('Why do you want to teach?').fill(APPLICATION_MOTIVATION);
+  await page.getByRole('button', { name: 'Submit application' }).click();
+  await expect(
+    page.getByRole('heading', { name: /Your application is under review/ }),
+  ).toBeVisible();
+
+  const adminPage = await newPage();
+  await logIn(adminPage, 'admin', admin, '/instructor-applications');
+  const applicant = adminPage.getByRole('link', { name: user.displayName });
+  await loadMoreUntilVisible(adminPage, applicant);
+  await applicant.click();
+  await adminPage.getByRole('button', { name: 'Approve', exact: true }).click();
+  const dialog = adminPage.getByRole('dialog', { name: 'Approve this application?' });
+  await dialog.getByRole('button', { name: 'Approve application' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    adminPage.getByRole('heading', { level: 1, name: new RegExp(user.displayName) }),
+  ).toContainText('Approved');
+  await page.context().close();
+  await adminPage.context().close();
+}
+
+/** Keyset-paginated admin queues: clicks "Load more" until `target` is visible. */
+export async function loadMoreUntilVisible(
+  page: Page,
+  target: Locator,
+  timeout = 20_000,
+): Promise<void> {
+  await expect(async () => {
+    if (await target.isVisible()) return;
+    const more = page.getByRole('button', { name: 'Load more' });
+    if (await more.isVisible()) await more.click();
+    await expect(target).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout });
 }

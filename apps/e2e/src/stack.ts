@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 
-import { apiEnv, infra, REPO_ROOT } from './env';
+import { apiEnv, infra, REPO_ROOT, storageEnv } from './env';
 import { Mailpit } from './mailpit';
 import { createPool } from './db';
 
@@ -34,6 +34,13 @@ export async function assertStackReachable(): Promise<void> {
   await check(`Kafka (${infra.kafkaBrokers})`, () => {
     const [host = 'localhost', port = '9092'] = (infra.kafkaBrokers.split(',')[0] ?? '').split(':');
     return tcpProbe(host, Number(port));
+  });
+  const s3Endpoint = storageEnv().S3_ENDPOINT ?? 'http://localhost:9000';
+  await check(`MinIO (${s3Endpoint})`, async () => {
+    const response = await fetch(`${s3Endpoint}/minio/health/live`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`status ${response.status}`);
   });
   await check(`Mailpit (${infra.mailpitUrl})`, async () => {
     await new Mailpit().info();

@@ -4,6 +4,8 @@
 **/.next
 **/.turbo
 **/coverage
+# Playwright output and generated media fixtures (apps/e2e/.output)
+**/.output
 **/*.tsbuildinfo
 .git
 .env

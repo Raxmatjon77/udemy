@@ -2,7 +2,8 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { test as base, expect, type BrowserContext, type Page } from '@playwright/test';
 import type pg from 'pg';
 
-import { createPool, deleteUsers, userIdsByEmail } from './db';
+import { deleteUsersAndMedia } from './cleanup';
+import { createPool, userIdsByEmail } from './db';
 import { Mailpit, E2E_ADDRESS_PREFIX } from './mailpit';
 
 export { expect };
@@ -111,9 +112,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         return user;
       },
     });
-    // Cleanup: the users (and everything that references them) and their mail.
+    // Cleanup: the users (and everything that references them or they own) and their mail.
     const emails = created.map((u) => u.email);
-    await deleteUsers(db, await userIdsByEmail(db, emails));
+    await deleteUsersAndMedia(db, await userIdsByEmail(db, emails));
     await mailpit.deleteFor(emails);
   },
 

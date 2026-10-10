@@ -1,7 +1,9 @@
-# Full-stack Playwright journeys (apps/e2e): the built api + worker + three Next BFFs run on the
-# runner; Postgres (logical WAL), Redis, Mailpit, Kafka (KRaft), Debezium Connect and MinIO run from
-# the repo's own infra/docker/docker-compose.dev.yml. The connector streams outbox.events to Kafka, so
-# every journey that waits for an email exercises the whole outbox path.
+# Full-stack Playwright journeys (apps/e2e): the built api + worker + transcoder + three Next BFFs run
+# on the runner; Postgres (logical WAL), Redis, Mailpit, Kafka (KRaft), Debezium Connect and MinIO run
+# from the repo's own infra/docker/docker-compose.dev.yml. The connector streams outbox.events to
+# Kafka, so every journey that waits for an email exercises the whole outbox path, and the course
+# journey (tests/course-lifecycle.spec.ts) uploads a lavfi-generated video that the transcoder (apt
+# ffmpeg) turns into HLS, played back in Google Chrome straight from MinIO.
 #
 # Why compose and not service containers: Postgres needs `-c wal_level=logical` and service
 # containers cannot take a `command`; Connect also needs Kafka up first. Compose gives both, and CI
@@ -95,10 +97,12 @@ jobs:
       CATALOG_SUBMIT_MIN_LECTURES: '1'
       CATALOG_SUBMIT_MIN_VIDEO_SECONDS: '0'
       # Transcoder on the runner: the apt ffmpeg (installed below), scratch in /tmp (ephemeral runner).
+      # Playwright starts it as a host process (`node dist/main.js`, like the api and the worker); its
+      # health port is E2E_TRANSCODER_PORT (default 4002), set by apps/e2e/src/env.ts.
+      E2E_TRANSCODER: host
       TRANSCODER_FFMPEG_PATH: ffmpeg
       TRANSCODER_FFPROBE_PATH: ffprobe
       TRANSCODER_TMP_DIR: /tmp/udemy-transcoder
-      TRANSCODER_HEALTH_PORT: '4002'
       TRANSCODER_MAX_HEIGHT: '720'
       TRANSCODER_THREADS: '2'
     steps:
@@ -118,8 +122,9 @@ jobs:
         with:
           turbo-cache: e2e
 
-      # For the transcoder (journeys upload a lavfi-generated video and wait for READY) and the
-      # suite's global setup, which generates the fixtures with `ffmpeg -f lavfi`.
+      # For the transcoder (the course journey uploads a video and waits for READY) and for the
+      # suite's global setup, which generates that video and a PNG course image with the host's
+      # `ffmpeg -f lavfi` into apps/e2e/.output/fixtures/ (no binary fixtures in git).
       - name: ffmpeg (>= 6)
         uses: ./.github/actions/ffmpeg
 
@@ -147,17 +152,10 @@ jobs:
 
       # Everything the suite starts (the same set the turbo `e2e` task depends on). Run directly,
       # not via `turbo run e2e`: strict env mode would strip DATABASE_URL & co. from the servers.
-      # The transcoder joins once its package exists: turbo fails on a --filter that matches no
-      # package, and apps/transcoder only has its Dockerfile until P2-T12.
       - name: Build api, worker, transcoder, web-*
-        run: |
-          filters=(--filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*')
-          if [ -f apps/transcoder/package.json ]; then
-            filters+=(--filter=@udemy/transcoder)
-          else
-            echo "::notice::apps/transcoder has no package.json yet (P2-T12): not built"
-          fi
-          pnpm turbo run build "${filters[@]}"
+        run: >-
+          pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker
+          --filter=@udemy/transcoder --filter='@udemy/web-*'
 
       # ---- Chromium, cached by the installed Playwright version and the runner image. On a cache
       # hit only the system libraries (apt) are installed.
@@ -179,6 +177,18 @@ jobs:
       - name: Install Chromium system deps (browser cached)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @udemy/e2e exec playwright install-deps chromium
+
+      # The course journey plays H.264/AAC HLS, which Chromium builds lack: it runs in branded
+      # Google Chrome (Playwright project `chrome`, `channel: 'chrome'`). ubuntu-latest ships it
+      # where Playwright looks (/opt/google/chrome/chrome); install it only if an image lacks it.
+      - name: Google Chrome
+        run: |
+          chrome=/opt/google/chrome/chrome
+          if [ ! -x "$chrome" ]; then
+            echo "::notice::Google Chrome not found at $chrome: installing it"
+            pnpm --filter @udemy/e2e exec playwright install --with-deps chrome
+          fi
+          "$chrome" --version
 
       # ---- Stack readiness, in dependency order.
       - name: Wait for the stack to be healthy
@@ -203,19 +213,15 @@ jobs:
           node infra/ci/register-connector.mjs --url "$E2E_KAFKA_CONNECT_URL"
           --name "$E2E_DEBEZIUM_CONNECTOR" --timeout 240
 
-      # TODO(P2-T19/P2-T20): run the transcoder alongside the api and the worker. Playwright starts
-      # the servers (apps/e2e/playwright.config.ts `webServer`), so the transcoder belongs there,
-      # not in a background step here: add an entry `node dist/main.js` with cwd apps/transcoder,
-      # url http://localhost:4002/health/ready and a SIGTERM graceful stop (it releases its lease),
-      # add "@udemy/transcoder#build" to the `e2e` task's dependsOn in turbo.json, and remove the
-      # package.json guard in the build step above. The TRANSCODER_* / S3_* env is already set on
-      # this job. Until then MinIO, S3 and ffmpeg are ready but no job reaches READY.
+      # Playwright starts the six servers (apps/e2e/playwright.config.ts `webServer`): api, worker,
+      # transcoder (`node dist/main.js`, E2E_TRANSCODER=host) and the three BFFs, and stops them with
+      # SIGTERM at the end (the transcoder kills ffmpeg and releases its lease).
       - name: Playwright journeys
         run: pnpm --filter @udemy/e2e e2e
 
       # ---- Diagnostics (failure only): apps/e2e/.output/ has report/, test-results/ (traces,
-      # screenshots, videos) and logs/ (the five servers); ci/ gets the connector status and the
-      # compose container logs.
+      # screenshots, videos) and logs/ (the six servers: api, worker, transcoder, web-*); ci/ gets
+      # the connector status, the compose container logs and the transcoder's scratch listing.
       - name: Collect stack diagnostics
         if: failure()
         run: |
@@ -224,6 +230,7 @@ jobs:
             > apps/e2e/.output/ci/connector-status.json || true
           docker compose ps -a > apps/e2e/.output/ci/docker-compose-ps.txt 2>&1 || true
           docker compose logs --no-color --timestamps > apps/e2e/.output/ci/docker-compose.log 2>&1 || true
+          ls -laR "$TRANSCODER_TMP_DIR" > apps/e2e/.output/ci/transcoder-tmp.txt 2>&1 || true
       - name: Upload e2e output
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

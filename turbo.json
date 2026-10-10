@@ -31,11 +31,12 @@
       "dependsOn": [
         "@udemy/api#build",
         "@udemy/worker#build",
+        "@udemy/transcoder#build",
         "@udemy/web-student#build",
         "@udemy/web-instructor#build",
         "@udemy/web-admin#build"
       ],
-      "passThroughEnv": ["E2E_*", "CI", "HOME", "PLAYWRIGHT_*"]
+      "passThroughEnv": ["E2E_*", "CI", "HOME", "PLAYWRIGHT_*", "DOCKER_*"]
     },
     "lint": {
       "dependsOn": ["^build"]

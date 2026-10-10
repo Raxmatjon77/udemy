@@ -1,0 +1,14 @@
+# Overlay for the Playwright suite (apps/e2e) when it runs the transcoder from compose
+# (E2E_TRANSCODER=compose, the default on machines without ffmpeg). Used together with the dev file:
+#   docker compose --env-file .env -f infra/docker/docker-compose.dev.yml \
+#     -f infra/docker/docker-compose.e2e.yml --profile transcoder up --no-deps transcoder
+#
+# The dev file keeps the health port unpublished (it would clash with a host-run transcoder on 4002).
+# The suite needs it to know when the transcoder is ready, so this overlay publishes it on the
+# loopback address only, on E2E_TRANSCODER_PORT (default 4002; the suite refuses a taken port).
+services:
+  transcoder:
+    environment:
+      LOG_LEVEL: ${E2E_SERVER_LOG_LEVEL:-info}
+    ports:
+      - '127.0.0.1:${E2E_TRANSCODER_PORT:-4002}:4002'

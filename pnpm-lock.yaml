@@ -135,6 +135,9 @@ importers:
       '@udemy/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
+      '@udemy/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@udemy/tsconfig':
         specifier: workspace:*
         version: link:../../packages/tsconfig

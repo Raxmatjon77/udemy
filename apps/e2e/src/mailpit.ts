@@ -8,6 +8,12 @@ import { infra } from './env';
 /** Every address the suite creates starts with this, so cleanup can target e2e mail only. */
 export const E2E_ADDRESS_PREFIX = 'e2e-';
 
+/**
+ * Every course title the suite creates contains this. Moderation mail ("Review requested: …")
+ * goes to EVERY admin, including non-e2e ones (the dev admin), so it is deleted by subject.
+ */
+export const E2E_COURSE_MARKER = 'E2E course';
+
 export interface MailSummary {
   ID: string;
   Subject: string;
@@ -75,9 +81,10 @@ export class Mailpit {
     for (const address of addresses) await this.deleteMatching(`to:"${address}"`);
   }
 
-  /** Deletes all mail to e2e-generated addresses (and nothing else). */
+  /** Deletes all mail to e2e-generated addresses or about e2e courses (and nothing else). */
   async deleteE2eMail(): Promise<void> {
     await this.deleteMatching(`to:${E2E_ADDRESS_PREFIX}`);
+    await this.deleteMatching(`subject:"${E2E_COURSE_MARKER}"`);
   }
 
   /**
@@ -91,7 +98,9 @@ export class Mailpit {
     after,
   }: WaitForMailOptions): Promise<MailMessage> {
     const deadline = Date.now() + timeoutMs;
-    const query = `to:"${to}" subject:"${subject.replace(/"/g, '\\"')}"`;
+    // Mailpit's search syntax cannot quote a phrase that itself contains `"` (e.g. the course
+    // title in "Review requested: \"…\""): such subjects are matched below only.
+    const query = subject.includes('"') ? `to:"${to}"` : `to:"${to}" subject:"${subject}"`;
     for (;;) {
       const match = (await this.search(query)).find(
         (mail) =>

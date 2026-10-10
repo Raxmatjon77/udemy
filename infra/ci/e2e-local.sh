@@ -8,7 +8,10 @@
 #
 # Differences from CI: CI starts a fresh copy of the same compose stack; here the services are the
 # long-running dev containers (host ports from .env), and the connector is registered by the compose
-# `debezium-init`, so it is only checked here.
+# `debezium-init`, so it is only checked here. The transcoder runs on the host like in CI when ffmpeg
+# is on PATH; otherwise (E2E_TRANSCODER=compose) Playwright runs the compose `transcoder` service,
+# whose image this script rebuilds from the current sources first (the media fixtures are then
+# generated with that image's ffmpeg). Override with E2E_TRANSCODER=host|compose|external.
 # Like CI, the api/worker secrets and the BFF client secrets are random for this run (exported
 # variables win over .env); the dev data and the dev processes are not touched.
 set -euo pipefail
@@ -50,13 +53,36 @@ node infra/ci/register-connector.mjs --url "${E2E_KAFKA_CONNECT_URL:-http://loca
 }
 
 step "build api, worker, transcoder, web-*"
-filters=(--filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*')
-# Same guard as CI: apps/transcoder only has its Dockerfile until P2-T12.
-[ -f apps/transcoder/package.json ] && filters+=(--filter=@udemy/transcoder)
-pnpm turbo run build "${filters[@]}"
+pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter=@udemy/transcoder \
+  --filter='@udemy/web-*'
 
-step "chromium"
+step "transcoder"
+if [ -z "${E2E_TRANSCODER:-}" ]; then
+  if "${TRANSCODER_FFMPEG_PATH:-ffmpeg}" -hide_banner -version > /dev/null 2>&1; then
+    export E2E_TRANSCODER=host
+  else
+    export E2E_TRANSCODER=compose
+  fi
+fi
+echo "E2E_TRANSCODER=${E2E_TRANSCODER}"
+if [ "$E2E_TRANSCODER" = compose ]; then
+  # The image the suite runs (and generates the fixtures with), built from the current sources.
+  "${compose[@]}" --profile transcoder build transcoder
+  # Playwright stops the container at the end (SIGTERM); remove it so no stopped copy lingers.
+  trap '"${compose[@]}" --profile transcoder rm -f -s transcoder > /dev/null 2>&1 || true' EXIT
+fi
+
+step "chromium + Google Chrome"
 pnpm --filter @udemy/e2e browsers:install
+# The course journey runs in branded Chrome (H.264/AAC playback); Playwright does not download it.
+case "$(uname -s)" in
+  Darwin) chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ;;
+  *) chrome=/opt/google/chrome/chrome ;;
+esac
+[ -x "$chrome" ] || {
+  echo "Google Chrome not found at $chrome. Install it (or: pnpm --filter @udemy/e2e exec playwright install chrome)." >&2
+  exit 1
+}
 
 step "playwright"
 pnpm --filter @udemy/e2e e2e "$@"
