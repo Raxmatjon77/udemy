@@ -102,28 +102,30 @@ like different visitors instead of tripping the limits.
 The apps run with `COOKIE_SECURE=true` on `http://localhost` (Chromium accepts `Secure` and
 `__Host-` cookies there). Use `localhost`, never `127.0.0.1`.
 
-## CI (GitLab `e2e` job)
+## CI (GitHub Actions, `.github/workflows/e2e.yml`)
 
-`.gitlab-ci.yml` runs the suite in stage `e2e`, after lint/typecheck/test/build: automatically on
-the default branch and on tags (the Docker images are only pushed when it passes), and as a manual
-job on branches with an open merge request. Timeout 30 min; typical run 12-18 min.
+The `E2E` workflow runs the suite on every push to `main` (the Docker images in `images.yml` are
+only pushed after it passed on that commit), on demand via **Run workflow** (`workflow_dispatch`),
+and on pull requests that carry the **`run-e2e`** label (re-runs on every push while the label
+stays). Timeout 30 min; it runs separately from `ci.yml` (lint/typecheck/test/build).
 
-- **Image:** `mcr.microsoft.com/playwright:v1.63.0-noble` (Chromium and its system libraries
-  preinstalled, Node 24 with corepack). Keep its tag equal to `@playwright/test`.
-- **Services** (same image tags as the dev compose, on one per-build network,
-  `FF_NETWORK_PER_BUILD=true`): `postgres` (`wal_level=logical`), `redis`, `mailpit`, `kafka`
-  (KRaft single node, one client listener `kafka:9092` for both the job and Connect) and
-  `kafka-connect` (Debezium, 512 MB heap caps, `CONNECT_PLUGIN_DISCOVERY=service_load`).
+- **Runner:** `ubuntu-latest` (4 vCPU / 16 GB for public repos). Node from `.nvmrc`, pnpm from
+  `packageManager`, Chromium installed with `playwright install --with-deps chromium` and cached in
+  `~/.cache/ms-playwright` by Playwright version.
+- **Stack:** the dev compose file itself (`COMPOSE_FILE=infra/docker/docker-compose.dev.yml`),
+  started with `up -d` for postgres, redis, mailpit, kafka and kafka-connect: the same images, settings
+  (`wal_level=logical`, KRaft, 512 MB heap caps, `CONNECT_PLUGIN_DISCOVERY=service_load`) and host
+  ports as in dev, so the `E2E_*` defaults apply. Service containers are not used because they
+  cannot pass `-c wal_level=logical` to Postgres.
 - **Before the suite:** random `REFRESH_TOKEN_PEPPER` / `LOGIN_EMAIL_HMAC_KEY` /
   `EMAIL_TOKEN_SECRET`, random BFF secrets (`E2E_<APP>_CLIENT_SECRET`) with their SHA-256 in
-  `CLIENT_<APP>_SECRET_HASH`, an ephemeral JWT key, the migrations, `infra/kafka/create-topics.sh`
-  (pinned Kafka CLI, cached, on a JRE), `infra/ci/register-connector.mjs` (PUTs
-  `infra/debezium/outbox-connector.json` with `database.hostname=postgres` and waits for RUNNING),
-  then the builds. Nothing secret is committed or stored.
-- **On failure** the job keeps `apps/e2e/.output/` for 7 days: `report/`, `test-results/`
-  (traces), `logs/` (the five servers) and `ci/connector-status.json`.
-- **Runner:** about 6 GB RAM at peak (Kafka + Connect + Postgres + the parallel Next builds,
-  then 5 Node servers + Chromium); use an 8 GB / 4 vCPU runner.
+  `CLIENT_<APP>_SECRET_HASH` (all masked), an ephemeral JWT key, the builds, the migrations, the
+  topics via the one-shot `kafka-init` container (`infra/kafka/create-topics.sh`), and
+  `infra/ci/register-connector.mjs` (PUTs `infra/debezium/outbox-connector.json` and waits for
+  RUNNING). Nothing secret is committed or stored.
+- **On failure** the run uploads `apps/e2e/.output/` as the artifact `e2e-output-<run>-<attempt>`
+  (7 days): `report/`, `test-results/` (traces), `logs/` (the five servers) and `ci/` (connector
+  status, `docker compose ps` and the container logs).
 
 Reproduce it locally against the docker dev stack (same steps, random secrets, the dev
 containers are not restarted):

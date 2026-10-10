@@ -35,7 +35,7 @@ udemy-v2/
 │  ├─ docker/             # docker-compose.dev.yml: postgres, kafka (KRaft), kafka-connect+debezium, redis, minio, mailpit, stripe-cli
 │  ├─ debezium/           # connector JSON (outbox event router)
 │  └─ k8s/                # (phase 7) helm/kustomize
-└─ turbo.json, pnpm-workspace.yaml, .github|.gitlab-ci
+└─ turbo.json, pnpm-workspace.yaml, .github/ (Actions: ci, e2e, images)
 ```
 
 ## 2. Backend architecture (apps/api)

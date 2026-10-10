@@ -1,0 +1,55 @@
+name: Setup Node, pnpm and the Turborepo cache
+description: >-
+  Node from .nvmrc, pnpm from the root package.json `packageManager` (pnpm@10.7.1) with the pnpm
+  store cached by lockfile hash, an optional local Turborepo cache, then `pnpm install
+  --frozen-lockfile`. Run actions/checkout first.
+
+inputs:
+  turbo-cache:
+    description: >-
+      Scope of the local Turborepo cache (.turbo/cache), usually the job name. Each scope is saved
+      once per commit and restored from the newest entry of the same scope (PRs also see main's).
+      Empty disables the cache.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    # No `version` input: the action reads `packageManager: pnpm@10.7.1` from package.json, so the
+    # pin lives in one place (a second, different pin here would make the action fail).
+    - name: Install pnpm
+      uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+    # After pnpm/action-setup: `cache: pnpm` asks pnpm for its store path.
+    - name: Install Node (.nvmrc)
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+
+    - name: Restore Turborepo cache
+      if: inputs.turbo-cache != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo/cache
+        key: turbo-${{ runner.os }}-${{ inputs.turbo-cache }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ runner.os }}-${{ inputs.turbo-cache }}-
+
+    # Every saved cache contains the restored one plus this run's outputs, so without pruning it
+    # grows forever. Dropping entries older than 7 days keeps it bounded; a pruned entry that is
+    # still needed is simply rebuilt once (and saved again with a fresh mtime).
+    - name: Prune old Turborepo cache entries
+      if: inputs.turbo-cache != ''
+      shell: bash
+      run: |
+        if [ -d .turbo/cache ]; then
+          find .turbo/cache -type f -mtime +7 -delete
+          du -sh .turbo/cache
+        fi
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile --prefer-offline

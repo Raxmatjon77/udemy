@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Reproduces the GitLab `e2e` job (.gitlab-ci.yml) against the docker dev stack.
+# Reproduces the GitHub Actions `E2E` workflow (.github/workflows/e2e.yml) against the docker dev stack.
 #
 #   infra/ci/e2e-local.sh [playwright args...]      e.g. infra/ci/e2e-local.sh tests/sessions.spec.ts
 #
 # Prerequisites: `nvm use`, `pnpm install`, the root .env, and the dev stack up and healthy
 # (docker compose --env-file .env -f infra/docker/docker-compose.dev.yml up -d).
 #
-# Differences from CI: the services are the long-running dev containers (host ports from .env),
-# and the connector is registered by the compose `debezium-init`, so it is only checked here.
+# Differences from CI: CI starts a fresh copy of the same compose stack; here the services are the
+# long-running dev containers (host ports from .env), and the connector is registered by the compose
+# `debezium-init`, so it is only checked here.
 # Like CI, the api/worker secrets and the BFF client secrets are random for this run (exported
 # variables win over .env); the dev data and the dev processes are not touched.
 set -euo pipefail

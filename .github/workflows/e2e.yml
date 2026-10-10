@@ -1,0 +1,183 @@
+# Full-stack Playwright journeys (apps/e2e): the built api + worker + three Next BFFs run on the
+# runner; Postgres (logical WAL), Redis, Mailpit, Kafka (KRaft) and Debezium Connect run from the
+# repo's own infra/docker/docker-compose.dev.yml. The connector streams outbox.events to Kafka, so
+# every journey that waits for an email exercises the whole outbox path.
+#
+# Why compose and not service containers: Postgres needs `-c wal_level=logical` and service
+# containers cannot take a `command`; Connect also needs Kafka up first. Compose gives both, and CI
+# runs the exact images, settings and host ports of the dev stack (so the E2E_* defaults apply and
+# infra/ci/e2e-local.sh replays this job locally).
+#
+# When: every push to main (images.yml publishes only after this succeeded), on demand via
+# workflow_dispatch, and on PRs that carry the `run-e2e` label (it re-runs on every push while the
+# label stays). A label instead of "workflow_dispatch only": it works for PRs from forks (dispatch
+# only runs branches of this repo), it is visible on the PR, and only people with triage access can
+# apply it. Fork code still runs as `pull_request` (read-only token, no secrets).
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Supersede older runs of the same PR / branch. PR events that do not run the job (no `run-e2e`
+# label, or a different label being added) get a group of their own, so they never cancel a real run.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      (github.event_name != 'pull_request'
+        || (contains(github.event.pull_request.labels.*.name, 'run-e2e')
+            && (github.event.action != 'labeled' || github.event.label.name == 'run-e2e')))
+      && (github.event.pull_request.number || github.ref)
+      || format('noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  e2e:
+    if: >-
+      github.event_name != 'pull_request'
+      || (contains(github.event.pull_request.labels.*.name, 'run-e2e')
+          && (github.event.action != 'labeled' || github.event.label.name == 'run-e2e'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+      # Every `docker compose` below uses the dev stack file (project name udemy-dev). Its host-port
+      # variables default to the standard ports, so no --env-file is needed.
+      COMPOSE_FILE: infra/docker/docker-compose.dev.yml
+      # ---- api + worker. Playwright passes its own env to the servers (apps/e2e/src/env.ts adds
+      # ports and origins) and there is no .env in CI, so everything they need is set here or in
+      # the secret steps below. Infra is reached through the compose host ports.
+      DATABASE_URL: postgres://udemy:udemy@localhost:5432/udemy
+      REDIS_URL: redis://localhost:6379
+      KAFKA_BROKERS: localhost:9092
+      KAFKA_GROUP_ID: udemy-worker
+      SMTP_HOST: localhost
+      SMTP_PORT: '1025'
+      MAIL_FROM: 'Udemy Clone <no-reply@udemy.local>'
+      JWT_AUDIENCE: udemy-api
+      JWT_KEYS_DIR: ${{ github.workspace }}/apps/api/.secrets/jwt
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      # ---- The suite's own view of the stack (these equal the env.ts defaults; explicit here).
+      E2E_DATABASE_URL: postgres://udemy:udemy@localhost:5432/udemy
+      E2E_REDIS_URL: redis://localhost:6379
+      E2E_KAFKA_BROKERS: localhost:9092
+      E2E_MAILPIT_URL: http://localhost:8025
+      E2E_KAFKA_CONNECT_URL: http://localhost:8083
+      E2E_DEBEZIUM_CONNECTOR: udemy-outbox
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # First, so the image pulls and the JVM start-ups overlap with install + build. `up -d` only
+      # blocks until Kafka and Postgres are healthy (Connect depends on them); the later step
+      # waits for everything. Not started: minio (unused by the journeys), kafka-ui, and the
+      # one-shot inits (kafka-init runs explicitly; the connector is registered by script).
+      - name: Start the stack (dev compose)
+        run: docker compose up -d postgres redis mailpit kafka kafka-connect
+
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: e2e
+
+      # ---- Ephemeral secrets: random per run, masked, never stored. Each BFF secret is handed to
+      # its app via E2E_<APP>_CLIENT_SECRET and the api gets its SHA-256 (CLIENT_<APP>_SECRET_HASH).
+      - name: Ephemeral secrets
+        run: |
+          put() { echo "::add-mask::$2"; echo "$1=$2" >> "$GITHUB_ENV"; }
+          for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET; do
+            value="$(openssl rand -base64 32)"
+            put "$name" "$value"
+          done
+          for app in STUDENT INSTRUCTOR ADMIN; do
+            secret="$(openssl rand -base64 32)"
+            hash="$(printf '%s' "$secret" | sha256sum | cut -d' ' -f1)"
+            put "E2E_${app}_CLIENT_SECRET" "$secret"
+            echo "CLIENT_${app}_SECRET_HASH=${hash}" >> "$GITHUB_ENV"
+          done
+
+      - name: Ephemeral JWT signing key
+        run: |
+          kid="ed25519-$(date -u +%Y-%m)-ci${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}"
+          echo "JWT_ACTIVE_KID=${kid}" >> "$GITHUB_ENV"
+          pnpm --filter @udemy/api keys:generate --kid "$kid"
+
+      # Everything the suite starts (the same set the turbo `e2e` task depends on). Run directly,
+      # not via `turbo run e2e`: strict env mode would strip DATABASE_URL & co. from the servers.
+      - name: Build api, worker, web-*
+        run: pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*'
+
+      # ---- Chromium, cached by the installed Playwright version and the runner image. On a cache
+      # hit only the system libraries (apt) are installed.
+      - name: Playwright version
+        id: playwright
+        run: |
+          version="$(node -p "require('./apps/e2e/node_modules/@playwright/test/package.json').version")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "image=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright.outputs.image }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium
+      - name: Install Chromium with system deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @udemy/e2e exec playwright install --with-deps chromium
+      - name: Install Chromium system deps (browser cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @udemy/e2e exec playwright install-deps chromium
+
+      # ---- Stack readiness, in dependency order.
+      - name: Wait for the stack to be healthy
+        run: docker compose up -d --wait --wait-timeout 300 postgres redis mailpit kafka kafka-connect
+
+      # Also creates the dbz_outbox publication the connector needs, so it runs before the connector.
+      - name: Migrations
+        run: pnpm --filter @udemy/db migrate:latest
+
+      # infra/kafka/create-topics.sh in the one-shot kafka-init container (Kafka CLI included).
+      - name: Kafka topics
+        run: docker compose run --rm -T kafka-init
+
+      # PUTs infra/debezium/outbox-connector.json (database.hostname=postgres resolves on the compose
+      # network) and waits until the connector and its task are RUNNING; prints the trace on FAILED.
+      - name: Debezium outbox connector
+        run: >-
+          node infra/ci/register-connector.mjs --url "$E2E_KAFKA_CONNECT_URL"
+          --name "$E2E_DEBEZIUM_CONNECTOR" --timeout 240
+
+      - name: Playwright journeys
+        run: pnpm --filter @udemy/e2e e2e
+
+      # ---- Diagnostics (failure only): apps/e2e/.output/ has report/, test-results/ (traces,
+      # screenshots, videos) and logs/ (the five servers); ci/ gets the connector status and the
+      # compose container logs.
+      - name: Collect stack diagnostics
+        if: failure()
+        run: |
+          mkdir -p apps/e2e/.output/ci
+          curl -sS "$E2E_KAFKA_CONNECT_URL/connectors/$E2E_DEBEZIUM_CONNECTOR/status" \
+            > apps/e2e/.output/ci/connector-status.json || true
+          docker compose ps -a > apps/e2e/.output/ci/docker-compose-ps.txt 2>&1 || true
+          docker compose logs --no-color --timestamps > apps/e2e/.output/ci/docker-compose.log 2>&1 || true
+      - name: Upload e2e output
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-output-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/e2e/.output/
+          # .output starts with a dot: hidden paths are skipped unless this is set.
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7

@@ -24,7 +24,7 @@ RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate \
 WORKDIR /app
 # Dependency layer: only re-runs when package.json files / lockfile change.
 COPY --from=pruner /app/out/json/ .
-# (no BuildKit cache mount: Kaniko in GitLab CI does not support them)
+# (no BuildKit cache mounts yet; Buildx in GitHub Actions supports them if install time matters)
 RUN pnpm install --frozen-lockfile
 # Source layer.
 COPY --from=pruner /app/out/full/ .

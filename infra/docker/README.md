@@ -94,17 +94,21 @@ because no two topic names differ only in `.` vs `_`.
 
 ## CI
 
-The GitLab `e2e` job runs the same images as GitLab services (see `.gitlab-ci.yml` and
-`apps/e2e/README.md`). It reuses `infra/kafka/create-topics.sh` (`KAFKA_BOOTSTRAP=kafka:9092`,
-`KAFKA_BIN` = a pinned Kafka CLI) and registers `outbox-connector.json` with
-`infra/ci/register-connector.mjs`, which can also check this stack's connector:
+The GitHub Actions `E2E` workflow (`.github/workflows/e2e.yml`, see `apps/e2e/README.md`) starts
+**this compose file** on the runner (`postgres redis mailpit kafka kafka-connect`, same host ports),
+creates the topics with `docker compose run --rm -T kafka-init`, and registers
+`outbox-connector.json` with `infra/ci/register-connector.mjs` instead of `debezium-init`, because
+the script also waits until the connector is RUNNING (after the migrations). It can check this
+stack's connector too:
 
 ```bash
 node infra/ci/register-connector.mjs --url http://localhost:8083 --name udemy-outbox --wait-only
 ```
 
-When you change an image tag, the Kafka/Connect settings or the topic list here, update the `e2e`
-job as well. `infra/ci/e2e-local.sh` replays the job against this stack.
+Image tags, Kafka/Connect settings and the topic list are therefore shared with CI automatically.
+The `test` job of `.github/workflows/ci.yml` runs Postgres, Redis and Mailpit as service containers
+instead (no Debezium there), so keep its image tags equal to the ones here.
+`infra/ci/e2e-local.sh` replays the e2e job against this stack.
 
 ## Prod database roles
 

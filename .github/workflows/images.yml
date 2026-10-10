@@ -1,0 +1,209 @@
+# Docker images of the api and the worker (apps/<app>/Dockerfile, built from the repo root) with
+# Buildx and the GitHub Actions layer cache, published to GHCR:
+#   ghcr.io/<owner>/udemy-api, ghcr.io/<owner>/udemy-worker   (owner lowercased: raxmatjon77)
+#
+#   pull_request    build only, nothing is pushed (catches Dockerfile / prune / deploy breakage)
+#   main            pushed as :<full commit sha> and :main, but ONLY after the E2E workflow passed
+#                   on that commit (workflow_run) and CI is green on it (the gate job checks)
+#   tag v*          pushed as :<tag>, only if CI and E2E are green on the tagged commit
+#
+# Why gate on E2E instead of publishing independently: an image tag is a deployable artifact, and
+# `:main` should never point at a build whose journeys failed (same rule as the old pipeline). The
+# price is latency: the push starts when E2E ends (~15-20 min after the merge), and workflow_run
+# always runs this file from the default branch, so edits to it take effect after they are merged.
+name: Images
+
+on:
+  pull_request:
+  push:
+    tags: ['v*']
+  workflow_run:
+    workflows: [E2E]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# PRs: a new push cancels the older build. Publishing is never cancelled mid-push; a newer pending
+# publish replaces an older pending one (latest main wins). workflow_run events that will not
+# publish (E2E failed/cancelled, or E2E of a labelled PR) get a group of their own, so they cannot
+# displace a pending publish.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)
+      || ((github.event_name == 'push'
+            || (github.event.workflow_run.event == 'push'
+                && github.event.workflow_run.conclusion == 'success'))
+          && 'publish' || format('noop-{0}', github.run_id)) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ------------------------------------------------------------------ PRs: build, never push
+  build:
+    if: github.event_name == 'pull_request'
+    name: build (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          tags: udemy-${{ matrix.app }}:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha,scope=udemy-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=udemy-${{ matrix.app }}
+
+  # ------------------------------------------------------------------ main / tags: gate, then push
+  gate:
+    # main: E2E finished successfully for a push to main of this repository (a fork PR whose
+    # branch happens to be called `main` has event pull_request and is excluded).
+    # tags: always evaluated; the step below requires green CI + E2E on the tagged commit.
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event == 'push'
+        && github.event.workflow_run.head_branch == 'main'
+        && github.event.workflow_run.head_repository.full_name == github.repository)
+      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read # list workflow runs
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+      channel: ${{ steps.target.outputs.channel }}
+    steps:
+      - name: Resolve commit and channel
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # workflow_run: GITHUB_SHA is the latest default-branch commit, not the tested one.
+          if [ "$EVENT_NAME" = workflow_run ]; then
+            sha="$RUN_HEAD_SHA"; channel=main
+          else
+            sha="$GITHUB_SHA"; channel="$REF_NAME"
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+          echo "publishing ${sha} as channel ${channel}"
+
+      - name: Require green CI (and E2E for tags) on the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.target.outputs.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # state <workflow file>: success | pending | failure | none, over all runs for $SHA
+          # (any event: the push to main, a PR whose head is this commit, a manual dispatch).
+          state() {
+            # shellcheck disable=SC2016 # $r is a jq variable, not a shell one
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/$1/runs?head_sha=${SHA}&per_page=50" --jq '
+              [.workflow_runs[] | {s: .status, c: .conclusion}] as $r
+              | if ($r | any(.c == "success")) then "success"
+                elif ($r | any(.s != "completed")) then "pending"
+                elif ($r | length) > 0 then "failure"
+                else "none" end'
+          }
+          # require_green <workflow file> <max minutes>
+          require_green() {
+            local wf="$1" now deadline none_deadline s
+            now="$(date +%s)"; deadline=$((now + $2 * 60)); none_deadline=$((now + 180))
+            while :; do
+              s="$(state "$wf")"
+              now="$(date +%s)"
+              case "$s" in
+                success) echo "${wf}: green on ${SHA}"; return 0 ;;
+                failure) echo "::error::${wf} did not succeed on ${SHA}"; return 1 ;;
+                none)
+                  if [ "$now" -gt "$none_deadline" ]; then
+                    echo "::error::no ${wf} run for ${SHA}. Run it (Actions > ${wf} > Run workflow on this ref), then re-run this workflow."
+                    return 1
+                  fi ;;
+              esac
+              if [ "$now" -gt "$deadline" ]; then
+                echo "::error::${wf} still ${s} on ${SHA} after $2 min"; return 1
+              fi
+              echo "${wf}: ${s}, waiting..."; sleep 20
+            done
+          }
+          require_green ci.yml 30
+          # workflow_run already proves E2E passed; a tag needs a green E2E run on its commit.
+          if [ "$EVENT_NAME" != workflow_run ]; then require_green e2e.yml 45; fi
+
+  publish:
+    needs: gate
+    name: publish (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, worker]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Image name and tags
+        id: meta
+        env:
+          APP: ${{ matrix.app }}
+          SHA: ${{ needs.gate.outputs.sha }}
+          CHANNEL: ${{ needs.gate.outputs.channel }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/udemy-${APP}"
+          if [ "$CHANNEL" = main ]; then
+            tags="${image}:${SHA},${image}:main"
+          else
+            tags="${image}:${CHANNEL}"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          {
+            echo "labels<<EOF"
+            echo "org.opencontainers.image.title=udemy-${APP}"
+            echo "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+            echo "org.opencontainers.image.revision=${SHA}"
+            echo "org.opencontainers.image.version=${CHANNEL}"
+            echo "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "tags: ${tags}"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=udemy-${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=udemy-${{ matrix.app }}

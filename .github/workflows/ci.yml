@@ -1,0 +1,147 @@
+# Verify: lint, typecheck, test (real Postgres/Redis/Mailpit), build. Four parallel jobs that share
+# the setup in .github/actions/setup (Node from .nvmrc, pnpm 10.7.1, pnpm store + Turborepo cache).
+#
+# Why parallel jobs instead of one job with four steps: public repos get free, concurrent runners,
+# so the wall clock is the slowest job (about setup + test) instead of the sum of all four; each
+# job is its own status check (branch protection can require them individually) and can be
+# re-run alone; and only `test` carries the service containers. The cost is the ~1 min setup per
+# job, mostly a cached `pnpm install`. Turbo's `^build` dependencies come from each job's cache.
+#
+# The full-stack Playwright run lives in e2e.yml and the Docker images in images.yml.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same PR / branch cancels the run it supersedes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: lint
+      - run: pnpm turbo run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: typecheck
+      - run: pnpm turbo run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Real Postgres 18 (uuidv7) + Redis for the integration tests, Mailpit as the SMTP sink for the
+    # mail tests (nest-common SmtpMailer, worker identity mail). wal_level=logical is not needed
+    # here (no Debezium), which is good: service containers cannot take a `command`.
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_DB: udemy
+          POSTGRES_USER: udemy
+          POSTGRES_PASSWORD: udemy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U udemy -d udemy"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8.10.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.31.4
+        ports:
+          - 1025:1025
+          - 8025:8025
+        options: >-
+          --health-cmd "/mailpit readyz"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      # CI=true (GitHub sets it too; explicit because it matters): an unreachable Postgres, Redis
+      # or Mailpit makes the integration tests FAIL instead of skipping them.
+      CI: 'true'
+      NODE_ENV: test
+      # The job runs on the host; services are reached through their mapped ports.
+      DATABASE_URL: postgres://udemy:udemy@localhost:5432/udemy
+      REDIS_URL: redis://localhost:6379
+      IT_DATABASE_URL: postgres://udemy:udemy@localhost:5432/udemy
+      IT_REDIS_URL: redis://localhost:6379
+      IT_SMTP_HOST: localhost
+      IT_SMTP_PORT: '1025'
+      IT_MAILPIT_URL: http://localhost:8025
+      API_PUBLIC_URL: http://localhost:4000
+      JWT_AUDIENCE: udemy-api
+      JWT_KEYS_DIR: ${{ github.workspace }}/apps/api/.secrets/jwt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: test
+
+      # Random per run, masked in the logs, never stored. Assign first, then write: a failing
+      # command inside `export X="$(cmd)"` would be hidden and export an empty value.
+      - name: Ephemeral secrets
+        run: |
+          for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET; do
+            value="$(openssl rand -base64 32)"
+            echo "::add-mask::${value}"
+            echo "${name}=${value}" >> "$GITHUB_ENV"
+          done
+
+      # Ed25519 signing key (PKCS8 PEM, 0600) at <JWT_KEYS_DIR>/<kid>.pem, valid for this run only.
+      # The kid must match the api's format ed25519-YYYY-MM[-suffix], suffix [a-z0-9]+.
+      - name: Ephemeral JWT signing key
+        run: |
+          kid="ed25519-$(date -u +%Y-%m)-ci${GITHUB_RUN_ID}a${GITHUB_RUN_ATTEMPT}"
+          echo "JWT_ACTIVE_KID=${kid}" >> "$GITHUB_ENV"
+          pnpm --filter @udemy/api keys:generate --kid "$kid"
+
+      - name: Migrations
+        run: pnpm --filter @udemy/db migrate:latest
+
+      # turbo.json passes DATABASE_URL, IT_*, JWT_*, CI & co. through to the test tasks.
+      - run: pnpm turbo run test
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          turbo-cache: build
+      - run: pnpm turbo run build

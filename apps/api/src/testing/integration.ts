@@ -9,7 +9,7 @@ import { afterAll, beforeAll, expect } from 'vitest';
  * - `IT_DATABASE_URL` / `IT_REDIS_URL`, defaulting to the dev compose stack
  *   (infra/docker/docker-compose.dev.yml: Postgres on 55432, Redis on 56379).
  * - Locally, an unreachable dependency SKIPS the tests with a clear message.
- * - With `CI=true` (set by GitLab CI), an unreachable dependency FAILS the suite: CI must never
+ * - With `CI=true` (set by GitHub Actions), an unreachable dependency FAILS the suite: CI must never
  *   go green by silently skipping its integration tests.
  * - A dependency that accepts the connection but does not answer within PROBE_TIMEOUT_MS
  *   (an overloaded host / Docker VM, or a lock held by a running migration) always FAILS with a
@@ -38,7 +38,7 @@ export function itRedisUrl(): string {
   return nonEmpty(process.env.IT_REDIS_URL) ?? IT_DEFAULT_REDIS_URL;
 }
 
-/** GitLab (and most CI systems) export `CI=true`. */
+/** GitHub Actions (and most CI systems) export `CI=true`. */
 export function isCi(): boolean {
   return process.env.CI === 'true';
 }

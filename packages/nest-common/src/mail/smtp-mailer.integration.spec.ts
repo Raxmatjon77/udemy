@@ -11,7 +11,7 @@ import { SmtpMailer } from './smtp-mailer';
  *   src/testing/integration.ts), defaulting to the dev compose stack
  *   (infra/docker/docker-compose.dev.yml: SMTP on 1025, web/API on 8025).
  * - Locally, an unreachable Mailpit SKIPS the test with a clear message.
- * - With `CI=true` (GitLab), an unreachable Mailpit FAILS: CI must not go green by skipping.
+ * - With `CI=true` (CI), an unreachable Mailpit FAILS: CI must not go green by skipping.
  * - A Mailpit that accepts the connection but does not answer in time always FAILS.
  * - Only this test's message is looked up (by its unique subject) and deleted afterwards.
  */

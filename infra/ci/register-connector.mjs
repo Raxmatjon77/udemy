@@ -11,7 +11,7 @@
  * --wait-only  do not PUT the config; only wait for an already registered connector
  *
  * `PUT /connectors/<name>/config` is idempotent: it creates the connector or updates it in place.
- * Used by the GitLab `e2e` job and by infra/ci/e2e-local.sh.
+ * Used by the GitHub Actions E2E workflow (.github/workflows/e2e.yml) and by infra/ci/e2e-local.sh.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
