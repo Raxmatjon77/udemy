@@ -12,6 +12,9 @@ export default defineConfig({
   // tsconfig says `jsx: preserve` (Next compiles JSX itself); tests need the React 17+ runtime.
   oxc: { jsx: { runtime: 'automatic' } },
   test: {
+    // jsdom component tests drive real timers, dnd and TanStack polling; under a full parallel
+    // turbo run (or a shared CI runner) the 5 s default flaked. Assertions are unchanged.
+    testTimeout: 20_000,
     // Plain Node by default; component tests (`*.spec.tsx`) opt into jsdom with a docblock.
     environment: 'node',
     include: ['src/**/*.spec.{ts,tsx}'],

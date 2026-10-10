@@ -12,6 +12,9 @@ export default defineConfig({
     },
   },
   test: {
+    // jsdom component tests drive real timers, dnd and TanStack polling; under a full parallel
+    // turbo run (or a shared CI runner) the 5 s default flaked. Assertions are unchanged.
+    testTimeout: 20_000,
     // Pure modules run in node; component specs opt into jsdom with a
     // `// @vitest-environment jsdom` docblock.
     environment: 'node',
