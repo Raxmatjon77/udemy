@@ -9,7 +9,7 @@ import { attachmentContentDisposition } from './content-disposition';
 import { StorageEntityTooLargeError, StorageNotFoundError, StorageUsageError } from './errors';
 import { uploadSourceKey } from './keys';
 import { checkUploadedParts, MiB, partRange, planParts } from './part-plan';
-import { useIntegrationS3 } from './testing/it-s3';
+import { useIntegrationS3 } from './testing/it-s3.mjs';
 
 const s3 = useIntegrationS3();
 

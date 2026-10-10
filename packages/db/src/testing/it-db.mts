@@ -1,8 +1,8 @@
 import { basename } from 'node:path';
 import { type Kysely, sql, type Transaction } from 'kysely';
 import { afterAll, beforeAll, expect } from 'vitest';
-import { createDatabase } from '../database';
-import type { DB } from '../generated/db';
+import { createDatabase } from '../database.js';
+import type { DB } from '../generated/db.js';
 
 /**
  * The ONE convention for @udemy/db integration tests (real Postgres), mirroring

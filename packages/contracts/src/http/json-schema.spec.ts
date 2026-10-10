@@ -60,6 +60,22 @@ describe('JSON Schema generation (Swagger)', () => {
       'AdminCoursesQuerySchema',
       'AdminCategoryTreeResponseSchema',
       'ReorderCategoriesRequestSchema',
+      // Phase 2 follow-ups (design §14)
+      'ListAssetsQuerySchema',
+      'AssetPageSchema',
+      'MarkdownNotAllowedProblemSchema',
+      'MarkdownIssueSchema',
+      'RevisionDiffSchema',
+      'RevisionFieldChangeSchema',
+      'RevisionCategorySchema',
+      'AdminCourseRowSchema',
+      'CourseCardSchema',
+      'CourseThumbnailQuerySchema',
+      'CourseThumbnailResponseSchema',
+      'LectureDownloadResponseSchema',
+      'RevisionThumbnailQuerySchema',
+      'RevisionThumbnailResponseSchema',
+      'RevisionLectureDownloadResponseSchema',
     ]) {
       expect(names.has(name), name).toBe(true);
     }

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { uploadSourceKey } from './keys';
 import { MiB } from './part-plan';
 import { createS3Clients, destroyS3Clients, type S3Clients } from './s3-clients';
-import { useIntegrationS3 } from './testing/it-s3';
+import { useIntegrationS3 } from './testing/it-s3.mjs';
 
 /**
  * P2-T5 spike (design §11 "Risks to verify early"), pinned as regression tests against the real

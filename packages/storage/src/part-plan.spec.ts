@@ -72,6 +72,50 @@ describe('planParts', () => {
   });
 });
 
+describe('planParts({ exactSinglePart: false })', () => {
+  it.each([1, 4 * MiB, 5 * MiB - 1, 5 * MiB, 8 * MiB - 1])(
+    'keeps the 8 MiB part size for a %d-byte single-part plan and signs exactly sizeBytes',
+    (size) => {
+      const plan = planParts(size, { exactSinglePart: false });
+      expect(plan).toEqual({ sizeBytes: size, partSize: 8 * MiB, partCount: 1 });
+      expect(plan.partSize).toBeGreaterThanOrEqual(S3_MIN_PART_SIZE); // assets_part_size_bytes_ck
+      expect(() => assertValidPartPlan(plan)).not.toThrow();
+      expect(partRange(plan, 1)).toEqual({ partNumber: 1, start: 0, end: size, size });
+      expect(plannedParts(plan)).toHaveLength(1);
+      expect(checkUploadedParts(plan, [{ partNumber: 1, size }]).ok).toBe(true);
+      expect(checkUploadedParts(plan, [{ partNumber: 1, size: 8 * MiB }]).ok).toBe(false);
+    },
+  );
+
+  it('keeps a custom minPartSize as the stored part size', () => {
+    expect(planParts(1000, { minPartSize: 5 * MiB, exactSinglePart: false })).toEqual({
+      sizeBytes: 1000,
+      partSize: 5 * MiB,
+      partCount: 1,
+    });
+  });
+
+  it('defaults to the exact (shrunk) part size, as before', () => {
+    expect(planParts(1000).partSize).toBe(1000);
+    expect(planParts(1000, { exactSinglePart: true }).partSize).toBe(1000);
+  });
+
+  it('does not change multi-part plans', () => {
+    for (const size of [8 * MiB, 8 * MiB + 1, 100 * MiB, 8000 * MiB + 1, 100 * GiB]) {
+      const loose = planParts(size, { exactSinglePart: false });
+      expect(loose).toEqual(planParts(size));
+    }
+  });
+
+  it('always yields a plan whose partSize is >= 5 MiB', () => {
+    for (let size = 1; size < 6 * GiB; size = Math.ceil(size * 1.7) + 12_345) {
+      const plan = planParts(size, { exactSinglePart: false });
+      expect(plan.partSize).toBeGreaterThanOrEqual(S3_MIN_PART_SIZE);
+      expect(plannedParts(plan).reduce((sum, p) => sum + p.size, 0)).toBe(size);
+    }
+  });
+});
+
 describe('partRange / plannedParts', () => {
   it('returns contiguous exact byte ranges covering the whole object', () => {
     const plan = planParts(20 * MiB + 3, { minPartSize: 8 * MiB });

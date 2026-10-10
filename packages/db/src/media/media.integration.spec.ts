@@ -10,7 +10,7 @@ import {
   signal,
   useIntegrationDb,
   waitUntilBlocked,
-} from '../testing/it-db';
+} from '../testing/it-db.mjs';
 import {
   abortStaleUploads,
   findExpiredReadySources,
@@ -641,11 +641,28 @@ describe('transcoder (§8.1)', () => {
       expect(await enqueueTranscodeJob(trx, assetId)).toBe(false);
       const uploading = await createAsset(trx, { ownerId: owner, stage: 'UPLOADING' });
       expect(await enqueueTranscodeJob(trx, uploading)).toBe(false);
+      expect(await enqueueTranscodeJob(trx, { assetId: uploading, maxAttempts: 5 })).toBe(false);
 
       await sql`UPDATE media.assets SET purged_at = now() WHERE id = ${assetId}`.execute(trx);
       const lease = await leaseTranscodeJob(trx, LEASE);
       expect(lease).toEqual({ kind: 'cancelled', assetId, leaseNo: 1 });
       expect(await jobRow(trx, assetId)).toMatchObject({ status: 'CANCELLED', leaseOwner: null });
+    });
+  });
+
+  it('enqueue writes maxAttempts when given and keeps the column default (3) otherwise', async (ctx) => {
+    pg.skipIfUnavailable(ctx);
+    await rollback(pg.db, async (trx) => {
+      const owner = await createUser(trx);
+      const defaulted = await createAsset(trx, { ownerId: owner, stage: 'UPLOADED' });
+      const custom = await createAsset(trx, { ownerId: owner, stage: 'UPLOADED' });
+      expect(await enqueueTranscodeJob(trx, { assetId: defaulted })).toBe(true);
+      expect(await enqueueTranscodeJob(trx, { assetId: custom, maxAttempts: 7 })).toBe(true);
+      expect((await jobRow(trx, defaulted)).maxAttempts).toBe(3);
+      expect((await jobRow(trx, custom)).maxAttempts).toBe(7);
+      // An existing job keeps its value.
+      expect(await enqueueTranscodeJob(trx, { assetId: custom, maxAttempts: 2 })).toBe(false);
+      expect((await jobRow(trx, custom)).maxAttempts).toBe(7);
     });
   });
 });

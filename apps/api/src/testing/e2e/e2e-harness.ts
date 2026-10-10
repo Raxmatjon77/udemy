@@ -64,7 +64,7 @@ const E2E_USER_AGENT =
 /** Stands in for the worker's EMAIL_TOKEN_SECRET (D10); the api only stores sha256(raw). */
 const WORKER_EMAIL_TOKEN_SECRET = 'e2e-email-token-secret-0123456789abcdef0123';
 
-export type HttpMethod = 'get' | 'post' | 'patch' | 'delete';
+export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 export type OneTimeTokenPurpose = 'EMAIL_VERIFICATION' | 'PASSWORD_RESET';
 
 export interface SignedUpUser {

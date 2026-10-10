@@ -11,9 +11,11 @@ import {
   RevisionStateSchema,
   TransitionNoteSchema,
 } from './catalog';
+import { ThumbnailQuerySchema } from './catalog-public';
 import { CategoryLeafSchema } from './categories';
+import { CourseHistoryActorSchema } from './courses';
 import { ExpectedVersionSchema, IsoDateTimeSchema, UuidSchema } from './fields';
-import { AssetViewSchema } from './media';
+import { AssetViewSchema, SignedUrlSchema } from './media';
 import { emptyToUndefined, pageSchema, PaginationQuerySchema } from './pagination';
 
 /* ----------------------------------------------------------------------------------------
@@ -67,6 +69,12 @@ export const RevisionSectionSchema = z.object({
 });
 export type RevisionSection = z.infer<typeof RevisionSectionSchema>;
 
+/** The snapshot's depth-2 category, with its depth-1 group when known (optional, added later). */
+export const RevisionCategorySchema = CategoryLeafSchema.extend({
+  parent: CategoryLeafSchema.optional(),
+});
+export type RevisionCategory = z.infer<typeof RevisionCategorySchema>;
+
 export const RevisionSnapshotSchema = z.object({
   id: UuidSchema,
   courseId: UuidSchema,
@@ -80,7 +88,7 @@ export const RevisionSnapshotSchema = z.object({
   descriptionMd: z.string().nullable(),
   language: CourseLanguageSchema.nullable(),
   level: CourseLevelSchema.nullable(),
-  category: CategoryLeafSchema.nullable(),
+  category: RevisionCategorySchema.nullable(),
   thumbnailAssetId: UuidSchema.nullable(),
   outcomes: z.array(z.string()),
   requirements: z.array(z.string()),
@@ -112,7 +120,26 @@ const RemovedLectureSchema = z.object({
   id: UuidSchema,
   title: z.string(),
   type: LectureTypeSchema,
+  /** The section the lecture was in (in the base revision). Optional (added later). */
+  sectionId: UuidSchema.optional(),
+  sectionTitle: z.string().optional(),
 });
+
+/**
+ * A diff value: text, enum and id fields are strings (`categoryId` is the id), bullet lists
+ * (`outcomes`, `requirements`) are string arrays, an unset field is null.
+ */
+export const RevisionDiffValueSchema = z.union([z.string(), z.array(z.string())]).nullable();
+export type RevisionDiffValue = z.infer<typeof RevisionDiffValueSchema>;
+
+/** One changed header field with its live (`before`) and submitted (`after`) values. */
+export const RevisionFieldChangeSchema = z.object({
+  field: RevisionDiffFieldSchema,
+  /** Null for an INITIAL revision (no live revision). */
+  before: RevisionDiffValueSchema,
+  after: RevisionDiffValueSchema,
+});
+export type RevisionFieldChange = z.infer<typeof RevisionFieldChangeSchema>;
 
 /**
  * Diff of the snapshot against the live revision, by stable section/lecture id. `changed`
@@ -123,6 +150,11 @@ const RemovedLectureSchema = z.object({
 export const RevisionDiffSchema = z.object({
   baseRevisionId: UuidSchema.nullable(),
   changedFields: z.array(RevisionDiffFieldSchema),
+  /**
+   * Before/after values of every `changedFields` entry, in the same order. Optional (added
+   * later): absent means only the field names are known.
+   */
+  fieldChanges: z.array(RevisionFieldChangeSchema).optional(),
   sections: z.object({
     added: z.array(UuidSchema),
     removed: z.array(RemovedSectionSchema),
@@ -199,6 +231,12 @@ export const AdminCourseRowSchema = z.object({
   liveRevisionId: UuidSchema.nullable(),
   firstPublishedAt: IsoDateTimeSchema.nullable(),
   updatedAt: IsoDateTimeSchema,
+  /**
+   * ARCHIVED courses: who archived it (the owner, or a moderator's takedown) and why, from the
+   * latest ARCHIVE transition. Optional (added later); null when not archived.
+   */
+  archivedBy: CourseHistoryActorSchema.nullable().optional(),
+  archiveReason: z.string().nullable().optional(),
 });
 export type AdminCourseRow = z.infer<typeof AdminCourseRowSchema>;
 
@@ -213,3 +251,26 @@ export type AdminCoursePage = z.infer<typeof AdminCoursePageSchema>;
 /** The reason (10–2000) is mailed to the instructor. */
 export const TakedownCourseRequestSchema = z.object({ reason: ModerationReasonSchema });
 export type TakedownCourseRequest = z.output<typeof TakedownCourseRequestSchema>;
+
+/* ----------------------------------------------------------------------------------------
+ * Admin review media (signed URLs; bearer capabilities, never log them):
+ *
+ *   GET /admin/course-revisions/:revisionId/thumbnail?variant=w750|w480 -> 200 SignedUrl
+ *       Params `RevisionIdParamsSchema`. The revision's snapshotted thumbnail (pinned, so it
+ *       survives working-copy edits). 404 `course_not_found` (no thumbnail), 409
+ *       `media_not_ready`.
+ *   GET /admin/course-revisions/:revisionId/lectures/:lectureId/download -> 200 SignedUrl
+ *       Params `RevisionLectureParamsSchema`. A RESOURCE lecture's file in that revision.
+ *       404, 409 `media_not_ready`.
+ *
+ * Permission: `course:read:any` (like the revision playlists and article).
+ * -------------------------------------------------------------------------------------- */
+
+export const RevisionThumbnailQuerySchema = ThumbnailQuerySchema;
+export type RevisionThumbnailQuery = z.output<typeof RevisionThumbnailQuerySchema>;
+
+export const RevisionThumbnailResponseSchema = SignedUrlSchema;
+export type RevisionThumbnailResponse = z.infer<typeof RevisionThumbnailResponseSchema>;
+
+export const RevisionLectureDownloadResponseSchema = SignedUrlSchema;
+export type RevisionLectureDownloadResponse = z.infer<typeof RevisionLectureDownloadResponseSchema>;

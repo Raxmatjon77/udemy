@@ -66,14 +66,44 @@ export function transcodeOutputPrefix(assetId: string, leaseNo: number): string 
 
 // ---------------------------------------------------------------------------------- enqueue
 
+/** `transcode_jobs_max_attempts_ck`: `max_attempts BETWEEN 1 AND 10`. */
+export const MAX_TRANSCODE_ATTEMPTS_LIMIT = 10;
+
+export interface EnqueueTranscodeJobInput {
+  assetId: string;
+  /**
+   * Penalised attempts before the job FAILs terminally (e.g. the worker's
+   * `TRANSCODER_MAX_ATTEMPTS`), 1..10. Omitted: the column default (3). Only applies when this
+   * call creates the job; an existing job keeps its value.
+   */
+  maxAttempts?: number;
+}
+
 /**
  * Idempotent enqueue (worker, inside its MediaUploaded claim transaction). Inserts nothing if
  * the job exists or the asset is not UPLOADED / is purged. Returns true when a job was created.
+ *
+ * Accepts the asset id alone (original signature) or `{ assetId, maxAttempts? }`.
  */
-export async function enqueueTranscodeJob(executor: Executor, assetId: string): Promise<boolean> {
-  const result = await sql`
+export async function enqueueTranscodeJob(
+  executor: Executor,
+  input: string | EnqueueTranscodeJobInput,
+): Promise<boolean> {
+  const { assetId, maxAttempts } = typeof input === 'string' ? { assetId: input } : input;
+  if (maxAttempts !== undefined) {
+    assertIntInRange('maxAttempts', maxAttempts, 1, MAX_TRANSCODE_ATTEMPTS_LIMIT);
+  }
+  const result =
+    maxAttempts === undefined
+      ? await sql`
     INSERT INTO media.transcode_jobs (asset_id)
     SELECT id FROM media.assets WHERE id = ${assetId} AND status = 'UPLOADED' AND purged_at IS NULL
+    ON CONFLICT (asset_id) DO NOTHING
+  `.execute(executor)
+      : await sql`
+    INSERT INTO media.transcode_jobs (asset_id, max_attempts)
+    SELECT id, ${maxAttempts}::integer FROM media.assets
+    WHERE id = ${assetId} AND status = 'UPLOADED' AND purged_at IS NULL
     ON CONFLICT (asset_id) DO NOTHING
   `.execute(executor);
   return Number(result.numAffectedRows ?? 0n) === 1;

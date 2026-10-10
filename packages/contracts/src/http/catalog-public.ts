@@ -46,6 +46,11 @@ export const CourseCardSchema = z.object({
   instructor: PersonRefSchema.nullable(),
   lectureCount: z.number().int().min(0),
   videoSeconds: z.number().int().min(0),
+  /**
+   * The live revision has a READY thumbnail, so `/media/course-thumbnail/{id}` will resolve.
+   * Optional (added later): absent means unknown, so render the image route with a fallback.
+   */
+  hasThumbnail: z.boolean().optional(),
   /** Thumbnail via the web app's stable image route `/media/course-thumbnail/{id}`. */
   publishedAt: IsoDateTimeSchema,
 });
@@ -104,6 +109,8 @@ export const CourseLandingSchema = z.object({
   publishedAt: IsoDateTimeSchema,
   /** When the live revision was approved. */
   lastUpdatedAt: IsoDateTimeSchema,
+  /** The live revision has a READY thumbnail (see `CourseCard.hasThumbnail`). Optional. */
+  hasThumbnail: z.boolean().optional(),
 });
 export type CourseLanding = z.infer<typeof CourseLandingSchema>;
 

@@ -27,7 +27,8 @@
     "ignoredBuiltDependencies": [
       "@scarf/scarf",
       "@swc/core",
-      "esbuild"
+      "esbuild",
+      "msw"
     ]
   }
 }

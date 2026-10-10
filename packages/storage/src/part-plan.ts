@@ -46,6 +46,18 @@ export interface PlanPartsOptions {
   minPartSize?: number;
   /** Part count the plan aims to stay under. Default 1000; must be within [1, 10 000]. */
   targetMaxParts?: number;
+  /**
+   * What `partSize` a SINGLE-part plan reports when the object is smaller than the planned part
+   * size. Default `true` (unchanged behaviour): `partSize` shrinks to `sizeBytes`.
+   *
+   * `false` keeps `partSize` at the planned size (>= `minPartSize`, so >= 5 MiB). The plan is
+   * still valid and the signed Content-Length is still exact, because `partRange` clips the last
+   * (here: only) part to the object (`partRange(plan, 1).size === sizeBytes`). Use it when the
+   * plan is persisted next to a CHECK such as `media.assets.assets_part_size_bytes_ck`
+   * (`part_size_bytes >= 5 MiB`); the stored row rebuilds into the same plan. Multi-part plans
+   * are identical either way.
+   */
+  exactSinglePart?: boolean;
 }
 
 function assertSize(sizeBytes: number): void {
@@ -78,8 +90,9 @@ export function planParts(sizeBytes: number, options: PlanPartsOptions = {}): Pa
   }
   const byCount = Math.ceil(sizeBytes / targetMaxParts / MiB) * MiB;
   let partSize = Math.min(Math.max(minPartSize, byCount), S3_MAX_PART_SIZE);
-  // Never plan a part larger than the object: a single-part upload signs exactly sizeBytes.
-  if (partSize > sizeBytes) partSize = sizeBytes;
+  // By default never report a part larger than the object. Either way a single-part upload
+  // signs exactly sizeBytes (partRange clips the last part).
+  if (partSize > sizeBytes && (options.exactSinglePart ?? true)) partSize = sizeBytes;
   const partCount = Math.ceil(sizeBytes / partSize);
   const plan: PartPlan = { sizeBytes, partSize, partCount };
   assertValidPartPlan(plan);

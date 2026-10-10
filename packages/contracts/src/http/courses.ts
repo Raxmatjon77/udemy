@@ -21,8 +21,9 @@ import {
   SubmitNoteSchema,
   TransitionNoteSchema,
 } from './catalog';
+import { ThumbnailQuerySchema } from './catalog-public';
 import { ExpectedVersionSchema, IsoDateTimeSchema, SlugSchema, UuidSchema } from './fields';
-import { AssetViewSchema } from './media';
+import { AssetViewSchema, SignedUrlSchema } from './media';
 import { emptyToUndefined, pageSchema, paginationQuerySchema } from './pagination';
 import { ProblemDetailsSchema } from './problem-details';
 
@@ -210,6 +211,86 @@ export type UpdateCourseRequest = z.output<typeof UpdateCourseRequestSchema>;
 /** A COURSE_THUMBNAIL / LECTURE_VIDEO / LECTURE_RESOURCE asset owned by the course owner. */
 export const AttachAssetRequestSchema = z.object({ assetId: UuidSchema });
 export type AttachAssetRequest = z.output<typeof AttachAssetRequestSchema>;
+
+/* ----------------------------------------------------------------------------------------
+ * GET /courses/:courseId/thumbnail?variant=w750|w480 -> 200 SignedUrl (owner / admin)
+ * The WORKING-COPY thumbnail for the builder (the public route only serves the live
+ * revision). Params: `CourseIdParamsSchema`. Errors: 404 `course_not_found` (also when no
+ * thumbnail is attached), 409 `media_not_ready` (attached but not READY: show the AssetView
+ * status from `CourseDetail.thumbnail` instead). The URL is a bearer capability: never log it.
+ * -------------------------------------------------------------------------------------- */
+
+export const CourseThumbnailQuerySchema = ThumbnailQuerySchema;
+export type CourseThumbnailQuery = z.output<typeof CourseThumbnailQuerySchema>;
+
+export const CourseThumbnailResponseSchema = SignedUrlSchema;
+export type CourseThumbnailResponse = z.infer<typeof CourseThumbnailResponseSchema>;
+
+/* ----------------------------------------------------------------------------------------
+ * GET /courses/:courseId/lectures/:lectureId/download -> 200 SignedUrl (RESOURCE lecture of
+ * the working copy; owner / admin). Params: `LectureParamsSchema`. Errors: 404, 409
+ * `media_not_ready`.
+ * -------------------------------------------------------------------------------------- */
+
+export const LectureDownloadResponseSchema = SignedUrlSchema;
+export type LectureDownloadResponse = z.infer<typeof LectureDownloadResponseSchema>;
+
+/* ----------------------------------------------------------------------------------------
+ * 422 `markdown_not_allowed` (any markdown field: descriptions, article body)
+ * -------------------------------------------------------------------------------------- */
+
+/** Mirrors `@udemy/markdown/validate` `MARKDOWN_ISSUE_KINDS` (kept equal by its test). */
+export const MARKDOWN_ISSUE_KINDS = [
+  'raw_html',
+  'image',
+  'unsafe_link',
+  'disallowed_link',
+  'too_deeply_nested',
+  'too_complex',
+  'unsupported_syntax',
+] as const;
+export const MarkdownIssueKindSchema = z.enum(MARKDOWN_ISSUE_KINDS);
+export type MarkdownIssueKind = z.infer<typeof MarkdownIssueKindSchema>;
+
+/** Mirrors `@udemy/markdown/validate` `MarkdownConstruct` (kept equal by its test). */
+export const MARKDOWN_CONSTRUCTS = [
+  'html_block',
+  'html_inline',
+  'image',
+  'image_reference',
+  'link',
+  'autolink',
+  'literal_autolink',
+  'definition',
+  'document',
+  'other',
+] as const;
+export const MarkdownConstructSchema = z.enum(MARKDOWN_CONSTRUCTS);
+export type MarkdownConstruct = z.infer<typeof MarkdownConstructSchema>;
+
+/** One offending construct; `line`/`column` are 1-based positions in that field's source. */
+export const MarkdownIssueSchema = z.object({
+  /** Dotted request path of the markdown field (`descriptionMd`, `bodyMd`). */
+  path: z.string(),
+  line: z.number().int().min(1),
+  column: z.number().int().min(1),
+  kind: MarkdownIssueKindSchema,
+  construct: MarkdownConstructSchema,
+  /** Plain text, safe to show to the author. */
+  detail: z.string(),
+});
+export type MarkdownIssue = z.infer<typeof MarkdownIssueSchema>;
+
+/**
+ * 422 `markdown_not_allowed`: raw HTML, images or links other than absolute http(s)/mailto
+ * (design D14), or markdown too complex to process. `issues` is the structured form of
+ * `errors` (which keeps one `{ path, message }` per issue for generic clients).
+ */
+export const MarkdownNotAllowedProblemSchema = ProblemDetailsSchema.extend({
+  code: z.literal(ErrorCode.MarkdownNotAllowed),
+  issues: z.array(MarkdownIssueSchema).min(1),
+});
+export type MarkdownNotAllowedProblem = z.infer<typeof MarkdownNotAllowedProblemSchema>;
 
 /* ----------------------------------------------------------------------------------------
  * Curriculum: GET /courses/:courseId/curriculum -> 200 Curriculum

@@ -13,11 +13,9 @@
  *
  * Rejecting (rather than silently stripping) tells the author exactly what to fix.
  */
-import type { Nodes, Parents } from 'mdast';
-import { fromMarkdown } from 'mdast-util-from-markdown';
-import { gfmFromMarkdown } from 'mdast-util-gfm';
-import { gfm } from 'micromark-extension-gfm';
+import type { Nodes, Parents, Root } from 'mdast';
 import { checkComplexity } from './complexity.js';
+import { MAX_NESTING_DEPTH, parseMarkdownTree } from './parse.js';
 import { classifyUrl, type UrlRejectionReason } from './url-policy.js';
 
 export const MARKDOWN_ISSUE_KINDS = [
@@ -68,12 +66,7 @@ export interface MarkdownIssue {
 
 export type MarkdownValidationResult = { ok: true } | { ok: false; issues: MarkdownIssue[] };
 
-/**
- * Maximum mdast tree depth. Real content (a list in a quote in a list, with emphasis and a link)
- * stays well under 20; the limit protects the recursive render pipeline (to-hast, sanitize,
- * to-jsx-runtime) from pathological input such as 10 000 nested `>`.
- */
-export const MAX_NESTING_DEPTH = 64;
+export { MAX_NESTING_DEPTH } from './parse.js';
 
 /** Bounds the 422 payload; the author fixes the first ones and resubmits. */
 export const MAX_REPORTED_ISSUES = 50;
@@ -154,12 +147,9 @@ export function validateMarkdown(source: string): MarkdownValidationResult {
     return { ok: false, issues: [{ ...tooComplex, construct: 'document' }] };
   }
 
-  let tree: ReturnType<typeof fromMarkdown>;
+  let tree: Root;
   try {
-    tree = fromMarkdown(source, {
-      extensions: [gfm()],
-      mdastExtensions: [gfmFromMarkdown()],
-    });
+    tree = parseMarkdownTree(source);
   } catch (error) {
     if (error instanceof RangeError) {
       return {
@@ -258,3 +248,5 @@ export function validateMarkdown(source: string): MarkdownValidationResult {
 
   return issues.length === 0 ? { ok: true } : { ok: false, issues };
 }
+
+export { markdownPlainText, MarkdownTooComplexError, plainTextLength } from './plain-text.js';

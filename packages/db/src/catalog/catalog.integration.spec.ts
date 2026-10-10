@@ -12,7 +12,7 @@ import {
   insertTransition,
   submit,
 } from '../testing/fixtures';
-import { checkDeferredNow, expectFailure, rollback, useIntegrationDb } from '../testing/it-db';
+import { checkDeferredNow, expectFailure, rollback, useIntegrationDb } from '../testing/it-db.mjs';
 import { browsePublishedCourses, getTransitionHead, listReviewQueue } from './queries';
 import { findLeakedUsages, findLecturesWithoutUsage } from './consistency';
 

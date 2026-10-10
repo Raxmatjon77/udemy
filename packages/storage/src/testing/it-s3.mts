@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll } from 'vitest';
-import type { StorageConfig } from '../config';
-import { ObjectStorage } from '../object-storage';
+import type { BucketRole, StorageConfig } from '../config.js';
+import { ObjectStorage } from '../object-storage.js';
 
 /**
- * The ONE convention for @udemy/storage integration tests (real MinIO), mirroring
+ * The ONE convention for integration tests against real MinIO, mirroring
  * apps/api/src/testing/integration.ts. No Testcontainers: the dev Docker VM has no memory for a
- * second MinIO.
+ * second MinIO. Exported as `@udemy/storage/testing` (ESM, because vitest cannot be required) so
+ * apps (api media, worker, transcoder) stop copying it; it is NOT part of the main entry.
  *
  * - `IT_S3_ENDPOINT` (default http://localhost:9000), `IT_S3_PUBLIC_ENDPOINT`
  *   (http://127.0.0.1:9000), `IT_S3_REGION` (us-east-1), `IT_S3_ACCESS_KEY` (minio),
@@ -16,6 +17,9 @@ import { ObjectStorage } from '../object-storage';
  *   A MinIO that answers but lacks a bucket, or stalls past PROBE_TIMEOUT_MS, always FAILS.
  * - Each file writes only under its own `it-<random>/` prefix in both buckets; afterAll aborts the
  *   multipart uploads and deletes the objects under that prefix, and nothing else.
+ * - Tests that must write app-shaped keys (`uploads/{owner}/{asset}/…`, `assets/{asset}/…`) use
+ *   fresh UUIDs and register those prefixes with `cleanupPrefix(bucket, prefix)`; afterAll empties
+ *   them the same way.
  */
 export const PROBE_TIMEOUT_MS = 25_000;
 
@@ -57,6 +61,18 @@ export interface IntegrationS3 {
   readonly prefix: string;
   readonly unavailableReason: string | undefined;
   skipIfUnavailable(ctx: SkippableContext): void;
+  /**
+   * Also empties `prefix` in `bucket` (multipart uploads, then objects) in afterAll. For keys
+   * outside `prefix`; the prefix must end with `/` and be unique to the test file.
+   */
+  cleanupPrefix(bucket: BucketRole, prefix: string): void;
+}
+
+export interface UseIntegrationS3Options {
+  /** Overrides `itStorageConfig()` (e.g. a different public endpoint). */
+  readonly config?: StorageConfig;
+  /** How long the MinIO probe may take before failing. Default `PROBE_TIMEOUT_MS` (25 s). */
+  readonly probeTimeoutMs?: number;
 }
 
 const NETWORK_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET']);
@@ -70,9 +86,14 @@ function isUnreachable(error: unknown): boolean {
 }
 
 /** Registers beforeAll/afterAll hooks: probe both buckets, then clean the prefix afterwards. */
-export function useIntegrationS3(): IntegrationS3 {
-  const config = itStorageConfig();
+export function useIntegrationS3(options: UseIntegrationS3Options = {}): IntegrationS3 {
+  const config = options.config ?? itStorageConfig();
+  const probeTimeoutMs = options.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
   const prefix = `it-${randomBytes(6).toString('hex')}/`;
+  const toClean: { bucket: BucketRole; prefix: string }[] = [
+    { bucket: 'uploads', prefix },
+    { bucket: 'media', prefix },
+  ];
   let storage: ObjectStorage | undefined;
   let reason: string | undefined = 'not connected yet (used outside a test?)';
 
@@ -84,8 +105,8 @@ export function useIntegrationS3(): IntegrationS3 {
         storage.ping(),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
-            () => reject(new Error(`MinIO did not answer within ${PROBE_TIMEOUT_MS} ms`)),
-            PROBE_TIMEOUT_MS,
+            () => reject(new Error(`MinIO did not answer within ${probeTimeoutMs} ms`)),
+            probeTimeoutMs,
           );
         }),
       ]);
@@ -118,15 +139,16 @@ export function useIntegrationS3(): IntegrationS3 {
     if (storage === undefined) return;
     try {
       if (reason === undefined) {
-        for (const bucket of ['uploads', 'media'] as const) {
-          for await (const upload of storage.listMultipartUploads({ bucket, prefix })) {
+        for (const target of toClean) {
+          const { bucket } = target;
+          for await (const upload of storage.listMultipartUploads(target)) {
             await storage.abortMultipartUpload({
               bucket,
               key: upload.key,
               uploadId: upload.uploadId,
             });
           }
-          await storage.deletePrefix({ bucket, prefix });
+          await storage.deletePrefix(target);
         }
       }
     } finally {
@@ -148,6 +170,12 @@ export function useIntegrationS3(): IntegrationS3 {
     },
     skipIfUnavailable(ctx: SkippableContext): void {
       ctx.skip(reason !== undefined, reason);
+    },
+    cleanupPrefix(bucket: BucketRole, cleanup: string): void {
+      if (cleanup.length < 2 || !cleanup.endsWith('/')) {
+        throw new Error(`[integration] cleanupPrefix needs a non-empty prefix ending with "/"`);
+      }
+      toClean.push({ bucket, prefix: cleanup });
     },
   };
 }

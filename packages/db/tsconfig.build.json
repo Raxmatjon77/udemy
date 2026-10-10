@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "noEmit": false },
-  // src/testing is the integration-test harness (imports vitest); it is not part of the package.
-  "exclude": ["dist", "node_modules", "**/*.spec.ts", "**/*.test.ts", "src/testing/**"]
+  // src/testing IS built for the `@udemy/db/testing` subpath (index.mts -> dist/testing/index.mjs,
+  // ESM because it imports vitest). The main entry (src/index.ts) never imports it.
+  "exclude": ["dist", "node_modules", "**/*.spec.ts", "**/*.test.ts"]
 }

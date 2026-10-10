@@ -168,6 +168,39 @@ describe('fenced writes', () => {
     expect(await enqueueTranscodeJob(scriptedDb([none]).db, A)).toBe(false);
   });
 
+  it('enqueue without maxAttempts keeps the column default (same SQL as the string form)', async () => {
+    const byId = scriptedDb([one]);
+    const byInput = scriptedDb([one]);
+    expect(await enqueueTranscodeJob(byId.db, A)).toBe(true);
+    expect(await enqueueTranscodeJob(byInput.db, { assetId: A })).toBe(true);
+    expect(byInput.statements).toEqual(byId.statements);
+    expect(byInput.parameters).toEqual([[A]]);
+    expect(byId.statements[0]).toMatch(/INSERT INTO media.transcode_jobs \(asset_id\)\s/);
+    expect(byId.statements[0]).not.toContain('max_attempts');
+  });
+
+  it('enqueue writes maxAttempts when given', async () => {
+    const s = scriptedDb([one]);
+    expect(await enqueueTranscodeJob(s.db, { assetId: A, maxAttempts: 5 })).toBe(true);
+    expect(s.statements[0]).toContain('INSERT INTO media.transcode_jobs (asset_id, max_attempts)');
+    expect(s.statements[0]).toContain('ON CONFLICT (asset_id) DO NOTHING');
+    expect(s.parameters[0]).toEqual([5, A]);
+    expect(await enqueueTranscodeJob(scriptedDb([none]).db, { assetId: A, maxAttempts: 1 })).toBe(
+      false,
+    );
+  });
+
+  it.each([0, 11, 2.5, Number.NaN])(
+    'enqueue rejects maxAttempts %d before the query',
+    async (n) => {
+      const s = scriptedDb([one]);
+      await expect(enqueueTranscodeJob(s.db, { assetId: A, maxAttempts: n })).rejects.toThrow(
+        RangeError,
+      );
+      expect(s.statements).toEqual([]);
+    },
+  );
+
   it('the reaper requeues while attempts remain and fails terminally otherwise', async () => {
     const s = scriptedDb([
       {

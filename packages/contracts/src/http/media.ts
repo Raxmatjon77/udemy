@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { ErrorCode } from '../errors/error-code';
 import { IsoDateTimeSchema, singleLineText, UuidSchema } from './fields';
+import {
+  emptyToUndefined,
+  PAGE_LIMIT_DEFAULT,
+  PAGE_LIMIT_MAX,
+  pageSchema,
+  paginationQuerySchema,
+} from './pagination';
 import { ProblemDetailsSchema } from './problem-details';
 
 /* ----------------------------------------------------------------------------------------
@@ -310,3 +317,43 @@ export type AssetsQuery = z.output<typeof AssetsQuerySchema>;
 
 export const AssetListResponseSchema = z.object({ items: z.array(AssetViewSchema) });
 export type AssetListResponse = z.infer<typeof AssetListResponseSchema>;
+
+/* ----------------------------------------------------------------------------------------
+ * GET /media/assets?cursor=&limit=&ownerId=  (keyset mode)  -> 200 AssetPage
+ * GET /media/assets?ids=a,b,c                (ids mode)     -> 200 AssetPage (nextCursor null)
+ *
+ * Newest first. Instructors (`media_asset:read:own`) see their own assets; admins
+ * (`media_asset:read:any`) see all and may filter by `ownerId` (ignored / own-only for
+ * instructors). `ids` and `cursor` are mutually exclusive. `AssetsQuerySchema` (ids only) and
+ * `AssetListResponseSchema` stay valid for the ids mode.
+ * -------------------------------------------------------------------------------------- */
+
+/** Like `splitCommaList`, but an empty `?ids=` means "absent" (keyset mode). */
+function splitOptionalCommaList(value: unknown): unknown {
+  if (value === undefined || value === '') return undefined;
+  return splitCommaList(value);
+}
+
+export const ListAssetsQuerySchema = paginationQuerySchema(PAGE_LIMIT_MAX, PAGE_LIMIT_DEFAULT)
+  .extend({
+    ids: z.preprocess(
+      splitOptionalCommaList,
+      z
+        .array(UuidSchema)
+        .min(1)
+        .max(MEDIA_UPLOAD_LIMITS.maxAssetIdsPerQuery)
+        .refine((ids) => new Set(ids).size === ids.length, { message: 'Ids must be unique' })
+        .optional(),
+    ),
+    /** Admins only: restrict the page to one owner. */
+    ownerId: z.preprocess(emptyToUndefined, UuidSchema.optional()),
+  })
+  .refine((q) => q.ids === undefined || q.cursor === undefined, {
+    message: 'Use either ids or cursor',
+    path: ['cursor'],
+  });
+export type ListAssetsQuery = z.output<typeof ListAssetsQuerySchema>;
+
+/** `{ items: AssetView[], nextCursor }`; `nextCursor` is always null in the ids mode. */
+export const AssetPageSchema = pageSchema(AssetViewSchema);
+export type AssetPage = z.infer<typeof AssetPageSchema>;

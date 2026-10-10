@@ -27,6 +27,8 @@ export {
   type FailResult,
   type FailedAssetInfo,
   type ReapedLease,
+  type EnqueueTranscodeJobInput,
+  MAX_TRANSCODE_ATTEMPTS_LIMIT,
   transcodeOutputPrefix,
   enqueueTranscodeJob,
   leaseTranscodeJob,

@@ -7,5 +7,11 @@
     "outDir": "dist",
     "types": ["node"]
   },
-  "include": ["src/validate.ts", "src/url-policy.ts", "src/complexity.ts"]
+  "include": [
+    "src/validate.ts",
+    "src/url-policy.ts",
+    "src/complexity.ts",
+    "src/parse.ts",
+    "src/plain-text.ts"
+  ]
 }
