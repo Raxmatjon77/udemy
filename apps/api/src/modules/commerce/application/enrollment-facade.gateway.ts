@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { DB, Executor, Transaction } from '@udemy/db';
 import { EnrollmentFacade } from '../../enrollment';
 import {
+  type CommerceActiveGrant,
   CommerceEnrollments,
   type CommerceGrantInput,
   type CommerceGrantResult,
@@ -35,5 +36,13 @@ export class EnrollmentFacadeGateway extends CommerceEnrollments {
 
   revoke(trx: Transaction<DB>, input: CommerceRevokeInput): Promise<CommerceRevokeResult> {
     return this.enrollments.revoke(trx, input);
+  }
+
+  findActiveGrant(
+    userId: string,
+    courseId: string,
+    ex?: Executor,
+  ): Promise<CommerceActiveGrant | null> {
+    return this.enrollments.findActiveGrant(userId, courseId, ex);
   }
 }

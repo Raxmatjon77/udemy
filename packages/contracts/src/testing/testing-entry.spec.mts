@@ -401,4 +401,48 @@ describe('createCommerceHandlers (MSW)', () => {
     });
     expect(revoked.json).toMatchObject({ status: 'REVOKED', revokeReason: 'ADMIN' });
   });
+
+  it('P4-T16 additions: buyer-email search, timeline with actor names, refund logs, every queue status, PAYMENT_REVIEW', async () => {
+    reset({ viewerId: FIXTURE_IDS.admin });
+    const order = mock.store.seedPaidOrder(FIXTURE_IDS.student, [FIXTURE_IDS.course]);
+    expect((await call('GET', '/admin/orders?buyerEmail=JANE@')).json.items).toHaveLength(1);
+    expect((await call('GET', '/admin/orders?buyerEmail=nobody@')).json.items).toHaveLength(0);
+    expect((await call('GET', '/admin/orders?buyerEmail=ja')).status).toBe(400);
+
+    const lineId = (await call('GET', `/admin/orders/${order.id}`)).json.lines[0].id;
+    const [refund] = (
+      await call('POST', `/admin/orders/${order.id}/refunds`, {
+        orderLineIds: [lineId],
+        reason: 'Customer support goodwill',
+      })
+    ).json;
+    expect(refund).toMatchObject({ reasonCode: 'ADMIN_DISCRETION', comment: null });
+    mock.store.settleRefund(refund.id, 'SUCCEEDED');
+    const detail = (await call('GET', `/admin/orders/${order.id}`)).json;
+    expect(detail.refunds[0].transitions.map((t: { toStatus: string }) => t.toStatus)).toEqual([
+      'APPROVED',
+      'SUCCEEDED',
+    ]);
+    expect(detail.refunds[0].transitions[0]).toMatchObject({
+      actorId: FIXTURE_IDS.admin,
+      reason: 'Customer support goodwill',
+    });
+    expect(detail.refunds[0].transitions[0].actor).not.toBeNull();
+    expect(detail.transitions[0].actor).toMatchObject({ id: FIXTURE_IDS.student });
+    expect(detail.timeline.map((e: { kind: string }) => e.kind)).toEqual(
+      expect.arrayContaining(['ORDER', 'PAYMENT', 'REFUND']),
+    );
+    const succeeded = (await call('GET', '/admin/refunds?status=SUCCEEDED')).json.items;
+    expect(succeeded.map((i: { id: string }) => i.id)).toEqual([refund.id]);
+    expect(succeeded[0].recentRefundCount).toBe(0); // ADMIN refunds never count
+
+    const review = mock.store.seedPaidOrder(FIXTURE_IDS.student, [FIXTURE_IDS.course2]);
+    expect(
+      (
+        await call('POST', `/admin/orders/${review.id}/accept-payment`, {
+          reason: 'Not under review',
+        })
+      ).status,
+    ).toBe(409);
+  });
 });

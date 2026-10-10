@@ -18,7 +18,7 @@ export interface SettlePaidOrderInput {
 
 export interface SettlementResult {
   /** D15 duplicate-purchase refunds created (APPROVED): kick the dispatcher after COMMIT. */
-  readonly duplicateRefunds: number;
+  readonly duplicateRefundIds: readonly string[];
 }
 
 /**
@@ -45,7 +45,7 @@ export class OrderLifecycle {
   async settlePaid(trx: Transaction<DB>, input: SettlePaidOrderInput): Promise<SettlementResult> {
     const header = await this.orders.findHeader(input.orderId, trx);
     if (header === null) throw new Error(`order ${input.orderId} vanished inside its transaction`);
-    let duplicateRefunds = 0;
+    const duplicateRefundIds: string[] = [];
     const lines = [...input.lines].sort((a, b) =>
       a.courseId < b.courseId ? -1 : a.courseId > b.courseId ? 1 : 0,
     );
@@ -77,7 +77,7 @@ export class OrderLifecycle {
         approvedBy: null,
         approvedAt: refund.approvedAt.toISOString(),
       });
-      duplicateRefunds += 1;
+      duplicateRefundIds.push(refund.refundId);
       this.logger.warn(
         `order ${input.orderId}: course ${line.courseId} was already active; DUPLICATE_PURCHASE refund ${refund.refundId}`,
       );
@@ -98,7 +98,7 @@ export class OrderLifecycle {
       paidAt: input.paidAt.toISOString(),
       lines: paidLines,
     });
-    return { duplicateRefunds };
+    return { duplicateRefundIds };
   }
 
   /**

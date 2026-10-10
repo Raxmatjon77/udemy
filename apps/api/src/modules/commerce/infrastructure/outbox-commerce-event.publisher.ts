@@ -20,6 +20,14 @@ import {
   type PaymentDisputedPayload,
   RefundApproved,
   type RefundApprovedPayload,
+  RefundFailed,
+  type RefundFailedPayload,
+  RefundRejected,
+  type RefundRejectedPayload,
+  RefundRequested,
+  type RefundRequestedPayload,
+  RefundSucceeded,
+  type RefundSucceededPayload,
 } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { OutboxPublisher } from '../../../shared/outbox';
@@ -76,5 +84,21 @@ export class OutboxCommerceEventPublisher extends CommerceEventPublisher {
 
   async refundApproved(trx: Transaction<DB>, payload: RefundApprovedPayload): Promise<void> {
     await this.outbox.publish(trx, RefundApproved, payload.orderId, payload);
+  }
+
+  async refundRequested(trx: Transaction<DB>, payload: RefundRequestedPayload): Promise<void> {
+    await this.outbox.publish(trx, RefundRequested, payload.orderId, payload);
+  }
+
+  async refundRejected(trx: Transaction<DB>, payload: RefundRejectedPayload): Promise<void> {
+    await this.outbox.publish(trx, RefundRejected, payload.orderId, payload);
+  }
+
+  async refundSucceeded(trx: Transaction<DB>, payload: RefundSucceededPayload): Promise<void> {
+    await this.outbox.publish(trx, RefundSucceeded, payload.orderId, payload);
+  }
+
+  async refundFailed(trx: Transaction<DB>, payload: RefundFailedPayload): Promise<void> {
+    await this.outbox.publish(trx, RefundFailed, payload.orderId, payload);
   }
 }

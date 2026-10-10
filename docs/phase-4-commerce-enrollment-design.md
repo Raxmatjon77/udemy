@@ -1069,3 +1069,11 @@ sequenceDiagram
   - **Image:** the emulator is bundled with esbuild onto an Alpine + node runtime (510 MB → 193 MB local, 109 MB → 53 MB compressed). The blocker for a lean `pnpm deploy` is `@udemy/payments` → `@udemy/nest-common` (db, pino, nodemailer, Nest peers) plus the optional `vitest` peer.
   - **Publishing:** `images.yml` publishes `udemy-stripe-emulator` with the same CI + E2E gate as the other images.
   - **Live check:** `stripe-live.yml` (manual dispatch) runs the stateless contract cases against real Stripe test mode with the `STRIPE_TEST_SECRET_KEY` repository secret. It skips when the secret is absent and refuses anything that is not `sk_test_`.
+
+- **Refunds (P4-T16):**
+  - **Revocation:** an enrollment is revoked at refund APPROVAL (D11), and only when the buyer's active enrollment was granted by the refunded line. Duplicate-purchase (D15) refunds, re-purchases and admin re-grants keep access.
+  - **Post-commit kick:** `RefundDispatchTrigger.kick(refundIds)` sends exactly the refunds the committing transaction approved, never other rows of a shared database. The scheduled `dispatchRefunds` (lock `_03`) remains the safety net.
+  - **`charge.refunded` matching:** it carries no refund ids, so it is matched by payment intent and amounts. The newly refunded amount (charge `amount_refunded` minus our SUCCEEDED total) must equal all SUBMITTED refunds of the order, or exactly one of them. If it is ambiguous the event is IGNORED and `refund.updated` settles it; more than was ever sent marks it ORPHAN, which is logged only.
+  - **PAYMENT_REVIEW orders:** an admin refund must cover the whole order (reason code PAYMENT_REVIEW), so the order can always reach REFUNDED. Accepting the payment sets `paid_at`, and the refund window starts there.
+  - **`recentRefundCount`:** counts the buyer's other STUDENT refunds that are not REJECTED and were created in the 90 days before this refund. ADMIN and SYSTEM refunds never count. Three or more sends a request to review.
+  - **Admin refund reason:** an admin refund's reason lives on its first refund transition, because admin refunds carry no comment.

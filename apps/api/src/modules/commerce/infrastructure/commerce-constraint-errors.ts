@@ -5,6 +5,7 @@ import {
   CouponNotApplicable,
   InvalidCommerceField,
   PriceNotAllowed,
+  RefundNotApplicable,
 } from '../domain/commerce.errors';
 
 interface PgErrorLike {
@@ -93,6 +94,9 @@ export const COMMERCE_CONSTRAINT_ERRORS: Readonly<Record<string, ToDomainError>>
       cause,
     }),
   refunds_reason_code_ck: field('reasonCode', 'Invalid reason.'),
+  // The order left PAID / PARTIALLY_REFUNDED under a race (the use cases check first)
+  refunds_order_status_ck: (cause) =>
+    new RefundNotApplicable('This order can no longer be refunded.', { cause }),
   refunds_comment_ck: field('comment', 'At most 1000 characters.'),
 };
 

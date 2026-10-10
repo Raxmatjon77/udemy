@@ -712,7 +712,7 @@ describe('commerce B (integration: checkout, webhook, cancel, reconcile, reads)'
     });
   });
 
-  it('dispute -> PaymentDisputed; refund events recorded (P4-T16 seam); livemode, unknown sessions and unhandled types are recorded too', async (ctx) => {
+  it('dispute -> PaymentDisputed; a foreign refund event is ORPHAN; livemode, unknown sessions and unhandled types are recorded too', async (ctx) => {
     skip(ctx);
     const buyer = await user('dispute');
     const c = await course('19.99');
@@ -726,11 +726,12 @@ describe('commerce B (integration: checkout, webhook, cancel, reconcile, reads)'
     ).toEqual({ outcome: 'APPLIED', orderId: placed.orderId });
     expect(await outboxTypes(placed.orderId)).toContain('PaymentDisputed.v1');
 
+    // P4-T16: a refund of this payment that is not ours (e.g. made in the dashboard) is ORPHAN.
     expect(
       await deliver(
         refundUpdatedEvent({ refundId: randomUUID(), paymentIntentId: done.paymentIntentId }),
       ),
-    ).toEqual({ outcome: 'IGNORED', orderId: null });
+    ).toEqual({ outcome: 'ORPHAN', orderId: placed.orderId });
     expect(
       await deliver(checkoutSessionCompletedEvent({ orderId: null, clientReferenceId: null })),
     ).toEqual({ outcome: 'ORPHAN', orderId: null });

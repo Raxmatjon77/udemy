@@ -1,6 +1,7 @@
 // Public facade of the enrollment context: the only file other modules may import.
 export { EnrollmentModule } from './enrollment.module';
 export {
+  type ActiveEnrollmentGrant,
   EnrollmentFacade,
   type GrantEnrollmentInput,
   type GrantEnrollmentResult,

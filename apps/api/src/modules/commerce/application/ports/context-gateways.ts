@@ -1,3 +1,4 @@
+import type { AccountStatus } from '@udemy/contracts';
 import type { DB, Executor, Transaction } from '@udemy/db';
 import type { QuoteCourse } from '../../domain/quote';
 
@@ -70,6 +71,14 @@ export interface CommerceRevokeInput {
   readonly reason?: string | null;
 }
 
+/** What granted a user's ACTIVE enrollment (`EnrollmentFacade.findActiveGrant`). */
+export interface CommerceActiveGrant {
+  readonly enrollmentId: string;
+  readonly source: CommerceEnrollmentSource;
+  /** Set exactly for ORDER. */
+  readonly orderLineId: string | null;
+}
+
 export interface CommerceRevokeResult {
   readonly enrollmentId: string | null;
   readonly outcome: 'REVOKED' | 'NOT_ACTIVE';
@@ -90,4 +99,34 @@ export abstract class CommerceEnrollments {
   abstract grant(trx: Transaction<DB>, input: CommerceGrantInput): Promise<CommerceGrantResult>;
 
   abstract revoke(trx: Transaction<DB>, input: CommerceRevokeInput): Promise<CommerceRevokeResult>;
+
+  /** The user's ACTIVE grant of the course, or null (refund approval reads it, P4-T16). */
+  abstract findActiveGrant(
+    userId: string,
+    courseId: string,
+    ex?: Executor,
+  ): Promise<CommerceActiveGrant | null>;
+}
+
+/** An account as admin views show it (email and ban state included; admin app only). */
+export interface CommerceAccount {
+  readonly id: string;
+  readonly displayName: string;
+  readonly email: string;
+  readonly status: AccountStatus;
+}
+
+/** Identity for the admin order and refund views (P4-T16). */
+export abstract class CommerceAdminDirectory {
+  /** The existing accounts among `userIds` (unknown ids are omitted). */
+  abstract findAccounts(
+    userIds: readonly string[],
+    ex?: Executor,
+  ): Promise<ReadonlyMap<string, CommerceAccount>>;
+
+  /**
+   * Ids of up to `limit` accounts whose email contains `fragment` (case-insensitive, at least
+   * 3 characters), the most recently created first.
+   */
+  abstract searchIdsByEmail(fragment: string, limit: number): Promise<string[]>;
 }

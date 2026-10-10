@@ -3,6 +3,7 @@ import {
   type CouponProblemCode,
   ErrorCode,
   type PurchaseBlockReason,
+  type RefundBlockReason,
 } from '@udemy/contracts';
 import {
   ConflictError,
@@ -336,5 +337,65 @@ export class OrderNotCancelable extends ConflictError {
 export class OrderNotPaid extends ConflictError {
   constructor(options: CauseOption = {}) {
     super('This order has not been paid.', { code: ErrorCode.OrderNotPaid, cause: options.cause });
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Refunds (design §5 "Refunds", D11)
+ * -------------------------------------------------------------------------------------- */
+
+/** 404 `refund_not_found`. */
+export class RefundNotFound extends NotFoundError {
+  constructor(options: CauseOption = {}) {
+    super('The refund does not exist.', { code: ErrorCode.RefundNotFound, cause: options.cause });
+  }
+}
+
+/** 409 `refund_already_requested`: the line has a live refund (one per line). */
+export class RefundAlreadyRequested extends ConflictError {
+  constructor(options: CauseOption = {}) {
+    super('A refund for this course is already in progress.', {
+      code: ErrorCode.RefundAlreadyRequested,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 422 `refund_window_closed`: more than `COMMERCE_REFUND_WINDOW_DAYS` after payment. */
+export class RefundWindowClosed extends ValidationError {
+  constructor(options: CauseOption = {}) {
+    super('The refund period for this purchase has ended.', {
+      code: ErrorCode.RefundWindowClosed,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 422 `refund_not_applicable`: a 0.00 line, or an order that is not (or no longer) refundable. */
+export class RefundNotApplicable extends ValidationError {
+  constructor(message = 'This purchase cannot be refunded.', options: CauseOption = {}) {
+    super(message, { code: ErrorCode.RefundNotApplicable, cause: options.cause });
+  }
+}
+
+/** 409 `invalid_state_transition`: e.g. approving a refund that is no longer REQUESTED. */
+export class CommerceInvalidTransition extends ConflictError {
+  constructor(
+    message = 'This action is not possible in the current state.',
+    options: CauseOption = {},
+  ) {
+    super(message, { code: ErrorCode.InvalidStateTransition, cause: options.cause });
+  }
+}
+
+/** The error of a refund block reason (`lineRefundState`). */
+export function refundBlockedError(reason: RefundBlockReason): Error {
+  switch (reason) {
+    case ErrorCode.RefundAlreadyRequested:
+      return new RefundAlreadyRequested();
+    case ErrorCode.RefundWindowClosed:
+      return new RefundWindowClosed();
+    case ErrorCode.RefundNotApplicable:
+      return new RefundNotApplicable();
   }
 }

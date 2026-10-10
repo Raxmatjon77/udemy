@@ -29,7 +29,8 @@ export interface HandleProviderEventResult {
 interface Applied {
   readonly outcome: ProviderEventOutcome;
   readonly orderId: string | null;
-  readonly refundsApproved?: number;
+  /** APPROVED in this transaction (D15 duplicates): kicked after COMMIT. */
+  readonly refundsApproved?: readonly string[];
 }
 
 const ASYNC_PAYMENT_EVENT = /^checkout\.session\.async_payment_(succeeded|failed)$/;
@@ -45,7 +46,7 @@ const ASYNC_PAYMENT_EVENT = /^checkout\.session\.async_payment_(succeeded|failed
  *   currency mismatch, `OrderPaymentMismatch`); already paid: DUPLICATE_EFFECT.
  * - `checkout.session.expired`: a PENDING_PAYMENT order -> EXPIRED; otherwise a no-op.
  * - `charge.dispute.created`: recorded + `PaymentDisputed` (admin alert; no revoke in P4).
- * - refund events: the P4-T16 `ProviderRefundEvents` seam.
+ * - refund events: `ProviderRefundEvents` (P4-T16 `ProviderRefundEventsHandler`).
  * - everything else, and `livemode: true` (Phase 4 is test mode): IGNORED.
  *
  * `checkout.session.async_payment_*` are IGNORED on purpose: sessions allow cards only
@@ -92,7 +93,7 @@ export class HandleProviderEventCommand {
       this.logger.log(`provider event ${event.id} (${event.providerType}) is a duplicate`);
       return { outcome: 'DUPLICATE', orderId: null };
     }
-    if ((result.refundsApproved ?? 0) > 0) this.dispatch.kick();
+    if ((result.refundsApproved?.length ?? 0) > 0) this.dispatch.kick(result.refundsApproved ?? []);
     return { outcome: result.outcome, orderId: result.orderId };
   }
 
@@ -204,7 +205,7 @@ export class HandleProviderEventCommand {
         if (result.previousStatus !== 'PENDING_PAYMENT') {
           this.logger.warn(`order ${orderId}: late payment after ${result.previousStatus}`);
         }
-        return { outcome: 'APPLIED', orderId, refundsApproved: settled.duplicateRefunds };
+        return { outcome: 'APPLIED', orderId, refundsApproved: settled.duplicateRefundIds };
       }
     }
   }

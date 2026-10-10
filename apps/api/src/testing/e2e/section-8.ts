@@ -153,10 +153,29 @@ export const SECTION_8_PHASE_4_COMMERCE_B: readonly Operation[] = [
   [`${V1}/webhooks/stripe`, 'post'],
 ];
 
+/**
+ * Phase 4 commerce C (P4-T16): refund requests, admin orders and refunds, instructor sales;
+ * covered by modules/commerce/commerce-c.e2e.spec.ts.
+ */
+export const SECTION_8_PHASE_4_COMMERCE_C: readonly Operation[] = [
+  [`${V1}/me/orders/{orderId}/refunds`, 'post'],
+  [`${V1}/instructor/sales/summary`, 'get'],
+  [`${V1}/instructor/sales`, 'get'],
+  [`${V1}/admin/orders`, 'get'],
+  [`${V1}/admin/orders/{orderId}`, 'get'],
+  [`${V1}/admin/orders/{orderId}/refunds`, 'post'],
+  [`${V1}/admin/orders/{orderId}/accept-payment`, 'post'],
+  [`${V1}/admin/refunds`, 'get'],
+  [`${V1}/admin/refunds/{refundId}/approve`, 'post'],
+  [`${V1}/admin/refunds/{refundId}/reject`, 'post'],
+  [`${V1}/admin/refunds/{refundId}/retry`, 'post'],
+];
+
 export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_1,
   ...SECTION_8_PHASE_2,
   ...SECTION_8_PHASE_4_COMMERCE_A,
   ...SECTION_8_PHASE_4_ENROLLMENT,
   ...SECTION_8_PHASE_4_COMMERCE_B,
+  ...SECTION_8_PHASE_4_COMMERCE_C,
 ];

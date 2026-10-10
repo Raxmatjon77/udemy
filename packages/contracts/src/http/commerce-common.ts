@@ -118,6 +118,28 @@ export const REFUND_REASON_LABELS: Readonly<Record<RefundReasonCode, string>> = 
   OTHER: 'Other',
 });
 
+/**
+ * The D11 abuse rule (decision Q3): a student refund request is auto-approved unless the buyer
+ * already has `REFUND_REVIEW_THRESHOLD` or more counted refunds created in the last
+ * `REFUND_REVIEW_LOOKBACK_DAYS` days; then it goes to admin review (REQUESTED).
+ *
+ * **Counted refunds** (`recentRefundCount`): the buyer's refunds with `initiatedBy = STUDENT`
+ * and any status except REJECTED (a rejected request is not a refund), created within the
+ * lookback window, NOT counting the refund being decided. SYSTEM (duplicate purchase) and
+ * ADMIN refunds never count against the buyer.
+ */
+export const REFUND_REVIEW_THRESHOLD = 3;
+export const REFUND_REVIEW_LOOKBACK_DAYS = 90;
+
+/**
+ * The flat instructor share in basis points (decision Q2: 70% of the net paid amount; Stripe
+ * fees are absorbed by the platform). The api snapshots it per order line
+ * (`order_lines.revenue_share_bps`, env `COMMERCE_INSTRUCTOR_SHARE_BPS`, default this value) and
+ * Postgres computes the shares in generated columns; UIs use this constant for estimates only
+ * ("you earn about X"), never for amounts already sold.
+ */
+export const INSTRUCTOR_SHARE_BPS = 7000;
+
 /** `refunds.comment` ≤ 1000 (§6). */
 export const RefundCommentSchema = multilineText(1, 1000);
 

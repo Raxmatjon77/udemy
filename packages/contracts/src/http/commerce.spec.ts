@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { SignedMoneyAmountSchema } from '../money/money';
 import {
   AcceptPaymentRequestSchema,
+  ADMIN_REFUND_FILTER_STATUSES,
   AdminOrderDetailSchema,
   AdminOrdersQuerySchema,
+  AdminOrderTimelineEntrySchema,
   AdminRefundOrderLinesRequestSchema,
   AdminRefundsQuerySchema,
+  OrderTransitionSchema,
+  REFUND_QUEUE_STATUSES,
+  RefundTransitionSchema,
   RejectRefundRequestSchema,
 } from './commerce-admin';
 import {
@@ -17,6 +23,9 @@ import {
 import {
   CheckoutUrlSchema,
   CouponCodeSchema,
+  INSTRUCTOR_SHARE_BPS,
+  REFUND_REVIEW_LOOKBACK_DAYS,
+  REFUND_REVIEW_THRESHOLD,
   STUDENT_REFUND_REASON_CODES,
 } from './commerce-common';
 import {
@@ -375,6 +384,10 @@ describe('admin queries', () => {
       limit: 10,
     });
     expect(ok(AdminOrdersQuerySchema, { q: '#1042' })).toBe(false);
+    expect(AdminOrdersQuerySchema.parse({ buyerEmail: '  jane@ ' }).buyerEmail).toBe('jane@');
+    expect(AdminOrdersQuerySchema.parse({ buyerEmail: '' }).buyerEmail).toBeUndefined();
+    expect(ok(AdminOrdersQuerySchema, { buyerEmail: 'ja' })).toBe(false);
+    expect(ok(AdminOrdersQuerySchema, { buyerEmail: 'a'.repeat(255) })).toBe(false);
     expect(ok(AdminOrdersQuerySchema, { q: '0' })).toBe(false);
     expect(
       ok(AdminOrdersQuerySchema, { from: '2026-10-10T00:00:00Z', to: '2026-10-09T00:00:00Z' }),
@@ -384,7 +397,12 @@ describe('admin queries', () => {
   it('defaults the refund queue to REQUESTED', () => {
     expect(AdminRefundsQuerySchema.parse({})).toEqual({ limit: 20, status: 'REQUESTED' });
     expect(AdminRefundsQuerySchema.parse({ status: 'FAILED' }).status).toBe('FAILED');
-    expect(ok(AdminRefundsQuerySchema, { status: 'SUCCEEDED' })).toBe(false);
+    // P4-T16: every refund status is filterable; REQUESTED / FAILED stay the work queues.
+    for (const status of ADMIN_REFUND_FILTER_STATUSES) {
+      expect(AdminRefundsQuerySchema.parse({ status }).status).toBe(status);
+    }
+    expect(ok(AdminRefundsQuerySchema, { status: 'DONE' })).toBe(false);
+    expect([...REFUND_QUEUE_STATUSES]).toEqual(['REQUESTED', 'FAILED']);
   });
 
   it('a zero-total order has no payment row', () => {
@@ -424,8 +442,66 @@ describe('admin queries', () => {
       transitions: [],
       refunds: [],
       providerEvents: [],
+      timeline: [],
     };
     expect(AdminOrderDetailSchema.parse(detail)).toEqual(detail);
+  });
+
+  it('timeline entries, refund transitions and actor names (P4-T16)', () => {
+    const entry = {
+      kind: 'REFUND',
+      at,
+      refundId: id,
+      fromStatus: 'APPROVED',
+      toStatus: 'SUCCEEDED',
+      cause: null,
+      actorId: null,
+      actor: null,
+      reason: null,
+      providerEventId: 'evt_1',
+      providerRefundId: 're_1',
+      failureCode: null,
+    };
+    expect(AdminOrderTimelineEntrySchema.parse(entry)).toEqual(entry);
+    expect(ok(AdminOrderTimelineEntrySchema, { ...entry, toStatus: 'NOPE' })).toBe(false);
+    expect(ok(AdminOrderTimelineEntrySchema, { ...entry, kind: 'COUPON' })).toBe(false);
+    const transition = {
+      seq: 2,
+      fromStatus: 'REQUESTED',
+      toStatus: 'REJECTED',
+      actorId: id,
+      actor: { id, displayName: 'Admin' },
+      reason: 'Mostly watched already.',
+      providerRefundId: null,
+      failureCode: null,
+      providerEventId: null,
+      occurredAt: at,
+    };
+    expect(RefundTransitionSchema.parse(transition)).toEqual(transition);
+    expect(ok(RefundTransitionSchema, { ...transition, seq: 0 })).toBe(false);
+    expect(
+      ok(OrderTransitionSchema, {
+        id,
+        fromStatus: null,
+        toStatus: 'PENDING_PAYMENT',
+        cause: 'CHECKOUT',
+        providerEventId: null,
+        actorId: id,
+        reason: null,
+        occurredAt: at,
+      }),
+    ).toBe(false); // `actor` is required (null when unknown)
+  });
+
+  it('signed money for sales report figures; the share constants', () => {
+    for (const v of ['0.00', '13.99', '-4.99', '-0.01', '-1000.00']) {
+      expect(ok(SignedMoneyAmountSchema, v), v).toBe(true);
+    }
+    for (const v of ['-0.00', '01.00', '-01.00', '1.5', '+1.00', '']) {
+      expect(ok(SignedMoneyAmountSchema, v), v).toBe(false);
+    }
+    expect(INSTRUCTOR_SHARE_BPS).toBe(7000);
+    expect([REFUND_REVIEW_THRESHOLD, REFUND_REVIEW_LOOKBACK_DAYS]).toEqual([3, 90]);
   });
 
   it('sales summary ranges are ordered and at most 366 days', () => {

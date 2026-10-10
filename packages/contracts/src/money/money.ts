@@ -27,6 +27,23 @@ export const MoneyAmountSchema = z
 export type MoneyAmount = z.infer<typeof MoneyAmountSchema>;
 
 /**
+ * A signed money amount (P4-T16): the canonical form with an optional leading `-` (never
+ * `-0.00`). Only for derived report figures that can go below zero, e.g. a sales range whose
+ * refunds belong to earlier sales; stored amounts and charges are always `MoneyAmount`.
+ */
+export const SIGNED_MONEY_AMOUNT_PATTERN =
+  /^(?:0\.\d{2}|-?(?:0\.(?:0[1-9]|[1-9]\d)|[1-9]\d{0,9}\.\d{2}))$/;
+
+export const SignedMoneyAmountSchema = z
+  .string()
+  .regex(SIGNED_MONEY_AMOUNT_PATTERN, 'Must be a decimal amount with two decimals, e.g. -4.99')
+  .meta({
+    description: 'Signed decimal amount with exactly two fraction digits (never a float).',
+    examples: ['13.99', '-4.99', '0.00'],
+  });
+export type SignedMoneyAmount = z.infer<typeof SignedMoneyAmountSchema>;
+
+/**
  * The currency allowlist (ISO 4217, 2-decimal currencies only). The DB accepts any
  * `^[A-Z]{3}$`; the platform currency is `COMMERCE_CURRENCY` (USD in Phase 4, §13 Q4).
  */

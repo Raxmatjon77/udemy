@@ -4,9 +4,11 @@ import type {
   AdminBuyer,
   AdminOrderDetail,
   AdminOrderRow,
+  AdminOrderTimelineEntry,
   AdminRefund,
   AdminRefundQueueItem,
   OrderTransition,
+  RefundTransition,
 } from '../http/commerce-admin.js';
 import type {
   CartLine,
@@ -27,6 +29,7 @@ import type {
   RefundReasonCode,
   RefundStatus,
 } from '../http/commerce-common.js';
+import { REFUND_REVIEW_LOOKBACK_DAYS, REFUND_REVIEW_THRESHOLD } from '../http/commerce-common.js';
 import type { Coupon } from '../http/commerce-coupons.js';
 import type { OrderDetail, OrderSummary, Receipt, Refund } from '../http/commerce-orders.js';
 import type { CoursePriceChange, CoursePricing, PublicPrice } from '../http/commerce-pricing.js';
@@ -116,6 +119,7 @@ interface MockOrder {
 
 interface MockRefund extends AdminRefund {
   rejectionReason: string | null;
+  transitions: RefundTransition[];
 }
 
 interface MockEnrollment extends Enrollment {
@@ -241,6 +245,35 @@ export class CommerceMockStore {
     return user && !user.banned ? { id: user.id, displayName: user.displayName } : null;
   }
 
+  /** Admin views show actors even when banned (design §9 audit). */
+  private actor(userId: string | null): PersonRef | null {
+    const user = userId === null ? undefined : this.users.get(userId);
+    return user ? { id: user.id, displayName: user.displayName } : null;
+  }
+
+  private refundTransition(
+    refund: MockRefund,
+    toStatus: RefundStatus,
+    extra: { actorId?: string | null; reason?: string | null; failureCode?: string | null } = {},
+  ): void {
+    const head = refund.transitions.at(-1);
+    const actorId = extra.actorId ?? null;
+    refund.transitions.push({
+      seq: refund.transitions.length + 1,
+      fromStatus: head?.toStatus ?? null,
+      toStatus,
+      actorId,
+      actor: this.actor(actorId),
+      reason: extra.reason ?? null,
+      providerRefundId:
+        toStatus === 'SUBMITTED' || toStatus === 'SUCCEEDED' ? refund.providerRefundId : null,
+      failureCode: extra.failureCode ?? null,
+      providerEventId: null,
+      occurredAt: this.iso(),
+    });
+    refund.status = toStatus;
+  }
+
   private buyer(userId: string): AdminBuyer | null {
     const user = this.users.get(userId);
     return user
@@ -288,6 +321,7 @@ export class CommerceMockStore {
       cause,
       providerEventId: extra.providerEventId ?? null,
       actorId: extra.actorId ?? null,
+      actor: this.actor(extra.actorId ?? null),
       reason: extra.reason ?? null,
       occurredAt: this.iso(),
     });
@@ -867,6 +901,8 @@ export class CommerceMockStore {
       comment: string | null;
       approve: boolean;
       actorId: string | null;
+      /** ADMIN: the reason on the first transition. */
+      reason?: string | null;
     },
   ): MockRefund {
     const at = this.iso();
@@ -891,7 +927,12 @@ export class CommerceMockStore {
       requestedBy: input.initiatedBy === 'STUDENT' ? order.userId : null,
       providerRefundId: null,
       failureCode: null,
+      transitions: [],
     };
+    this.refundTransition(refund, refund.status, {
+      actorId: input.initiatedBy === 'STUDENT' ? order.userId : input.actorId,
+      reason: input.reason ?? null,
+    });
     this.refunds.push(refund);
     if (input.approve) this.revokeFor(refund, input.actorId);
     return refund;
@@ -902,15 +943,21 @@ export class CommerceMockStore {
     if (enrollment) this.revoke(enrollment, 'REFUND', refund.id, actorId, null);
   }
 
-  /** Recent refunds in 90 days (D11: ≥ 3 sends a request to admin review). */
-  private recentRefundCount(userId: string): number {
-    const since = this.now().getTime() - 90 * DAY_MS;
+  /**
+   * D11 abuse count (`recentRefundCount`): the user's other STUDENT refunds, not REJECTED,
+   * created in the lookback window before `at` (≥ 3 sends a request to admin review).
+   */
+  private recentRefundCount(userId: string, at = this.iso(), exceptId?: string): number {
+    const until = Date.parse(at);
+    const since = until - REFUND_REVIEW_LOOKBACK_DAYS * DAY_MS;
     return this.refunds.filter(
       (r) =>
+        r.id !== exceptId &&
         r.userId === userId &&
         r.initiatedBy === 'STUDENT' &&
         r.status !== 'REJECTED' &&
-        Date.parse(r.createdAt) >= since,
+        Date.parse(r.createdAt) >= since &&
+        Date.parse(r.createdAt) <= until,
     ).length;
   }
 
@@ -924,7 +971,7 @@ export class CommerceMockStore {
     const block = this.lineRefundBlock(order, line);
     if (block === ErrorCode.RefundAlreadyRequested) throw new MockApiError(409, block);
     if (block !== null) throw new MockApiError(422, block);
-    const approve = this.recentRefundCount(order.userId) < 3;
+    const approve = this.recentRefundCount(order.userId) < REFUND_REVIEW_THRESHOLD;
     return this.studentView(
       this.createRefund(order, line, {
         initiatedBy: 'STUDENT',
@@ -968,13 +1015,13 @@ export class CommerceMockStore {
     const refund = this.refundById(refundId);
     if (refund.status !== 'APPROVED' && refund.status !== 'SUBMITTED') return { ...refund };
     if (outcome === 'FAILED') {
-      refund.status = 'FAILED';
       refund.failureCode = 'charge_disputed';
+      this.refundTransition(refund, 'FAILED', { failureCode: refund.failureCode });
       return { ...refund };
     }
-    refund.status = 'SUCCEEDED';
     refund.succeededAt = this.iso();
     refund.providerRefundId = `re_test_${refund.id.slice(-6)}`;
+    this.refundTransition(refund, 'SUCCEEDED');
     const order = this.order(refund.orderId, false);
     const done = order.lines.every((l) =>
       this.refunds.some((r) => r.orderLineId === l.id && r.status === 'SUCCEEDED'),
@@ -985,6 +1032,14 @@ export class CommerceMockStore {
 
   adminRefundLines(orderId: string, lineIds: readonly string[], reason: string): AdminRefund[] {
     const order = this.order(orderId, false);
+    const review = order.status === 'PAYMENT_REVIEW';
+    if (!review && order.status !== 'PAID' && order.status !== 'PARTIALLY_REFUNDED') {
+      throw new MockApiError(422, ErrorCode.RefundNotApplicable);
+    }
+    if (review && order.lines.some((l) => l.finalAmount !== '0.00' && !lineIds.includes(l.id))) {
+      // A PAYMENT_REVIEW order is refunded as a whole.
+      throw new MockApiError(422, ErrorCode.RefundNotApplicable);
+    }
     const lines = lineIds.map((id) => {
       const line = order.lines.find((l) => l.id === id);
       if (!line) throw new MockApiError(404, ErrorCode.OrderNotFound);
@@ -992,7 +1047,7 @@ export class CommerceMockStore {
       if (live && live.status !== 'REJECTED' && live.status !== 'FAILED') {
         throw new MockApiError(409, ErrorCode.RefundAlreadyRequested);
       }
-      if (order.paidAt === null || line.finalAmount === '0.00') {
+      if (line.finalAmount === '0.00') {
         throw new MockApiError(422, ErrorCode.RefundNotApplicable);
       }
       return line;
@@ -1000,10 +1055,12 @@ export class CommerceMockStore {
     return lines.map((line) => {
       const refund = this.createRefund(order, line, {
         initiatedBy: 'ADMIN',
-        reasonCode: 'ADMIN_DISCRETION',
-        comment: reason,
+        reasonCode: review ? 'PAYMENT_REVIEW' : 'ADMIN_DISCRETION',
+        // Only students leave comments; the admin's reason is on the transition.
+        comment: null,
         approve: true,
         actorId: this.viewerId,
+        reason,
       });
       return { ...refund };
     });
@@ -1011,9 +1068,13 @@ export class CommerceMockStore {
 
   acceptPayment(orderId: string, reason: string): AdminOrderDetail {
     const order = this.order(orderId, false);
-    if (order.status !== 'PAYMENT_REVIEW') {
+    const refunded = this.refunds.some(
+      (r) => r.orderId === order.id && r.status !== 'REJECTED' && r.status !== 'FAILED',
+    );
+    if (order.status !== 'PAYMENT_REVIEW' || refunded) {
       throw new MockApiError(409, ErrorCode.InvalidStateTransition);
     }
+    order.paidAt = this.iso();
     this.transition(order, 'PAID', 'ADMIN', { actorId: this.viewerId, reason });
     for (const line of order.lines) {
       this.grant(order.userId, line.courseId, 'ORDER', line.id, null, null);
@@ -1028,14 +1089,14 @@ export class CommerceMockStore {
       this.transition(order, 'PAYMENT_REVIEW', 'PROVIDER_EVENT', {
         providerEventId: `evt_test_mm_${order.orderNumber}`,
       });
-      order.paidAt = this.iso();
+      // PAYMENT_REVIEW has no paid_at: the order is accepted as paid only by an admin.
       order.paymentStatus = 'SUCCEEDED';
       order.checkoutUrl = null;
     }
     return this.adminOrder(orderId);
   }
 
-  refundQueue(status: 'REQUESTED' | 'FAILED'): AdminRefundQueueItem[] {
+  refundQueue(status: RefundStatus): AdminRefundQueueItem[] {
     return this.refunds.filter((r) => r.status === status).map((r) => this.queueItem(r));
   }
 
@@ -1045,7 +1106,7 @@ export class CommerceMockStore {
       ...refund,
       orderNumber: order.orderNumber,
       buyer: this.buyer(refund.userId),
-      recentRefundCount: this.recentRefundCount(refund.userId),
+      recentRefundCount: this.recentRefundCount(refund.userId, refund.createdAt, refund.id),
     };
   }
 
@@ -1058,14 +1119,15 @@ export class CommerceMockStore {
     const expected: RefundStatus = decision === 'retry' ? 'FAILED' : 'REQUESTED';
     if (refund.status !== expected) throw new MockApiError(409, ErrorCode.InvalidStateTransition);
     if (decision === 'reject') {
-      refund.status = 'REJECTED';
       refund.rejectionReason = reason ?? null;
+      this.refundTransition(refund, 'REJECTED', { actorId: this.viewerId, reason });
     } else {
-      refund.status = 'APPROVED';
       refund.failureCode = null;
+      refund.providerRefundId = null;
       refund.approvedAt = this.iso();
       if (decision === 'retry') refund.attempt += 1;
-      else this.revokeFor(refund, this.viewerId);
+      this.refundTransition(refund, 'APPROVED', { actorId: this.viewerId, reason });
+      this.revokeFor(refund, this.viewerId);
     }
     return this.queueItem(refund);
   }
@@ -1074,6 +1136,7 @@ export class CommerceMockStore {
 
   adminOrders(filter: {
     q?: number;
+    buyerEmail?: string;
     status?: OrderStatus;
     userId?: string;
     courseId?: string;
@@ -1085,6 +1148,12 @@ export class CommerceMockStore {
       .filter(
         (o) =>
           (filter.q === undefined || o.orderNumber === filter.q) &&
+          (filter.buyerEmail === undefined ||
+            (this.users
+              .get(o.userId)
+              ?.email.toLowerCase()
+              .includes(filter.buyerEmail.toLowerCase()) ??
+              false)) &&
           (filter.status === undefined || o.status === filter.status) &&
           (filter.userId === undefined || o.userId === filter.userId) &&
           (filter.courseId === undefined || o.lines.some((l) => l.courseId === filter.courseId)) &&
@@ -1102,6 +1171,77 @@ export class CommerceMockStore {
         placedAt: o.placedAt,
         paidAt: o.paidAt,
       }));
+  }
+
+  /** Order transitions, payment milestones and refund transitions, oldest first. */
+  private timeline(order: MockOrder): AdminOrderTimelineEntry[] {
+    const none = {
+      refundId: null,
+      cause: null,
+      actorId: null,
+      actor: null,
+      reason: null,
+      providerEventId: null,
+      providerRefundId: null,
+      failureCode: null,
+    };
+    const rank = { ORDER: 0, PAYMENT: 1, REFUND: 2 } as const;
+    const entries: AdminOrderTimelineEntry[] = [
+      ...order.transitions.map((t) => ({
+        ...none,
+        kind: 'ORDER' as const,
+        at: t.occurredAt,
+        fromStatus: t.fromStatus,
+        toStatus: t.toStatus,
+        cause: t.cause,
+        actorId: t.actorId,
+        actor: t.actor,
+        reason: t.reason,
+        providerEventId: t.providerEventId,
+      })),
+      ...(order.paymentStatus === null
+        ? []
+        : [
+            {
+              ...none,
+              kind: 'PAYMENT' as const,
+              at: order.placedAt,
+              fromStatus: null,
+              toStatus: 'CREATING' as const,
+            },
+            ...(order.paymentStatus === 'SUCCEEDED' && order.paidAt !== null
+              ? [
+                  {
+                    ...none,
+                    kind: 'PAYMENT' as const,
+                    at: order.paidAt,
+                    fromStatus: null,
+                    toStatus: 'SUCCEEDED' as const,
+                  },
+                ]
+              : []),
+          ]),
+      ...this.refunds
+        .filter((r) => r.orderId === order.id)
+        .flatMap((r) =>
+          r.transitions.map((t) => ({
+            ...none,
+            kind: 'REFUND' as const,
+            at: t.occurredAt,
+            refundId: r.id,
+            fromStatus: t.fromStatus,
+            toStatus: t.toStatus,
+            actorId: t.actorId,
+            actor: t.actor,
+            reason: t.reason,
+            providerRefundId: t.providerRefundId,
+            failureCode: t.failureCode,
+          })),
+        ),
+    ];
+    return entries.sort(
+      (a, b) => Date.parse(a.at) - Date.parse(b.at) || rank[a.kind] - rank[b.kind],
+    );
   }
 
   adminOrder(orderId: string): AdminOrderDetail {
@@ -1149,7 +1289,10 @@ export class CommerceMockStore {
               createdAt: order.placedAt,
             },
       transitions: [...order.transitions],
-      refunds: this.refunds.filter((r) => r.orderId === order.id).map((r) => ({ ...r })),
+      refunds: this.refunds
+        .filter((r) => r.orderId === order.id)
+        .map((r) => ({ ...r, transitions: [...r.transitions] })),
+      timeline: this.timeline(order),
       providerEvents: order.transitions.flatMap((t) =>
         t.providerEventId === null
           ? []

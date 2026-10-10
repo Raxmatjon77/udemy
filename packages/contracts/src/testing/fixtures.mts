@@ -6,6 +6,8 @@ import {
   AdminOrderLineSchema,
   type AdminOrderRow,
   AdminOrderRowSchema,
+  type AdminOrderRefund,
+  AdminOrderRefundSchema,
   type AdminRefund,
   type AdminRefundQueueItem,
   AdminRefundQueueItemSchema,
@@ -19,6 +21,7 @@ import {
   type PurchaseState,
   PurchaseStateSchema,
 } from '../http/commerce-cart.js';
+import { INSTRUCTOR_SHARE_BPS } from '../http/commerce-common.js';
 import { type Coupon, CouponSchema } from '../http/commerce-coupons.js';
 import {
   type CheckoutInProgressProblem,
@@ -112,7 +115,7 @@ export function instructorShareOf(finalAmount: string, revenueShareBps: number):
   return minorToMoney(Math.floor((moneyToMinor(finalAmount) * revenueShareBps + 5000) / 10000));
 }
 
-export const DEFAULT_REVENUE_SHARE_BPS = 7000;
+export const DEFAULT_REVENUE_SHARE_BPS = INSTRUCTOR_SHARE_BPS;
 
 /* ---------------------------------------------------------------------------------------- */
 
@@ -477,6 +480,40 @@ export function makeAdminOrderLine(overrides: Partial<AdminOrderLine> = {}): Adm
   });
 }
 
+const NO_TIMELINE_DETAIL = {
+  refundId: null,
+  cause: null,
+  actorId: null,
+  actor: null,
+  reason: null,
+  providerEventId: null,
+  providerRefundId: null,
+  failureCode: null,
+} as const;
+
+/** A refund with its log, as `AdminOrderDetail.refunds` carries it. */
+export function makeAdminOrderRefund(overrides: Partial<AdminOrderRefund> = {}): AdminOrderRefund {
+  const { status = 'APPROVED', transitions, ...rest } = overrides;
+  const base = makeAdminRefund({ status, ...rest });
+  return AdminOrderRefundSchema.parse({
+    ...base,
+    transitions: transitions ?? [
+      {
+        seq: 1,
+        fromStatus: null,
+        toStatus: status === 'REQUESTED' || status === 'REJECTED' ? 'REQUESTED' : 'APPROVED',
+        actorId: FIXTURE_IDS.student,
+        actor: { id: FIXTURE_IDS.student, displayName: 'Jane Student' },
+        reason: null,
+        providerRefundId: null,
+        failureCode: null,
+        providerEventId: null,
+        occurredAt: FIXTURE_NOW,
+      },
+    ],
+  });
+}
+
 export function makeAdminOrderDetail(overrides: Partial<AdminOrderDetail> = {}): AdminOrderDetail {
   const lines = overrides.lines ?? [makeAdminOrderLine()];
   const total = sumMoney(lines.map((l) => l.finalAmount));
@@ -523,6 +560,7 @@ export function makeAdminOrderDetail(overrides: Partial<AdminOrderDetail> = {}):
         cause: zeroTotal ? 'ZERO_TOTAL' : 'CHECKOUT',
         providerEventId: null,
         actorId: FIXTURE_IDS.student,
+        actor: { id: FIXTURE_IDS.student, displayName: 'Jane Student' },
         reason: null,
         occurredAt: FIXTURE_NOW,
       },
@@ -536,12 +574,52 @@ export function makeAdminOrderDetail(overrides: Partial<AdminOrderDetail> = {}):
               cause: 'PROVIDER_EVENT',
               providerEventId: 'evt_test_fixture',
               actorId: null,
+              actor: null,
               reason: null,
               occurredAt: FIXTURE_NOW,
             },
           ]),
     ],
     refunds: [],
+    timeline: [
+      {
+        ...NO_TIMELINE_DETAIL,
+        kind: 'ORDER',
+        at: FIXTURE_NOW,
+        fromStatus: null,
+        toStatus: zeroTotal ? 'PAID' : 'PENDING_PAYMENT',
+        cause: zeroTotal ? 'ZERO_TOTAL' : 'CHECKOUT',
+        actorId: FIXTURE_IDS.student,
+        actor: { id: FIXTURE_IDS.student, displayName: 'Jane Student' },
+      },
+      ...(zeroTotal
+        ? []
+        : [
+            {
+              ...NO_TIMELINE_DETAIL,
+              kind: 'ORDER',
+              at: FIXTURE_NOW,
+              fromStatus: 'PENDING_PAYMENT',
+              toStatus: 'PAID',
+              cause: 'PROVIDER_EVENT',
+              providerEventId: 'evt_test_fixture',
+            },
+            {
+              ...NO_TIMELINE_DETAIL,
+              kind: 'PAYMENT',
+              at: FIXTURE_NOW,
+              fromStatus: null,
+              toStatus: 'CREATING',
+            },
+            {
+              ...NO_TIMELINE_DETAIL,
+              kind: 'PAYMENT',
+              at: FIXTURE_NOW,
+              fromStatus: null,
+              toStatus: 'SUCCEEDED',
+            },
+          ]),
+    ],
     providerEvents: zeroTotal
       ? []
       : [

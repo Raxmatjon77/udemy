@@ -74,6 +74,9 @@ export abstract class EnrollmentRepository {
   /** The `hasCourseAccess` hot path: one index lookup on `(user_id, course_id) INCLUDE (status)`. */
   abstract hasActive(userId: string, courseId: string, ex?: Executor): Promise<boolean>;
 
+  /** The user's ACTIVE enrollment in the course, or null (the `(user_id, course_id)` unique). */
+  abstract findActive(userId: string, courseId: string, ex?: Executor): Promise<Enrollment | null>;
+
   /** Course ids with an ACTIVE enrollment of the user, among `courseIds` (all when undefined). */
   abstract findActiveCourseIds(
     userId: string,

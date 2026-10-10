@@ -1,13 +1,15 @@
-import { Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
@@ -23,6 +25,10 @@ import {
   OrderSummaryPageSchema,
   type Receipt,
   ReceiptSchema,
+  type Refund,
+  type RequestRefundRequest,
+  RequestRefundRequestSchema,
+  RequestRefundResponseSchema,
 } from '@udemy/contracts';
 import {
   CheckPolicy,
@@ -34,10 +40,11 @@ import { CancelPendingOrderCommand } from '../application/use-cases/cancel-pendi
 import { GetMyOrderQuery } from '../application/use-cases/get-my-order.query';
 import { GetReceiptQuery } from '../application/use-cases/get-receipt.query';
 import { ListMyOrdersQuery } from '../application/use-cases/list-my-orders.query';
+import { RequestRefundCommand } from '../application/use-cases/request-refund.command';
 import { orderIdOf } from './commerce-http';
 
 /**
- * `/api/v1/me/orders` (design §5, §8, student BFF). Order routes carry
+ * `/api/v1/me/orders` (design §5, §8, student BFF): reads, cancel and refund requests. Order routes carry
  * `@CheckPolicy({ resource: 'order' })` (`OrderOwnership`: the buyer), and the use cases are
  * scoped to the caller as well, so a foreign order is 404, never 403 (§9 IDOR).
  */
@@ -52,6 +59,7 @@ export class MyOrdersController {
     private readonly getOrder: GetMyOrderQuery,
     private readonly getReceipt: GetReceiptQuery,
     private readonly cancelOrder: CancelPendingOrderCommand,
+    private readonly requestRefund: RequestRefundCommand,
   ) {}
 
   @Get()
@@ -114,5 +122,36 @@ export class MyOrdersController {
     @CurrentPrincipal() principal: Principal,
   ): Promise<OrderDetail> {
     return this.cancelOrder.execute({ userId: principal.userId, orderId: params.orderId });
+  }
+
+  @Post(':orderId/refunds')
+  @CheckPolicy({ resource: 'order', action: 'refund', id: orderIdOf })
+  @ApiOperation({
+    summary: 'Request a refund of one line of my order (full line amount)',
+    description:
+      'Within COMMERCE_REFUND_WINDOW_DAYS (30) of payment. Auto-approved (APPROVED: the course ' +
+      'is locked again at once) unless I already have 3 or more refunds in the last 90 days ' +
+      '(REQUESTED: an admin reviews it). 5 requests per 24 h.',
+  })
+  @ApiCreatedResponse({ standardSchema: RequestRefundResponseSchema })
+  @ApiBadRequestResponse({ description: 'validation_failed' })
+  @ApiNotFoundResponse({
+    description: 'not_found / order_not_found (also a line not in the order)',
+  })
+  @ApiConflictResponse({ description: 'refund_already_requested' })
+  @ApiUnprocessableEntityResponse({ description: 'refund_window_closed / refund_not_applicable' })
+  @ApiTooManyRequestsResponse({ description: 'rate_limited' })
+  refund(
+    @Param({ schema: OrderIdParamsSchema }) params: OrderIdParams,
+    @Body({ schema: RequestRefundRequestSchema }) body: RequestRefundRequest,
+    @CurrentPrincipal() principal: Principal,
+  ): Promise<Refund> {
+    return this.requestRefund.execute({
+      userId: principal.userId,
+      orderId: params.orderId,
+      orderLineId: body.orderLineId,
+      reasonCode: body.reasonCode,
+      ...(body.comment === undefined ? {} : { comment: body.comment }),
+    });
   }
 }

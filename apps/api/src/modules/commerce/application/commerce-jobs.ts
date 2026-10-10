@@ -5,6 +5,7 @@ import {
   PaymentProviderUnavailableError,
 } from '@udemy/payments';
 import { CreatingPaymentAbandoner } from './creating-payment-abandoner.service';
+import { type RefundDispatchReport, RefundDispatcher } from './refund-dispatcher.service';
 import { CommerceClock } from './ports/commerce-clock';
 import {
   type OverdueOpenSessionRecord,
@@ -46,8 +47,10 @@ export interface ReconcileReport {
  *   PENDING forever, and a webhook arriving afterwards is a DUPLICATE_EFFECT (R2).
  *
  * Candidates are selected in a short transaction holding `COMMERCE_RECONCILE_LOCK_KEY`
- * (`0x75646d79_04`); no transaction is held across a provider call. P4-T16 adds
- * `dispatchRefunds` (lock `_03`) here.
+ * (`0x75646d79_04`); no transaction is held across a provider call.
+ *
+ * `dispatchRefunds` (every `COMMERCE_REFUND_DISPATCH_INTERVAL_MS`, plus the post-commit kick):
+ * `RefundDispatcher` under `REFUND_DISPATCH_LOCK_KEY` (`0x75646d79_03`), see there.
  */
 @Injectable()
 export class CommerceJobs {
@@ -60,7 +63,18 @@ export class CommerceJobs {
     private readonly handleEvent: HandleProviderEventCommand,
     private readonly clock: CommerceClock,
     private readonly tx: TransactionRunner,
+    private readonly refundDispatcher: RefundDispatcher,
   ) {}
+
+  /**
+   * Sends APPROVED refunds to the provider (D9, schema doc §8.4): the oldest approvals first,
+   * or exactly `refundIds`. Safe to run on every replica at once (advisory lock + lease fence).
+   */
+  dispatchRefunds(
+    options: { readonly refundIds?: readonly string[] } = {},
+  ): Promise<RefundDispatchReport> {
+    return this.refundDispatcher.dispatch(options);
+  }
 
   async reconcile(): Promise<ReconcileReport> {
     const candidates = await this.tx.run(async (trx) => {

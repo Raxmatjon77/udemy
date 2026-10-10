@@ -9,18 +9,22 @@ import { CommerceJobs } from '../application/commerce-jobs';
 import { CommerceSettings } from '../application/commerce-settings';
 
 export const RECONCILE_INTERVAL_NAME = 'commerce.reconcile';
+export const REFUND_DISPATCH_INTERVAL_NAME = 'commerce.dispatch-refunds';
+
+type Job = 'reconcile' | 'dispatchRefunds';
 
 /**
- * Runs `CommerceJobs.reconcile` every `COMMERCE_RECONCILE_INTERVAL_MS` when
- * `COMMERCE_JOBS_ENABLED` (design D9; the interval comes from the env, so it is registered
- * dynamically instead of with `@Interval`). A tick never overlaps the previous one in this
- * process; across replicas the advisory lock makes one win. Errors are logged, never thrown
- * into the timer.
+ * Runs `CommerceJobs.reconcile` every `COMMERCE_RECONCILE_INTERVAL_MS` and
+ * `CommerceJobs.dispatchRefunds` every `COMMERCE_REFUND_DISPATCH_INTERVAL_MS` when
+ * `COMMERCE_JOBS_ENABLED` (design D9; the intervals come from the env, so they are registered
+ * dynamically instead of with `@Interval`). A job's tick never overlaps its previous one in
+ * this process; across replicas the advisory locks (`_04`, `_03`) make one win. Errors are
+ * logged, never thrown into the timer.
  */
 @Injectable()
 export class CommerceJobsScheduler implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new Logger(CommerceJobsScheduler.name);
-  private running: Promise<void> | null = null;
+  private readonly running = new Map<Job, Promise<void>>();
 
   constructor(
     private readonly jobs: CommerceJobs,
@@ -33,29 +37,41 @@ export class CommerceJobsScheduler implements OnApplicationBootstrap, OnApplicat
       this.logger.log('CommerceJobs disabled (COMMERCE_JOBS_ENABLED=false)');
       return;
     }
-    const timer = setInterval(() => this.tick(), this.settings.reconcileIntervalMs);
-    timer.unref();
-    this.registry.addInterval(RECONCILE_INTERVAL_NAME, timer);
-    this.logger.log(`CommerceJobs.reconcile every ${this.settings.reconcileIntervalMs} ms`);
+    this.every(RECONCILE_INTERVAL_NAME, this.settings.reconcileIntervalMs, 'reconcile');
+    this.every(
+      REFUND_DISPATCH_INTERVAL_NAME,
+      this.settings.refundDispatchIntervalMs,
+      'dispatchRefunds',
+    );
   }
 
   async onApplicationShutdown(): Promise<void> {
-    if (this.registry.doesExist('interval', RECONCILE_INTERVAL_NAME)) {
-      this.registry.deleteInterval(RECONCILE_INTERVAL_NAME);
+    for (const name of [RECONCILE_INTERVAL_NAME, REFUND_DISPATCH_INTERVAL_NAME]) {
+      if (this.registry.doesExist('interval', name)) this.registry.deleteInterval(name);
     }
-    await this.running;
+    await Promise.all([...this.running.values()]);
   }
 
-  private tick(): void {
-    if (this.running !== null) return;
-    this.running = this.jobs
-      .reconcile()
-      .then(() => undefined)
-      .catch((error: unknown) => {
-        this.logger.error({ err: error }, 'CommerceJobs.reconcile failed');
-      })
-      .finally(() => {
-        this.running = null;
-      });
+  private every(name: string, intervalMs: number, job: Job): void {
+    const timer = setInterval(() => this.tick(job), intervalMs);
+    timer.unref();
+    this.registry.addInterval(name, timer);
+    this.logger.log(`CommerceJobs.${job} every ${intervalMs} ms`);
+  }
+
+  private tick(job: Job): void {
+    if (this.running.has(job)) return;
+    const run = job === 'reconcile' ? this.jobs.reconcile() : this.jobs.dispatchRefunds();
+    this.running.set(
+      job,
+      run
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          this.logger.error({ err: error }, `CommerceJobs.${job} failed`);
+        })
+        .finally(() => {
+          this.running.delete(job);
+        }),
+    );
   }
 }

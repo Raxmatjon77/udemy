@@ -211,7 +211,10 @@ function webhookHarness(claimed = true) {
     findHeader: vi.fn(),
     lockOrder: vi.fn(),
   };
-  const lifecycle = { settlePaid: vi.fn(async () => ({ duplicateRefunds: 1 })), close: vi.fn() };
+  const lifecycle = {
+    settlePaid: vi.fn(async () => ({ duplicateRefundIds: ['refund-1'] })),
+    close: vi.fn(),
+  };
   const refundEvents = { apply: vi.fn(async () => ({ outcome: 'IGNORED', orderId: null })) };
   const dispatch = { kick: vi.fn() };
   const command = new HandleProviderEventCommand(
@@ -262,6 +265,7 @@ describe('HandleProviderEventCommand', () => {
     );
     expect(h.inbox.finish).toHaveBeenCalledWith(trx, 'evt_1', 'APPLIED', ORDER);
     expect(h.dispatch.kick).toHaveBeenCalledTimes(1);
+    expect(h.dispatch.kick).toHaveBeenCalledWith(['refund-1']);
   });
 
   it('unpaid sessions, livemode and async_payment events are recorded as IGNORED', async () => {

@@ -266,6 +266,17 @@ export abstract class OrderRepository {
    */
   abstract closeOrder(trx: Transaction<DB>, input: CloseOrderInput): Promise<Date>;
 
+  /**
+   * ADMIN accept of a PAYMENT_REVIEW order (design §4): PAYMENT_REVIEW -> PAID with
+   * `paid_at = now()` and the ADMIN transition (actor + reason >= 10), redemptions CONSUMED.
+   * Under the caller's cart + order locks; grants and `OrderPaid` are `OrderLifecycle.settlePaid`.
+   * Returns `paid_at`, or null when the order is not PAYMENT_REVIEW.
+   */
+  abstract acceptReviewedPayment(
+    trx: Transaction<DB>,
+    input: { readonly orderId: string; readonly actorId: string; readonly reason: string },
+  ): Promise<Date | null>;
+
   /** The order's header (status, totals, times). */
   abstract findHeader(orderId: string, ex?: Executor): Promise<OrderHeaderRecord | null>;
 

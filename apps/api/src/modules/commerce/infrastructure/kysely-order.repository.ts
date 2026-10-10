@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { OrderStatus, PaymentStatus, RefundStatus } from '@udemy/contracts';
 import {
   appendOrderTransition,
+  consumeCouponRedemptions,
   type DB,
   type Executor,
   findOrderOwner,
@@ -356,6 +357,28 @@ export class KyselyOrderRepository extends OrderRepository {
     });
     await releaseCouponRedemptions(trx, input.orderId);
     return closed.closedAt;
+  }
+
+  async acceptReviewedPayment(
+    trx: Transaction<DB>,
+    input: { orderId: string; actorId: string; reason: string },
+  ): Promise<Date | null> {
+    const { rows } = await sql<{ paidAt: Date }>`
+      UPDATE commerce.orders SET status = 'PAID', paid_at = now()
+       WHERE id = ${input.orderId} AND status = 'PAYMENT_REVIEW'
+      RETURNING paid_at
+    `.execute(trx);
+    const paidAt = rows[0]?.paidAt;
+    if (paidAt === undefined) return null;
+    await appendOrderTransition(trx, {
+      orderId: input.orderId,
+      toStatus: 'PAID',
+      cause: 'ADMIN',
+      actorId: input.actorId,
+      reason: input.reason,
+    });
+    await consumeCouponRedemptions(trx, input.orderId);
+    return paidAt;
   }
 
   async findHeader(orderId: string, ex: Executor = this.db): Promise<OrderHeaderRecord | null> {

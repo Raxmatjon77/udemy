@@ -80,6 +80,17 @@ export class KyselyEnrollmentRepository extends EnrollmentRepository {
     return row === undefined ? null : toEnrollment(row);
   }
 
+  async findActive(userId: string, courseId: string, ex?: Executor): Promise<Enrollment | null> {
+    const row = await (ex ?? this.db)
+      .selectFrom('enrollment.enrollments as e')
+      .select(ENROLLMENT_COLUMNS)
+      .where('e.userId', '=', userId)
+      .where('e.courseId', '=', courseId)
+      .where('e.status', '=', 'ACTIVE')
+      .executeTakeFirst();
+    return row === undefined ? null : toEnrollment(row);
+  }
+
   async hasActive(userId: string, courseId: string, ex?: Executor): Promise<boolean> {
     const row = await (ex ?? this.db)
       .selectFrom('enrollment.enrollments')

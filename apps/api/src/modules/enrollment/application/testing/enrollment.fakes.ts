@@ -149,6 +149,12 @@ export class InMemoryEnrollmentRepository extends EnrollmentRepository {
     return Promise.resolve(this.rows.get(enrollmentId) ?? null);
   }
 
+  findActive(userId: string, courseId: string): Promise<Enrollment | null> {
+    this.calls.push('findActive');
+    const row = this.find(userId, courseId);
+    return Promise.resolve(row?.status === 'ACTIVE' ? row : null);
+  }
+
   hasActive(userId: string, courseId: string): Promise<boolean> {
     this.calls.push('hasActive');
     return Promise.resolve(this.find(userId, courseId)?.status === 'ACTIVE');

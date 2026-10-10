@@ -34,8 +34,8 @@ describe('<RefundsQueue>', () => {
     expect(within(row).getByText('Jane Student')).toBeTruthy();
     expect(within(row).getByText('The course is not what I expected')).toBeTruthy();
     expect(within(row).getByText('The course skips the basics.')).toBeTruthy();
-    // the mock counts the pending request too (3 approved + this one)
-    expect(within(row).getByText('4 in 90 days')).toBeTruthy();
+    // recentRefundCount counts the buyer's OTHER student refunds (3 approved), not this request
+    expect(within(row).getByText('3 in 90 days')).toBeTruthy();
     expect(within(row).getByText('3 or more refunds send a request to review')).toBeTruthy();
     expect(
       within(row)

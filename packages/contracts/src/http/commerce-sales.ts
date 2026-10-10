@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CurrencySchema, MoneyAmountSchema } from '../money/money';
+import { CurrencySchema, MoneyAmountSchema, SignedMoneyAmountSchema } from '../money/money';
 import { CourseTitleSnapshotSchema } from './commerce-common';
 import { IsoDateTimeSchema, UuidSchema } from './fields';
 import { emptyToUndefined, pageSchema, PaginationQuerySchema } from './pagination';
@@ -29,9 +29,15 @@ export const SalesSummaryQuerySchema = z
 export type SalesSummaryQuery = z.output<typeof SalesSummaryQuerySchema>;
 
 /**
- * Totals over lines of PAID / PARTIALLY_REFUNDED / REFUNDED orders and their SUCCEEDED refunds.
- * `gross` = Σ list, `discounts` = Σ discount, `refunded` = Σ refunded final amounts,
- * `net` = gross − discounts − refunded, `instructorShare` = Σ share of the non-refunded lines.
+ * Cash-basis totals of the instructor's order lines (`order_lines.instructor_id`, the course
+ * owner at sale time) in `[from, to)`: a SALE counts when its order was accepted as paid
+ * (`paid_at` in range: PAID / PARTIALLY_REFUNDED / REFUNDED, and PAYMENT_REVIEW orders once an
+ * admin accepted them), a REFUND when it SUCCEEDED (`succeeded_at` in range).
+ * `salesCount` / `refundCount` = lines / refunds counted, `gross` = Σ list, `discounts` = Σ
+ * discount, `refunded` = Σ refunded final amounts, `net` = gross − discounts − refunded,
+ * `instructorShare` = Σ SQL-generated share of the sales − Σ share of the refunded lines
+ * (`INSTRUCTOR_SHARE_BPS`, 70%, rounded per line by Postgres). Amounts may be negative only
+ * when refunds in the range belong to sales before it (`net`, `instructorShare`).
  */
 export const SalesTotalsSchema = z.object({
   salesCount: z.number().int().min(0),
@@ -39,8 +45,10 @@ export const SalesTotalsSchema = z.object({
   gross: MoneyAmountSchema,
   discounts: MoneyAmountSchema,
   refunded: MoneyAmountSchema,
-  net: MoneyAmountSchema,
-  instructorShare: MoneyAmountSchema,
+  /** Signed (P4-T16): see above. */
+  net: SignedMoneyAmountSchema,
+  /** Signed (P4-T16): see above. */
+  instructorShare: SignedMoneyAmountSchema,
 });
 export type SalesTotals = z.infer<typeof SalesTotalsSchema>;
 
@@ -56,7 +64,7 @@ export const SalesSummarySchema = z.object({
   to: IsoDateTimeSchema,
   currency: CurrencySchema,
   totals: SalesTotalsSchema,
-  /** Courses with at least one sale in the range, by net DESC. */
+  /** Courses with at least one sale or refund in the range, by net DESC (then course id). */
   courses: z.array(CourseSalesSchema),
 });
 export type SalesSummary = z.infer<typeof SalesSummarySchema>;

@@ -4,6 +4,8 @@ import { CatalogFacade } from '../../catalog';
 import { IdentityFacade } from '../../identity';
 import type { QuoteCourse } from '../domain/quote';
 import {
+  type CommerceAccount,
+  CommerceAdminDirectory,
   type CommerceBuyer,
   CommerceBuyers,
   CommerceCatalog,
@@ -66,5 +68,52 @@ export class IdentityFacadeBuyers extends CommerceBuyers {
           displayName: summary.displayName,
           emailVerified: summary.emailVerified,
         };
+  }
+}
+
+/** Identity's search pages hold at most this many users. */
+const SEARCH_PAGE = 100;
+
+/**
+ * `CommerceAdminDirectory` over `IdentityFacade.getUserSummaries` / `searchUsers`. The email
+ * search uses identity's admin user search (display name OR email, trigram ILIKE) and keeps
+ * the accounts whose email contains the fragment, paging until `limit` ids are found.
+ */
+@Injectable()
+export class IdentityFacadeAdminDirectory extends CommerceAdminDirectory {
+  constructor(private readonly identity: IdentityFacade) {
+    super();
+  }
+
+  async findAccounts(
+    userIds: readonly string[],
+    ex?: Executor,
+  ): Promise<ReadonlyMap<string, CommerceAccount>> {
+    const summaries = await this.identity.getUserSummaries(userIds, ex);
+    return new Map(
+      summaries.map((s) => [
+        s.id,
+        { id: s.id, displayName: s.displayName, email: s.email, status: s.status },
+      ]),
+    );
+  }
+
+  async searchIdsByEmail(fragment: string, limit: number): Promise<string[]> {
+    const needle = fragment.trim().toLowerCase();
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.identity.searchUsers({
+        q: needle,
+        limit: SEARCH_PAGE,
+        ...(cursor === undefined ? {} : { cursor }),
+      });
+      for (const user of page.items) {
+        if (user.email.toLowerCase().includes(needle)) ids.push(user.id);
+        if (ids.length >= limit) return ids;
+      }
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    return ids;
   }
 }

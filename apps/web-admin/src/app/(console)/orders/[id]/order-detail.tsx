@@ -592,9 +592,11 @@ function Refunds({ order }: { order: AdminOrderDetail }) {
                   </TableCell>
                   <TableCell className="max-w-xs">
                     <div>{REFUND_REASON_LABELS[refund.reasonCode]}</div>
-                    {refund.comment ? (
+                    {/* A student's comment, or for an admin refund the admin's reason, which is kept
+                        on the refund's first transition (admin refunds carry no comment). */}
+                    {(refund.comment ?? refund.transitions[0]?.reason) ? (
                       <div className="text-xs whitespace-pre-line text-muted-foreground">
-                        {refund.comment}
+                        {refund.comment ?? refund.transitions[0]?.reason}
                       </div>
                     ) : null}
                     {refund.rejectionReason ? (

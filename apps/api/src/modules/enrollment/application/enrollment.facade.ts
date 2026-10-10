@@ -52,6 +52,14 @@ export interface RevokeEnrollmentResult {
   readonly outcome: RevokeOutcome;
 }
 
+/** `findActiveGrant`: what granted the user's current ACTIVE enrollment. */
+export interface ActiveEnrollmentGrant {
+  readonly enrollmentId: string;
+  readonly source: EnrollmentSource;
+  /** Set exactly for ORDER: the paid order line that granted it. */
+  readonly orderLineId: string | null;
+}
+
 /**
  * Public facade of the enrollment context (commerce & enrollment design §3). Write methods take
  * the CALLER's transaction first (P1 convention): commerce grants inside the order PAID
@@ -114,6 +122,27 @@ export class EnrollmentFacade {
     const ids = courseIds === undefined ? undefined : [...new Set(courseIds)].filter(isUuid);
     if (ids !== undefined && ids.length === 0) return new Set();
     return new Set(await this.enrollments.findActiveCourseIds(userId, ids, ex));
+  }
+
+  /**
+   * The user's ACTIVE grant of the course: which source and which paid order line granted it
+   * (commerce revokes on a refund only the access that the refunded line granted). Null when
+   * not actively enrolled or for malformed ids.
+   */
+  async findActiveGrant(
+    userId: string,
+    courseId: string,
+    ex?: Executor,
+  ): Promise<ActiveEnrollmentGrant | null> {
+    if (!isUuid(userId) || !isUuid(courseId)) return null;
+    const enrollment = await this.enrollments.findActive(userId, courseId, ex);
+    return enrollment === null
+      ? null
+      : {
+          enrollmentId: enrollment.id,
+          source: enrollment.source,
+          orderLineId: enrollment.orderLineId,
+        };
   }
 
   /** True when the user has an ACTIVE enrollment in the course (whatever the course status, D13). */

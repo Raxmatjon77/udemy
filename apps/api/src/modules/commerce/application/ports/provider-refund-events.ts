@@ -9,12 +9,11 @@ export interface RefundEventResult {
 }
 
 /**
- * **P4-T16 seam.** Refund webhooks (`charge.refunded`, `refund.updated`, `refund.failed`):
- * `HandleProviderEvent` has already claimed the event in `trx` (dedupe) and records whatever
- * outcome this returns. P4-T15 binds `DeferredProviderRefundEvents` (records the event as
- * IGNORED); P4-T16 rebinds this token with the real handler (lock order, then refund;
- * SUBMITTED/APPROVED -> SUCCEEDED/FAILED, order status recompute, `RefundSucceeded` /
- * `RefundFailed`; match by `provider_refund_id`, then `metadata.refundId`; unknown -> ORPHAN).
+ * Refund webhooks (`charge.refunded`, `refund.updated`, `refund.failed`): `HandleProviderEvent`
+ * has already claimed the event in `trx` (dedupe) and records whatever outcome this returns.
+ * Bound to `ProviderRefundEventsHandler` (P4-T16): order lock, then refund; APPROVED/SUBMITTED
+ * -> SUCCEEDED/FAILED, order status recompute, `RefundSucceeded` / `RefundFailed`; matched by
+ * `provider_refund_id`, then `metadata.refundId`; unknown -> ORPHAN.
  */
 export abstract class ProviderRefundEvents {
   abstract apply(
@@ -25,10 +24,11 @@ export abstract class ProviderRefundEvents {
 }
 
 /**
- * **P4-T16 seam.** Called after a transaction that created APPROVED refunds commits (the
- * D15 duplicate-purchase refund of the PAID path), so the dispatcher sends them at once
- * instead of at its next poll. P4-T15 binds a no-op; P4-T16 binds `CommerceJobs` (kick).
+ * Called after a transaction that APPROVED refunds commits (auto-approval, admin approve /
+ * refund / retry, the D15 duplicate-purchase refund of the PAID path), so the dispatcher sends
+ * exactly those at once instead of at its next poll. Fire and forget: never throws. Bound to
+ * `RefundDispatchKick` (P4-T16).
  */
 export abstract class RefundDispatchTrigger {
-  abstract kick(): void;
+  abstract kick(refundIds: readonly string[]): void;
 }
