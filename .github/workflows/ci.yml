@@ -1,5 +1,6 @@
-# Verify: lint, typecheck, test (real Postgres/Redis/Mailpit), build. Four parallel jobs that share
-# the setup in .github/actions/setup (Node from .nvmrc, pnpm 10.7.1, pnpm store + Turborepo cache).
+# Verify: lint, typecheck, test (real Postgres/Redis/Mailpit/MinIO, stripe-mock), build. Four
+# parallel jobs that share the setup in .github/actions/setup (Node from .nvmrc, pnpm 10.7.1,
+# pnpm store + Turborepo cache).
 #
 # Why parallel jobs instead of one job with four steps: public repos get free, concurrent runners,
 # so the wall clock is the slowest job (about setup + test) instead of the sum of all four; each
@@ -110,6 +111,18 @@ jobs:
         options: >-
           --health-cmd "curl -fsS http://localhost:9000/minio/health/live"
           --health-interval 5s --health-timeout 5s --health-retries 30
+      # Stripe's official stateless mock (Phase 4 D12, layer 1) for the @udemy/payments contract
+      # tests: it validates every request against Stripe's OpenAPI spec. No secrets: it accepts any
+      # sk_test_ key. Host port 12211 (container 12111, its HTTP port), so it never collides with
+      # apps/stripe-emulator, which owns 12111 in dev and e2e. stripe-mock answers 401 without a
+      # key, so the health check (busybox wget, the image has no curl) sends one as Basic auth.
+      stripe-mock:
+        image: stripe/stripe-mock:v0.206.0
+        ports:
+          - 12211:12111
+        options: >-
+          --health-cmd "wget -q -O /dev/null http://sk_test_health:@localhost:12111/v1/customers"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       # CI=true (GitHub sets it too; explicit because it matters): an unreachable Postgres, Redis
       # or Mailpit makes the integration tests FAIL instead of skipping them.
@@ -123,6 +136,8 @@ jobs:
       IT_SMTP_HOST: localhost
       IT_SMTP_PORT: '1025'
       IT_MAILPIT_URL: http://localhost:8025
+      # @udemy/payments contract tests (locally they start stripe-mock with Testcontainers instead).
+      IT_STRIPE_MOCK_URL: http://localhost:12211
       API_PUBLIC_URL: http://localhost:4000
       JWT_AUDIENCE: udemy-api
       JWT_KEYS_DIR: ${{ github.workspace }}/apps/api/.secrets/jwt

@@ -149,6 +149,11 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 -- Global (no IN SCHEMA) so schemas added by later migrations (e.g. `users` in 0002) are covered.
 -- Per-table exceptions (no UPDATE/DELETE/TRUNCATE on append-only tables, read-only access.roles)
 -- are REVOKEd by the migrations themselves in their `IF EXISTS (udemy_app)` blocks.
+-- Phase 4 (docs/phase-4-commerce-enrollment-design.md §6): the commerce, enrollment and payouts
+-- schemas need nothing here. udemy_app (API and worker; payouts is written by the worker) gets
+-- them through these defaults, and migration 0004 REVOKEs UPDATE/DELETE on the append-only tables
+-- and DELETE on orders, payments, refunds, coupons, coupon_redemptions, enrollments and
+-- provider_events. udemy_transcoder and udemy_debezium get no access to them.
 ALTER DEFAULT PRIVILEGES FOR ROLE udemy_owner GRANT USAGE ON SCHEMAS TO udemy_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE udemy_owner
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO udemy_app;

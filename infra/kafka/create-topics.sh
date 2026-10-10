@@ -33,6 +33,11 @@ SEVEN_DAYS_MS=604800000
 # Phase 2 (docs/phase-2-catalog-media-design.md §7): catalog.course and media.asset carry no PII
 # (ids, titles, reasons only), so they and their DLQs use the broker-default retention ("-").
 # Key = aggregateId, so 3 partitions keep events ordered per course / per asset.
+#
+# Phase 4 (docs/phase-4-commerce-enrollment-design.md §7): commerce.order, commerce.course_price,
+# commerce.coupon and enrollment.enrollment carry no PII (ids, titles, amounts, coupon codes; no
+# emails or names: mailers look recipients up), so they and their DLQs use broker defaults.
+# Refund events share commerce.order (key = orderId), which keeps them ordered after OrderPaid.
 # ============================================================================================
 TOPICS="
 identity.user                       3 retention.ms=${SEVEN_DAYS_MS},cleanup.policy=delete
@@ -45,6 +50,14 @@ catalog.course                      3 -
 catalog.course.dlq                  3 -
 media.asset                         3 -
 media.asset.dlq                     3 -
+commerce.order                      3 -
+commerce.order.dlq                  3 -
+commerce.course_price               3 -
+commerce.course_price.dlq           3 -
+commerce.coupon                     3 -
+commerce.coupon.dlq                 3 -
+enrollment.enrollment               3 -
+enrollment.enrollment.dlq           3 -
 system.ping                         3 -
 "
 

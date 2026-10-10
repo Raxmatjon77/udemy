@@ -23,6 +23,10 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml down    # 
 | Redis                  | localhost:6379                         |                                                                          |
 | MinIO S3 API / console | localhost:9000 / http://localhost:9001 | `minio` / `minio12345`; buckets `udemy-uploads`, `udemy-media` (private) |
 | Mailpit SMTP / UI      | localhost:1025 / http://localhost:8025 |                                                                          |
+| Stripe emulator        | http://127.0.0.1:12111                 | profile `emulator` (below); loopback only                                |
+
+Port `12211` is reserved for `stripe/stripe-mock` (the CI `test` job service, container port
+12111), so stripe-mock and the emulator never collide.
 
 ## MinIO CORS
 
@@ -56,6 +60,72 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile 
 ```
 
 Stop the host-run transcoder first; both would lease jobs from the same table.
+
+## Stripe (Phase 4)
+
+The API talks to Stripe through the real `StripePaymentProvider` (`@udemy/payments`). In dev that
+provider points at **`apps/stripe-emulator`** (`STRIPE_API_BASE_URL=http://127.0.0.1:12111` in
+`.env`): Checkout Sessions, Refunds, a hosted pay page (Pay / Decline / Cancel) and **signed**
+webhook deliveries to `http://host.docker.internal:4000/api/v1/webhooks/stripe`, i.e. the host-run
+API. The emulator and the API share the throwaway `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`
+from `.env`. web-student only redirects to origins in `CHECKOUT_ALLOWED_ORIGINS`
+(`http://127.0.0.1:12111` in dev).
+
+### Emulator (profile `emulator`)
+
+The `stripe-emulator` service builds `apps/stripe-emulator/Dockerfile`. It sits behind the
+`emulator` profile, so a plain `up` never tries to build it (until task P4-T5 adds the app, a
+build would fail with `apps/stripe-emulator: no such file or directory`). Either:
+
+```bash
+# in Docker
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile emulator up -d --build stripe-emulator
+
+# or on the host
+pnpm --filter @udemy/stripe-emulator dev
+```
+
+Environment the service passes (the app must read these names): `PORT=12111`, `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, `EMULATOR_WEBHOOK_URL` (webhook target) and `EMULATOR_PUBLIC_URL`
+(origin of the pay page in `session.url`). `extra_hosts: host.docker.internal:host-gateway` makes
+the host-run API reachable on Linux as well. The port is published on 127.0.0.1 only, because
+the emulator accepts any test key.
+
+### Real Stripe test mode (profile `stripe`)
+
+For runs against `api.stripe.com`, remove `STRIPE_API_BASE_URL` from `.env`, set
+`STRIPE_SECRET_KEY` to your own `sk_test_`/`rk_test_` key, and set `STRIPE_API_KEY` (read by the
+CLI) to a test key. **Real keys live only in the untracked `.env`.** The API refuses live keys.
+
+The `stripe-cli` service (`stripe/stripe-cli:v1.53.1`) forwards the events the API handles
+(`checkout.session.completed`, `checkout.session.expired`, `charge.refunded`, `refund.updated`,
+`refund.failed`, `charge.dispute.created`) to the host-run API. Stripe signs forwarded events with
+a per-account CLI secret, not the dev one, so copy it into `STRIPE_WEBHOOK_SECRET` first:
+
+```bash
+# 1. print the signing secret (whsec_...), then put it in .env as STRIPE_WEBHOOK_SECRET
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile stripe \
+  run --rm stripe-cli listen --api-key "$STRIPE_API_KEY" --print-secret
+
+# 2. restart the API (it reads the secret at boot), then start forwarding
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile stripe up -d stripe-cli
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml logs -f stripe-cli
+```
+
+Step 1 needs `STRIPE_API_KEY` in your shell (`set -a; . ./.env; set +a`). The secret stays the same
+for the account and device, so this is a one-time step.
+
+**Host-tool alternative** (Stripe CLI installed locally, e.g. `brew install stripe/stripe-cli/stripe`;
+it can use `stripe login` instead of an API key):
+
+```bash
+stripe listen --print-secret                                          # -> STRIPE_WEBHOOK_SECRET
+stripe listen --forward-to localhost:4000/api/v1/webhooks/stripe \
+  --events checkout.session.completed,checkout.session.expired,charge.refunded,refund.updated,refund.failed,charge.dispute.created
+```
+
+Run only one forwarder (container or host tool) at a time, or each event is delivered twice
+(harmless, the webhook dedupes by event id, but noisy).
 
 ## Outbox connector
 
@@ -101,11 +171,12 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec postg
 
 `kafka-init` runs `infra/kafka/create-topics.sh`, which holds **the topic list** (one place, commented).
 
-| Topic                                                                                | Partitions | Config                                            |
-| ------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------- |
-| `identity.user`, `users.instructor_application`, `access.user_role` and their `.dlq` | 3          | `retention.ms=604800000` (7 days: PII, design §7) |
-| `catalog.course`, `media.asset` and their `.dlq` (Phase 2)                           | 3          | broker defaults (no PII, design §7)               |
-| `system.ping`                                                                        | 3          | broker defaults                                   |
+| Topic                                                                                                            | Partitions | Config                                            |
+| ---------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------- |
+| `identity.user`, `users.instructor_application`, `access.user_role` and their `.dlq`                             | 3          | `retention.ms=604800000` (7 days: PII, design §7) |
+| `catalog.course`, `media.asset` and their `.dlq` (Phase 2)                                                       | 3          | broker defaults (no PII, design §7)               |
+| `commerce.order`, `commerce.course_price`, `commerce.coupon`, `enrollment.enrollment` and their `.dlq` (Phase 4) | 3          | broker defaults (no PII, design §7)               |
+| `system.ping`                                                                                                    | 3          | broker defaults                                   |
 
 - Idempotent: `kafka-topics.sh --create --if-not-exists`, then `kafka-configs.sh --alter --add-config`.
   If the worker (which creates its handler topics and `.dlq` at startup with broker defaults) or Debezium
@@ -141,8 +212,10 @@ node infra/ci/register-connector.mjs --url http://localhost:8083 --name udemy-ou
 ```
 
 Image tags, Kafka/Connect settings and the topic list are therefore shared with CI automatically.
-The `test` job of `.github/workflows/ci.yml` runs Postgres, Redis and Mailpit as service containers
-instead (no Debezium there), so keep its image tags equal to the ones here.
+The `test` job of `.github/workflows/ci.yml` runs Postgres, Redis, Mailpit and MinIO as service
+containers instead (no Debezium there), so keep its image tags equal to the ones here. It also
+runs `stripe/stripe-mock:v0.206.0` on host port 12211 (`IT_STRIPE_MOCK_URL`) for the
+`@udemy/payments` contract tests; that one is CI-only (locally the tests use Testcontainers).
 `infra/ci/e2e-local.sh` replays the e2e job against this stack.
 
 ## Prod database roles

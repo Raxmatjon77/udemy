@@ -289,6 +289,62 @@ services:
     # Health port is not published (it would clash with a host-run transcoder on 4002); the image's
     # HEALTHCHECK probes /health/live from inside. Check: docker compose ... ps transcoder
 
+  # ----------------------------------------------------------- Stripe emulator
+  # apps/stripe-emulator (Phase 4 D12): the Stripe API subset the API uses (Checkout Sessions,
+  # Refunds), a hosted pay page and signed webhook delivery to the host-run API. The API reaches it
+  # with STRIPE_API_BASE_URL=http://127.0.0.1:12111; the browser is sent to its pay page, which is
+  # why web-student's CHECKOUT_ALLOWED_ORIGINS lists the same origin.
+  # Opt-in profile `emulator` until the app and its Dockerfile exist (task P4-T5): a plain `up`
+  # never builds it, so the stack starts without it. Alternative: `pnpm dev` in apps/stripe-emulator.
+  #   docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile emulator up -d --build stripe-emulator
+  stripe-emulator:
+    profiles: [emulator]
+    build:
+      context: ../..
+      dockerfile: apps/stripe-emulator/Dockerfile
+    image: udemy-stripe-emulator:dev
+    # The API runs on the host; host.docker.internal resolves to it on Linux too with this mapping.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    tmpfs:
+      - /tmp
+    environment:
+      PORT: 12111
+      # Same throwaway values as the API's .env: the emulator accepts this key and signs webhook
+      # deliveries with this secret. The defaults equal .env.example.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_emulator_dev}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_dev_emulator_change_me_0000000000000000}
+      # Where signed events are POSTed (the API's webhook route; never through a BFF).
+      EMULATOR_WEBHOOK_URL: ${EMULATOR_WEBHOOK_URL:-http://host.docker.internal:4000/api/v1/webhooks/stripe}
+      # Origin of the hosted pay page as the browser sees it (goes into session.url).
+      EMULATOR_PUBLIC_URL: http://127.0.0.1:12111
+    ports:
+      # Loopback only: the emulator accepts any test key and drives payments.
+      - '127.0.0.1:12111:12111'
+
+  # ---------------------------------------------------------------- Stripe CLI
+  # OPTIONAL, opt-in profile `stripe`: forwards REAL Stripe test-mode webhooks to the host-run API,
+  # for runs against api.stripe.com (remove STRIPE_API_BASE_URL from .env). Needs STRIPE_API_KEY
+  # (a test key, in .env only) and STRIPE_WEBHOOK_SECRET set to the secret `stripe listen`
+  # prints (see infra/docker/README.md "Stripe").
+  #   docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile stripe up -d stripe-cli
+  stripe-cli:
+    profiles: [stripe]
+    image: stripe/stripe-cli:v1.53.1
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    command:
+      - listen
+      - --api-key
+      - ${STRIPE_API_KEY:-}
+      - --forward-to
+      - host.docker.internal:4000/api/v1/webhooks/stripe
+      - --events
+      - checkout.session.completed,checkout.session.expired,charge.refunded,refund.updated,refund.failed,charge.dispute.created
+
   # ------------------------------------------------------------------- Mailpit
   mailpit:
     image: axllent/mailpit:v1.31.4
