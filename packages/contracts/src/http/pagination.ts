@@ -15,16 +15,22 @@ export const PAGE_LIMIT_DEFAULT = 20;
 export const PAGE_LIMIT_MAX = 100;
 
 /**
- * `?cursor=&limit=` query parameters. Query values arrive as strings, so `limit` is
- * coerced, and an empty value (`?cursor=`) means "absent".
+ * `?cursor=&limit=` query parameters with a custom page size bound (e.g. the public course
+ * browse caps `limit` at 48). Query values arrive as strings, so `limit` is coerced, and an
+ * empty value (`?cursor=`) means "absent".
  */
-export const PaginationQuerySchema = z.object({
-  cursor: z.preprocess(emptyToUndefined, CursorSchema.optional()),
-  limit: z.preprocess(
-    emptyToUndefined,
-    z.coerce.number().int().min(1).max(PAGE_LIMIT_MAX).default(PAGE_LIMIT_DEFAULT),
-  ),
-});
+export function paginationQuerySchema(maxLimit: number, defaultLimit: number) {
+  return z.object({
+    cursor: z.preprocess(emptyToUndefined, CursorSchema.optional()),
+    limit: z.preprocess(
+      emptyToUndefined,
+      z.coerce.number().int().min(1).max(maxLimit).default(defaultLimit),
+    ),
+  });
+}
+
+/** `?cursor=&limit=` with the default bounds (limit 1–100, default 20). */
+export const PaginationQuerySchema = paginationQuerySchema(PAGE_LIMIT_MAX, PAGE_LIMIT_DEFAULT);
 export type PaginationQuery = z.output<typeof PaginationQuerySchema>;
 
 /** A page of items: `{ items, nextCursor }`; `nextCursor` is null on the last page. */

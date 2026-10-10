@@ -4,12 +4,13 @@
 The compose stack keeps the single superuser `udemy`, and the migrations' `IF EXISTS (udemy_app)`
 grant blocks are no-ops there. The append-only triggers are the only guard in dev.
 
-| Role             | Attributes             | Used by                                                                   |
-| ---------------- | ---------------------- | ------------------------------------------------------------------------- |
-| `udemy_owner`    | NOLOGIN                | owns the database, every schema, table and function                       |
-| `udemy_migrator` | LOGIN, member of owner | the migration Job; each session runs `SET ROLE udemy_owner` automatically |
-| `udemy_app`      | LOGIN, NOSUPERUSER     | `apps/api` and `apps/worker` (`DATABASE_URL`)                             |
-| `udemy_debezium` | LOGIN, REPLICATION     | the Debezium connector (`database.user`); SELECT on `outbox.events` only  |
+| Role               | Attributes             | Used by                                                                   |
+| ------------------ | ---------------------- | ------------------------------------------------------------------------- |
+| `udemy_owner`      | NOLOGIN                | owns the database, every schema, table and function                       |
+| `udemy_migrator`   | LOGIN, member of owner | the migration Job; each session runs `SET ROLE udemy_owner` automatically |
+| `udemy_app`        | LOGIN, NOSUPERUSER     | `apps/api` and `apps/worker` (`DATABASE_URL`)                             |
+| `udemy_debezium`   | LOGIN, REPLICATION     | the Debezium connector (`database.user`); SELECT on `outbox.events` only  |
+| `udemy_transcoder` | LOGIN, NOSUPERUSER     | `apps/transcoder` only; explicit per-table grants, no default privileges  |
 
 What the script grants:
 
@@ -18,7 +19,14 @@ What the script grants:
 - The per-table exceptions (no UPDATE/DELETE/TRUNCATE on the append-only tables, read-only
   `access.roles`) are applied by the migrations themselves.
 - `udemy_app` gets no access to `public.kysely_migration*`.
-- Only `udemy_migrator`, `udemy_app` and `udemy_debezium` may CONNECT.
+- Only `udemy_migrator`, `udemy_app`, `udemy_debezium` and `udemy_transcoder` may CONNECT.
+- `udemy_transcoder` (Phase 2, design D5/§9) parses hostile media, so it gets least privilege:
+  USAGE on the `media` and `outbox` schemas, a 30 s `statement_timeout` and a 60 s
+  `idle_in_transaction_session_timeout`, and is never a member of `udemy_app` or `udemy_owner`.
+  **Pending (P2-T1/P2-T4):** its table grants are finalised once migration 0003 exists; the
+  expected list (lease/complete `media.transcode_jobs`, insert `media.transcode_attempts` and
+  renditions, update asset state, insert `outbox.events`) is the TODO in `roles.sql`. Until then
+  it can connect but cannot read or write any table.
 
 ## When to run
 
@@ -46,6 +54,7 @@ psql "postgres://$PG_ADMIN_USER@$PG_HOST:5432/udemy" \
   -v app_password="$UDEMY_APP_DB_PASSWORD" \
   -v migrator_password="$UDEMY_MIGRATOR_DB_PASSWORD" \
   -v debezium_password="$UDEMY_DEBEZIUM_DB_PASSWORD" \
+  -v transcoder_password="$UDEMY_TRANSCODER_DB_PASSWORD" \
   -f infra/postgres/roles.sql
 ```
 

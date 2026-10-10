@@ -94,6 +94,71 @@ export function multilineText(min: number, max: number) {
     .refine(hasNoControlCharsExceptLineBreaks, { message: 'Must not contain control characters' });
 }
 
+/**
+ * Number of Unicode code points, which is what PostgreSQL `char_length` counts. zod's
+ * `.min()`/`.max()` count UTF-16 code units, so an emoji counts twice there.
+ */
+export function codePointLength(value: string): number {
+  return Array.from(value).length;
+}
+
+/**
+ * The `.min()` bound in UTF-16 units is weaker than a DB `char_length >= min` CHECK (three
+ * emoji are 6 units but 3 characters), so the minimum is also checked in code points.
+ * The `.max()` bound in units is stricter than the DB one, so it can never let a
+ * too-long value through.
+ */
+function minCodePoints(min: number) {
+  return (value: string): boolean => codePointLength(value) >= min;
+}
+
+/**
+ * Single-line text typed by a person (titles, names): trimmed, `min`–`max` characters,
+ * no control characters.
+ */
+export function singleLineText(min: number, max: number) {
+  return z
+    .string()
+    .trim()
+    .min(min)
+    .max(max)
+    .refine(hasNoControlChars, { message: 'Must not contain control characters' })
+    .refine(minCodePoints(min), { message: `Must be at least ${min} characters` });
+}
+
+/**
+ * Markdown source (design D14): never trimmed (trailing spaces are significant), line
+ * breaks and tabs allowed, other control characters rejected. Raw HTML, images and unsafe
+ * links are rejected by the api with `markdown_not_allowed` (`@udemy/markdown`), not here.
+ */
+export function markdownText(min: number, max: number) {
+  return z
+    .string()
+    .min(min)
+    .max(max)
+    .refine(hasNoControlCharsExceptLineBreaks, { message: 'Must not contain control characters' })
+    .refine(minCodePoints(min), { message: `Must be at least ${min} characters` });
+}
+
+/** Optimistic lock: when sent and stale, the write fails with 409 `version_conflict`. */
+export const ExpectedVersionSchema = z.number().int().min(1);
+
+/**
+ * URL slug (courses and categories, design D12): `[a-z0-9]` words joined by single
+ * hyphens, at most 60 characters. Mirrors the DB CHECK `^[a-z0-9]+(-[a-z0-9]+)*$`.
+ * Input is trimmed and lowercased.
+ */
+export const SLUG_MAX_LENGTH = 60;
+export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const SlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(SLUG_MAX_LENGTH)
+  .regex(SLUG_PATTERN, 'Lowercase letters, digits and single hyphens only')
+  .meta({ examples: ['complete-typescript-bootcamp'] });
+
 /** Ban and rejection reasons: 10–1000 chars. */
 export const DecisionReasonSchema = multilineText(10, 1000);
 

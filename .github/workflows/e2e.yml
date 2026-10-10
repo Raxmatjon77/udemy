@@ -1,6 +1,6 @@
 # Full-stack Playwright journeys (apps/e2e): the built api + worker + three Next BFFs run on the
-# runner; Postgres (logical WAL), Redis, Mailpit, Kafka (KRaft) and Debezium Connect run from the
-# repo's own infra/docker/docker-compose.dev.yml. The connector streams outbox.events to Kafka, so
+# runner; Postgres (logical WAL), Redis, Mailpit, Kafka (KRaft), Debezium Connect and MinIO run from
+# the repo's own infra/docker/docker-compose.dev.yml. The connector streams outbox.events to Kafka, so
 # every journey that waits for an email exercises the whole outbox path.
 #
 # Why compose and not service containers: Postgres needs `-c wal_level=logical` and service
@@ -74,6 +74,33 @@ jobs:
       E2E_MAILPIT_URL: http://localhost:8025
       E2E_KAFKA_CONNECT_URL: http://localhost:8083
       E2E_DEBEZIUM_CONNECTOR: udemy-outbox
+      # ---- Phase 2 storage: MinIO from the dev compose (fixed dev credentials of that throwaway
+      # container, like the Postgres ones above; nothing here is a real secret). Its CORS allowlist
+      # is the compose default http://localhost:3000-3002, i.e. exactly the e2e web origins.
+      # S3_ENDPOINT is the server-to-server address; S3_PUBLIC_ENDPOINT signs the URLs Chromium
+      # calls (part PUTs, HLS segments, images). Both are host ports here, because the servers and
+      # the browser all run on the runner; 127.0.0.1 keeps the browser's localhost cookies away
+      # from MinIO, as in dev (design §9).
+      S3_ENDPOINT: http://localhost:9000
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio12345
+      S3_BUCKET_UPLOADS: udemy-uploads
+      S3_BUCKET_MEDIA: udemy-media
+      # Read by the Next BFFs for their CSP (connect-src / img-src); origin of S3_PUBLIC_ENDPOINT.
+      MEDIA_PUBLIC_ORIGIN: http://127.0.0.1:9000
+      # Journeys submit a one-lecture course with a 5 s video (design P2-T19, decision Q6).
+      CATALOG_SUBMIT_MIN_LECTURES: '1'
+      CATALOG_SUBMIT_MIN_VIDEO_SECONDS: '0'
+      # Transcoder on the runner: the apt ffmpeg (installed below), scratch in /tmp (ephemeral runner).
+      TRANSCODER_FFMPEG_PATH: ffmpeg
+      TRANSCODER_FFPROBE_PATH: ffprobe
+      TRANSCODER_TMP_DIR: /tmp/udemy-transcoder
+      TRANSCODER_HEALTH_PORT: '4002'
+      TRANSCODER_MAX_HEIGHT: '720'
+      TRANSCODER_THREADS: '2'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -81,14 +108,20 @@ jobs:
 
       # First, so the image pulls and the JVM start-ups overlap with install + build. `up -d` only
       # blocks until Kafka and Postgres are healthy (Connect depends on them); the later step
-      # waits for everything. Not started: minio (unused by the journeys), kafka-ui, and the
-      # one-shot inits (kafka-init runs explicitly; the connector is registered by script).
+      # waits for everything. Not started: kafka-ui, the transcoder profile (the transcoder runs
+      # on the runner like the api), and the one-shot inits (kafka-init and minio-init run
+      # explicitly; the connector is registered by script).
       - name: Start the stack (dev compose)
-        run: docker compose up -d postgres redis mailpit kafka kafka-connect
+        run: docker compose up -d postgres redis mailpit kafka kafka-connect minio
 
       - uses: ./.github/actions/setup
         with:
           turbo-cache: e2e
+
+      # For the transcoder (journeys upload a lavfi-generated video and wait for READY) and the
+      # suite's global setup, which generates the fixtures with `ffmpeg -f lavfi`.
+      - name: ffmpeg (>= 6)
+        uses: ./.github/actions/ffmpeg
 
       # ---- Ephemeral secrets: random per run, masked, never stored. Each BFF secret is handed to
       # its app via E2E_<APP>_CLIENT_SECRET and the api gets its SHA-256 (CLIENT_<APP>_SECRET_HASH).
@@ -114,8 +147,17 @@ jobs:
 
       # Everything the suite starts (the same set the turbo `e2e` task depends on). Run directly,
       # not via `turbo run e2e`: strict env mode would strip DATABASE_URL & co. from the servers.
-      - name: Build api, worker, web-*
-        run: pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*'
+      # The transcoder joins once its package exists: turbo fails on a --filter that matches no
+      # package, and apps/transcoder only has its Dockerfile until P2-T12.
+      - name: Build api, worker, transcoder, web-*
+        run: |
+          filters=(--filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*')
+          if [ -f apps/transcoder/package.json ]; then
+            filters+=(--filter=@udemy/transcoder)
+          else
+            echo "::notice::apps/transcoder has no package.json yet (P2-T12): not built"
+          fi
+          pnpm turbo run build "${filters[@]}"
 
       # ---- Chromium, cached by the installed Playwright version and the runner image. On a cache
       # hit only the system libraries (apt) are installed.
@@ -140,7 +182,11 @@ jobs:
 
       # ---- Stack readiness, in dependency order.
       - name: Wait for the stack to be healthy
-        run: docker compose up -d --wait --wait-timeout 300 postgres redis mailpit kafka kafka-connect
+        run: docker compose up -d --wait --wait-timeout 300 postgres redis mailpit kafka kafka-connect minio
+
+      # Creates the private buckets udemy-uploads and udemy-media (idempotent one-shot).
+      - name: MinIO buckets
+        run: docker compose run --rm --no-deps -T minio-init
 
       # Also creates the dbz_outbox publication the connector needs, so it runs before the connector.
       - name: Migrations
@@ -157,6 +203,13 @@ jobs:
           node infra/ci/register-connector.mjs --url "$E2E_KAFKA_CONNECT_URL"
           --name "$E2E_DEBEZIUM_CONNECTOR" --timeout 240
 
+      # TODO(P2-T19/P2-T20): run the transcoder alongside the api and the worker. Playwright starts
+      # the servers (apps/e2e/playwright.config.ts `webServer`), so the transcoder belongs there,
+      # not in a background step here: add an entry `node dist/main.js` with cwd apps/transcoder,
+      # url http://localhost:4002/health/ready and a SIGTERM graceful stop (it releases its lease),
+      # add "@udemy/transcoder#build" to the `e2e` task's dependsOn in turbo.json, and remove the
+      # package.json guard in the build step above. The TRANSCODER_* / S3_* env is already set on
+      # this job. Until then MinIO, S3 and ffmpeg are ready but no job reaches READY.
       - name: Playwright journeys
         run: pnpm --filter @udemy/e2e e2e
 

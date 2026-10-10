@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { AccountStatusSchema } from './account-status';
 import {
+  DecisionReasonSchema,
+  ExpectedVersionSchema,
   HttpsUrlSchema,
   IsoDateTimeSchema,
   multilineText,
   UuidSchema,
-  DecisionReasonSchema,
 } from './fields';
 import { emptyToUndefined, pageSchema, PaginationQuerySchema } from './pagination';
 
@@ -112,9 +113,6 @@ export type InstructorApplicationPage = z.infer<typeof InstructorApplicationPage
  * POST /admin/instructor-applications/:id/approve -> 200 InstructorApplication
  * POST /admin/instructor-applications/:id/reject  -> 200 InstructorApplication
  * -------------------------------------------------------------------------------------- */
-
-/** When sent and stale, the decision fails with 409 `version_conflict`. */
-const ExpectedVersionSchema = z.number().int().min(1);
 
 export const ApproveInstructorApplicationRequestSchema = z.object({
   /** Stored as the transition reason (1–1000 chars). */

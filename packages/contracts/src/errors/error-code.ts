@@ -51,6 +51,60 @@ export const ErrorCode = {
   InvalidStateTransition: 'invalid_state_transition',
   VersionConflict: 'version_conflict',
   SelfDecisionForbidden: 'self_decision_forbidden',
+
+  // catalog: lookups (Phase 2)
+  CourseNotFound: 'course_not_found',
+  SectionNotFound: 'section_not_found',
+  LectureNotFound: 'lecture_not_found',
+  CategoryNotFound: 'category_not_found',
+
+  // catalog: course working copy and lifecycle
+  /** The working copy is locked while a revision is pending (D2); withdraw to edit. */
+  CourseInReview: 'course_in_review',
+  CourseNotEditable: 'course_not_editable',
+  /** Readiness check failed; the problem carries `issues[]` (`CourseNotReadyProblem`). */
+  CourseNotReady: 'course_not_ready',
+  ReviewAlreadyPending: 'review_already_pending',
+  /** The snapshot equals the live revision (same `content_hash`). */
+  NothingToReview: 'nothing_to_review',
+  SlugTaken: 'slug_taken',
+  /** The course slug cannot change after the first publication (D12). */
+  SlugFrozen: 'slug_frozen',
+  CoursePublishedCannotDelete: 'course_published_cannot_delete',
+  RestoreForbidden: 'restore_forbidden',
+
+  // catalog: categories
+  CategoryInactive: 'category_inactive',
+  CategoryNotLeaf: 'category_not_leaf',
+  CategoryDepthExceeded: 'category_depth_exceeded',
+  CategoryInUse: 'category_in_use',
+
+  // catalog: curriculum
+  /** A reorder is not an exact permutation of the current ids (D3); refetch and retry. */
+  OrderMismatch: 'order_mismatch',
+  CurriculumLimitExceeded: 'curriculum_limit_exceeded',
+  LectureTypeMismatch: 'lecture_type_mismatch',
+  PreviewNotAllowed: 'preview_not_allowed',
+  /** Raw HTML, images or a non-http(s)/mailto link in markdown (D14). */
+  MarkdownNotAllowed: 'markdown_not_allowed',
+
+  // catalog: playback
+  LectureLocked: 'lecture_locked',
+  MediaNotReady: 'media_not_ready',
+
+  // media: uploads and assets
+  MediaAssetNotFound: 'media_asset_not_found',
+  MediaPurposeMismatch: 'media_purpose_mismatch',
+  MediaAssetUnusable: 'media_asset_unusable',
+  UnsupportedMediaType: 'unsupported_media_type',
+  UploadTooLarge: 'upload_too_large',
+  QuotaExceeded: 'quota_exceeded',
+  /** Too many concurrent UPLOADING assets (429). */
+  TooManyUploads: 'too_many_uploads',
+  UploadNotInProgress: 'upload_not_in_progress',
+  /** Parts are missing; the problem carries `missingParts[]` (`UploadIncompleteProblem`). */
+  UploadIncomplete: 'upload_incomplete',
+  UploadSizeMismatch: 'upload_size_mismatch',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

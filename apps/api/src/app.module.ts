@@ -7,6 +7,7 @@ import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identit
 import { UsersModule } from './modules/users';
 import { AuthSupportModule } from './shared/auth';
 import { apiEnvSchema, AppConfigModule } from './shared/config';
+import { CourseEntitlementsModule, DenyAllCourseEntitlements } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
 import { OutboxModule } from './shared/outbox';
@@ -29,6 +30,10 @@ import { ValidationModule } from './shared/validation';
     OutboxModule,
     AuthSupportModule,
     HealthModule,
+    // COURSE_ENTITLEMENTS (catalog asks "may this user watch this course?"). Phase 2 has no
+    // enrollments, so nobody is entitled; Phase 4 rebinds it here to the enrollment module:
+    // forRoot({ imports: [EnrollmentModule], useExisting: EnrollmentEntitlements }).
+    CourseEntitlementsModule.forRoot({ useClass: DenyAllCourseEntitlements }),
     // Bounded contexts (src/modules/*), one import per module facade.
     AccessModule,
     IdentityModule,

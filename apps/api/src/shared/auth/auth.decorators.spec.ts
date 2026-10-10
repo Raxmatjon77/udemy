@@ -77,8 +77,12 @@ describe('shared/auth decorators', () => {
 
   it('@CheckPolicy only accepts resource/action pairs that have scoped permissions', () => {
     expectTypeOf<PolicyResource>().toEqualTypeOf<
-      'profile' | 'session' | 'instructor_application' | 'user' | 'role'
+      'profile' | 'session' | 'instructor_application' | 'user' | 'role' | 'course' | 'media_asset'
     >();
+    expectTypeOf<PolicyAction<'course'>>().toEqualTypeOf<
+      'read' | 'update' | 'delete' | 'submit' | 'archive' | 'moderate'
+    >();
+    expectTypeOf<PolicyAction<'media_asset'>>().toEqualTypeOf<'read' | 'upload'>();
     expectTypeOf<PolicyAction<'instructor_application'>>().toEqualTypeOf<
       'create' | 'read' | 'withdraw' | 'review'
     >();

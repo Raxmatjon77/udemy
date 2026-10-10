@@ -12,7 +12,7 @@ describe('permission catalog', () => {
     expect(permission).toMatch(PERMISSION_FORMAT);
   });
 
-  it('contains exactly the Phase 1 entries (no course permissions yet)', () => {
+  it('contains exactly the Phase 1 and Phase 2 entries', () => {
     expect([...PERMISSIONS].sort()).toEqual(
       [
         'profile:read:own',
@@ -26,14 +26,32 @@ describe('permission catalog', () => {
         'instructor_application:read:any',
         'instructor_application:review:any',
         'role:grant:any',
+        // Phase 2: INSTRUCTOR
+        'course:create',
+        'course:read:own',
+        'course:update:own',
+        'course:delete:own',
+        'course:submit:own',
+        'course:archive:own',
+        'media_asset:create',
+        'media_asset:read:own',
+        'media_asset:upload:own',
+        // Phase 2: ADMIN
+        'course:read:any',
+        'course:moderate:any',
+        'category:manage',
+        'media_asset:read:any',
       ].sort(),
     );
   });
 
   it('guards and parses permissions', () => {
     expect(isPermission('user:ban:any')).toBe(true);
-    expect(isPermission('course:create')).toBe(false);
+    expect(isPermission('course:create')).toBe(true);
+    expect(isPermission('course:delete:any')).toBe(false);
+    expect(isPermission('section:update:own')).toBe(false);
     expect(PermissionSchema.safeParse('user:ban:own').success).toBe(false);
+    expect(PermissionSchema.safeParse('media_asset:upload:any').success).toBe(false);
   });
 });
 

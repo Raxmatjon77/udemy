@@ -20,6 +20,23 @@ const ADMIN_PERMS: Permission[] = [
   'instructor_application:read:any',
   'instructor_application:review:any',
   'role:grant:any',
+  // Phase 2 (catalog & media design §8)
+  'course:read:any',
+  'course:moderate:any',
+  'category:manage',
+  'media_asset:read:any',
+];
+/** Phase 2 (catalog & media design §8). */
+const INSTRUCTOR_PERMS: Permission[] = [
+  'course:create',
+  'course:read:own',
+  'course:update:own',
+  'course:delete:own',
+  'course:submit:own',
+  'course:archive:own',
+  'media_asset:create',
+  'media_asset:read:own',
+  'media_asset:upload:own',
 ];
 const BASE: Permission[] = ['profile:read:own', 'profile:update:own', 'session:manage:own'];
 
@@ -34,7 +51,7 @@ const HOLDINGS: readonly (readonly Role[])[] = [
   ['STUDENT', 'INSTRUCTOR', 'ADMIN'],
 ];
 
-/** The full matrix (design §4 + D6), written out by hand rather than derived. */
+/** The full matrix (design §4 + D6, Phase 2 §8), written out by hand rather than derived. */
 const MATRIX: Record<string, Record<ClientApp, { perms: Permission[]; login: boolean }>> = {
   STUDENT: {
     student: { perms: expected(BASE, STUDENT_PERMS), login: true },
@@ -43,7 +60,7 @@ const MATRIX: Record<string, Record<ClientApp, { perms: Permission[]; login: boo
   },
   'STUDENT,INSTRUCTOR': {
     student: { perms: expected(BASE, STUDENT_PERMS), login: true },
-    instructor: { perms: expected(BASE), login: true },
+    instructor: { perms: expected(BASE, INSTRUCTOR_PERMS), login: true },
     admin: { perms: expected(BASE), login: false },
   },
   'STUDENT,ADMIN': {
@@ -53,7 +70,7 @@ const MATRIX: Record<string, Record<ClientApp, { perms: Permission[]; login: boo
   },
   'STUDENT,INSTRUCTOR,ADMIN': {
     student: { perms: expected(BASE, STUDENT_PERMS), login: true },
-    instructor: { perms: expected(BASE), login: true },
+    instructor: { perms: expected(BASE, INSTRUCTOR_PERMS), login: true },
     admin: { perms: expected(BASE, ADMIN_PERMS), login: true },
   },
 };
@@ -63,9 +80,9 @@ describe('access permission policy', () => {
     expect([...BASELINE].sort()).toEqual(expected(BASE));
   });
 
-  it('maps every role to the Phase 1 catalog', () => {
+  it('maps every role to the Phase 1 + Phase 2 catalog', () => {
     expect([...ROLE_PERMISSIONS.STUDENT].sort()).toEqual(expected(STUDENT_PERMS));
-    expect(ROLE_PERMISSIONS.INSTRUCTOR).toEqual([]);
+    expect([...ROLE_PERMISSIONS.INSTRUCTOR].sort()).toEqual(expected(INSTRUCTOR_PERMS));
     expect([...ROLE_PERMISSIONS.ADMIN].sort()).toEqual(expected(ADMIN_PERMS));
   });
 
@@ -92,6 +109,56 @@ describe('access permission policy', () => {
       });
     }
   }
+
+  it('no role mapping lists a permission twice', () => {
+    for (const role of ROLES) {
+      expect(new Set(ROLE_PERMISSIONS[role]).size).toBe(ROLE_PERMISSIONS[role].length);
+    }
+  });
+
+  it('roles do not share permissions (each grant has exactly one owner)', () => {
+    const all = ROLES.flatMap((r) => ROLE_PERMISSIONS[r]);
+    expect(new Set(all).size).toBe(all.length);
+    for (const p of BASELINE) expect(all).not.toContain(p);
+  });
+
+  it('STUDENT gets no course/category/media permissions (public reads are @Public)', () => {
+    const perms = effectivePermissions(['STUDENT'], 'student');
+    for (const p of perms) expect(p).not.toMatch(/^(course|category|media_asset):/);
+  });
+
+  it('an INSTRUCTOR only gets course/media permissions in the instructor app', () => {
+    const inStudent = effectivePermissions(['STUDENT', 'INSTRUCTOR'], 'student');
+    const inAdmin = effectivePermissions(['STUDENT', 'INSTRUCTOR'], 'admin');
+    for (const p of INSTRUCTOR_PERMS) {
+      expect(inStudent.has(p)).toBe(false);
+      expect(inAdmin.has(p)).toBe(false);
+    }
+  });
+
+  it('INSTRUCTOR course/media permissions are owner-scoped (no :any), creation excepted', () => {
+    for (const p of ROLE_PERMISSIONS.INSTRUCTOR) {
+      expect(p.endsWith(':any')).toBe(false);
+      if (!p.endsWith(':own')) expect(p).toMatch(/:create$/);
+    }
+  });
+
+  it('ADMIN can read and moderate courses but never author them or upload media', () => {
+    const perms = effectivePermissions(['STUDENT', 'ADMIN'], 'admin');
+    expect(perms.has('course:read:any')).toBe(true);
+    expect(perms.has('course:moderate:any')).toBe(true);
+    expect(perms.has('category:manage')).toBe(true);
+    expect(perms.has('media_asset:read:any')).toBe(true);
+    for (const p of INSTRUCTOR_PERMS) expect(perms.has(p)).toBe(false);
+  });
+
+  it('a user holding INSTRUCTOR+ADMIN never gets both sets in one app', () => {
+    const roles: Role[] = ['STUDENT', 'INSTRUCTOR', 'ADMIN'];
+    const instructor = effectivePermissions(roles, 'instructor');
+    const admin = effectivePermissions(roles, 'admin');
+    for (const p of ADMIN_PERMS) expect(instructor.has(p)).toBe(false);
+    for (const p of INSTRUCTOR_PERMS) expect(admin.has(p)).toBe(false);
+  });
 
   it('a STUDENT-only user in the admin app gets only BASELINE and cannot log in', () => {
     expect(sorted(effectivePermissions(['STUDENT'], 'admin'))).toEqual(expected(BASE));

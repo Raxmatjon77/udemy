@@ -24,6 +24,39 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml down    # 
 | MinIO S3 API / console | localhost:9000 / http://localhost:9001 | `minio` / `minio12345`; buckets `udemy-uploads`, `udemy-media` (private) |
 | Mailpit SMTP / UI      | localhost:1025 / http://localhost:8025 |                                                                          |
 
+## MinIO CORS
+
+Browsers talk to MinIO directly through presigned URLs (upload part PUTs, HLS segments, images), so
+`minio` sets `MINIO_API_CORS_ALLOW_ORIGIN` to the three web origins (`http://localhost:3000-3002`;
+override with `MINIO_CORS_ALLOW_ORIGIN` in `.env`). MinIO has no per-bucket CORS; this is
+server-wide, and without it MinIO answers every origin. Apply a change by recreating only minio
+(the buckets live on the `minio-data` volume):
+
+```bash
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml up -d --no-deps --force-recreate minio
+
+# allowed origin: 204 with Access-Control-Allow-Origin; any other origin: 204 without it
+curl -sS -o /dev/null -D - -X OPTIONS 'http://127.0.0.1:9000/udemy-uploads/x?partNumber=1&uploadId=x' \
+  -H 'Origin: http://localhost:3001' -H 'Access-Control-Request-Method: PUT'
+```
+
+Apps sign browser URLs with `S3_PUBLIC_ENDPOINT=http://127.0.0.1:9000`: a different site from
+`localhost`, so the apps' cookies are never sent to MinIO.
+
+## Transcoder (optional profile)
+
+`apps/transcoder` normally runs on the host (`pnpm dev`, needs `ffmpeg`/`ffprobe` >= 6 on PATH). The
+`transcoder` service runs the production image instead (`apps/transcoder/Dockerfile`, ffmpeg 8.1.2
+pinned, non-root, read-only root fs, scratch on the `transcoder-tmp` volume), capped at 768 MB,
+1 CPU, 1 encoder thread and a 720p ladder ceiling for the 2 GB Docker VM. It is not started by a
+plain `up`:
+
+```bash
+docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile transcoder up -d --build transcoder
+```
+
+Stop the host-run transcoder first; both would lease jobs from the same table.
+
 ## Outbox connector
 
 `infra/debezium/outbox-connector.json` is registered by `debezium-init` as connector `udemy-outbox`.
@@ -71,6 +104,7 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec postg
 | Topic                                                                                | Partitions | Config                                            |
 | ------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------- |
 | `identity.user`, `users.instructor_application`, `access.user_role` and their `.dlq` | 3          | `retention.ms=604800000` (7 days: PII, design §7) |
+| `catalog.course`, `media.asset` and their `.dlq` (Phase 2)                           | 3          | broker defaults (no PII, design §7)               |
 | `system.ping`                                                                        | 3          | broker defaults                                   |
 
 - Idempotent: `kafka-topics.sh --create --if-not-exists`, then `kafka-configs.sh --alter --add-config`.
@@ -95,7 +129,8 @@ because no two topic names differ only in `.` vs `_`.
 ## CI
 
 The GitHub Actions `E2E` workflow (`.github/workflows/e2e.yml`, see `apps/e2e/README.md`) starts
-**this compose file** on the runner (`postgres redis mailpit kafka kafka-connect`, same host ports),
+**this compose file** on the runner (`postgres redis mailpit kafka kafka-connect minio`, same host
+ports, buckets via `minio-init`),
 creates the topics with `docker compose run --rm -T kafka-init`, and registers
 `outbox-connector.json` with `infra/ci/register-connector.mjs` instead of `debezium-init`, because
 the script also waits until the connector is RUNNING (after the migrations). It can check this

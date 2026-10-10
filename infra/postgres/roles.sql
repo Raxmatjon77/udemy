@@ -6,6 +6,9 @@
 --                   (ALTER ROLE ... SET role), so objects created by migrations are owner-owned.
 --   udemy_app       LOGIN, NOSUPERUSER, not an owner. Used by apps/api and apps/worker.
 --   udemy_debezium  LOGIN REPLICATION. Reads outbox.events through the dbz_outbox publication.
+--   udemy_transcoder LOGIN, NOSUPERUSER, not an owner. Used by apps/transcoder only (design
+--                   docs/phase-2-catalog-media-design.md D5/§9): least privilege, because it parses
+--                   hostile media. NOT covered by the udemy_app default privileges.
 --
 -- Idempotent and convergent: re-running creates what is missing, re-applies attributes,
 -- passwords and grants. Run it as a superuser (or the cloud admin role), connected to the
@@ -15,6 +18,7 @@
 --     -v app_password="$UDEMY_APP_DB_PASSWORD" \
 --     -v migrator_password="$UDEMY_MIGRATOR_DB_PASSWORD" \
 --     -v debezium_password="$UDEMY_DEBEZIUM_DB_PASSWORD" \
+--     -v transcoder_password="$UDEMY_TRANSCODER_DB_PASSWORD" \
 --     -f infra/postgres/roles.sql
 --
 -- Order on a new database: roles.sql -> migrations (as udemy_migrator) -> roles.sql again
@@ -40,12 +44,18 @@
   -- RAISE (with ON_ERROR_STOP) makes psql exit non-zero; a bare \quit would exit 0.
   DO $$ BEGIN RAISE EXCEPTION 'missing psql variable: pass -v debezium_password=...'; END $$;
 \endif
+\if :{?transcoder_password}
+\else
+  -- RAISE (with ON_ERROR_STOP) makes psql exit non-zero; a bare \quit would exit 0.
+  DO $$ BEGIN RAISE EXCEPTION 'missing psql variable: pass -v transcoder_password=...'; END $$;
+\endif
 
 -- psql does not interpolate :'vars' inside $$ bodies, so hand the passwords to the DO block
 -- through session-local settings (cleared at the end of the script).
 SET udemy.app_password = :'app_password';
 SET udemy.migrator_password = :'migrator_password';
 SET udemy.debezium_password = :'debezium_password';
+SET udemy.transcoder_password = :'transcoder_password';
 
 BEGIN;
 
@@ -54,7 +64,8 @@ DO $$
 BEGIN
   IF current_setting('udemy.app_password') = ''
      OR current_setting('udemy.migrator_password') = ''
-     OR current_setting('udemy.debezium_password') = '' THEN
+     OR current_setting('udemy.debezium_password') = ''
+     OR current_setting('udemy.transcoder_password') = '' THEN
     RAISE EXCEPTION 'empty role password';
   END IF;
 
@@ -70,6 +81,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'udemy_debezium') THEN
     CREATE ROLE udemy_debezium;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'udemy_transcoder') THEN
+    CREATE ROLE udemy_transcoder;
+  END IF;
 
   -- Attributes are (re)applied on every run, so drift is corrected.
   ALTER ROLE udemy_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -82,6 +96,13 @@ BEGIN
   EXECUTE format(
     'ALTER ROLE udemy_debezium LOGIN REPLICATION NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD %L',
     current_setting('udemy.debezium_password'));
+  EXECUTE format(
+    'ALTER ROLE udemy_transcoder LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
+    current_setting('udemy.transcoder_password'));
+  -- Bound the blast radius of one runaway session (the app's own statements are short; ffmpeg
+  -- runs outside any transaction). Per-role defaults, applied at login.
+  ALTER ROLE udemy_transcoder SET statement_timeout = '30s';
+  ALTER ROLE udemy_transcoder SET idle_in_transaction_session_timeout = '60s';
 
   -- The migrator acts as the owner. INHERIT FALSE: it holds no owner rights until SET ROLE,
   -- which the per-role default below does at login, so it can never create objects it owns itself.
@@ -98,6 +119,13 @@ BEGIN
   IF pg_has_role('udemy_app', 'udemy_owner', 'MEMBER') THEN
     REVOKE udemy_owner FROM udemy_app;
   END IF;
+  -- The transcoder must not inherit the app's broad DML either.
+  IF pg_has_role('udemy_transcoder', 'udemy_owner', 'MEMBER') THEN
+    REVOKE udemy_owner FROM udemy_transcoder;
+  END IF;
+  IF pg_has_role('udemy_transcoder', 'udemy_app', 'MEMBER') THEN
+    REVOKE udemy_app FROM udemy_transcoder;
+  END IF;
 END
 $$;
 
@@ -106,8 +134,9 @@ DO $$
 BEGIN
   EXECUTE format('ALTER DATABASE %I OWNER TO udemy_owner', current_database());
   EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database());
-  EXECUTE format('GRANT CONNECT ON DATABASE %I TO udemy_migrator, udemy_app, udemy_debezium',
-                 current_database());
+  EXECUTE format(
+    'GRANT CONNECT ON DATABASE %I TO udemy_migrator, udemy_app, udemy_debezium, udemy_transcoder',
+    current_database());
 END
 $$;
 
@@ -152,6 +181,30 @@ BEGIN
     GRANT SELECT ON outbox.events TO udemy_debezium;
   END IF;
 
+  -- Transcoder: schema USAGE only for now. Without table grants it can connect but touch nothing.
+  -- TODO(P2-T1/P2-T4): finalise after migration 0003 (catalog_media) exists. Expected grants, all
+  -- explicit (the global default privileges cover udemy_app only, never this role):
+  --   media.transcode_jobs      SELECT, UPDATE           lease (FOR UPDATE SKIP LOCKED), heartbeat,
+  --                                                      complete / fail / requeue; never INSERT
+  --                                                      (the worker enqueues) or DELETE
+  --   media.transcode_attempts  SELECT, INSERT, UPDATE   append-only log: insert at start, set
+  --                                                      finished_at/outcome once (guard trigger)
+  --   media.assets              SELECT, UPDATE           status PROCESSING/READY/FAILED, duration,
+  --                                                      dims, output_prefix, failure_code,
+  --                                                      source_deleted_at (column-level UPDATE if
+  --                                                      the final DDL allows it)
+  --   media.asset_renditions    SELECT, INSERT           (final table name per P2-T1)
+  --   outbox.events             INSERT                   MediaReady / MediaFailed via insertOutboxEvent
+  --   EXECUTE on any function the lease/complete SQL calls (none expected; uuidv7() is built in)
+  --   LISTEN media_transcode needs no grant.
+  -- Explicitly NOT granted: anything in identity, users, access or catalog; DELETE anywhere.
+  IF to_regnamespace('media') IS NOT NULL THEN
+    GRANT USAGE ON SCHEMA media TO udemy_transcoder;
+  END IF;
+  IF to_regnamespace('outbox') IS NOT NULL THEN
+    GRANT USAGE ON SCHEMA outbox TO udemy_transcoder;
+  END IF;
+
   -- Migration bookkeeping is owner-only, even though the global table default above grants DML.
   IF to_regclass('public.kysely_migration') IS NOT NULL THEN
     REVOKE ALL ON public.kysely_migration FROM udemy_app;
@@ -167,6 +220,7 @@ COMMIT;
 RESET udemy.app_password;
 RESET udemy.migrator_password;
 RESET udemy.debezium_password;
+RESET udemy.transcoder_password;
 
 \set QUIET off
 \echo 'udemy roles and privileges applied'

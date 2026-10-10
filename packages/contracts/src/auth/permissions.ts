@@ -11,8 +11,11 @@ import { z } from 'zod';
  * BASELINE set and the app -> role scope live in the api's `access` domain
  * (`apps/api/src/modules/access/domain`), because granting a permission is a server-side
  * authorization decision that must be reviewed together with the code that enforces it.
- * Add new entries here in the same change that introduces the check (Phase 2 adds the
- * `course:*` permissions).
+ * Add new entries here in the same change that introduces the check.
+ *
+ * Phase 2 (catalog & media design §8) adds `course:*`, `category:manage` and `media_asset:*`.
+ * Sections and lectures have no permissions of their own: they are reached through nested
+ * course routes and checked with the course policy (design finding 2, Q7).
  */
 export const PERMISSIONS = [
   // Baseline: every authenticated principal, in any app.
@@ -29,6 +32,21 @@ export const PERMISSIONS = [
   'instructor_application:read:any',
   'instructor_application:review:any',
   'role:grant:any',
+  // INSTRUCTOR (Phase 2)
+  'course:create',
+  'course:read:own',
+  'course:update:own',
+  'course:delete:own',
+  'course:submit:own',
+  'course:archive:own',
+  'media_asset:create',
+  'media_asset:read:own',
+  'media_asset:upload:own',
+  // ADMIN (Phase 2)
+  'course:read:any',
+  'course:moderate:any',
+  'category:manage',
+  'media_asset:read:any',
 ] as const;
 
 /** Compile-time guard: every catalog entry must follow `resource:action[:own|:any]`. */

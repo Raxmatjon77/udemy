@@ -21,16 +21,42 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = O
     'instructor_application:read:own',
     'instructor_application:withdraw:own',
   ] as const satisfies readonly Permission[]),
-  // Phase 2 adds course:create, course:read:own, course:update:own, course:delete:own,
-  // course:submit:own.
-  INSTRUCTOR: Object.freeze([] as const satisfies readonly Permission[]),
-  // Phase 2 adds course:read:any, course:moderate:any.
+  // Phase 2 (catalog & media design §8). Every `:own` entry is narrowed to the caller's own
+  // rows by an ownership resolver (D9: `course` in catalog, `media_asset` in media).
+  INSTRUCTOR: Object.freeze([
+    // Opening a new draft course is the instructor's core job; no resource exists yet, so the
+    // permission is unscoped and the new course is owned by the caller.
+    'course:create',
+    // The builder lists and edits only the instructor's own courses (working copy + revisions).
+    'course:read:own',
+    'course:update:own',
+    // An author may delete their own course; the use case refuses published or in-review ones.
+    'course:delete:own',
+    // Only the author submits a course for review (and withdraws it), and archives/restores it.
+    'course:submit:own',
+    'course:archive:own',
+    // Lecture videos and thumbnails are uploaded by the course author: start an upload (the
+    // asset is owned by the caller), then sign parts / complete / abort only their own assets.
+    'media_asset:create',
+    'media_asset:upload:own',
+    // The instructor follows upload/processing status of their own assets only.
+    'media_asset:read:own',
+  ] as const satisfies readonly Permission[]),
   ADMIN: Object.freeze([
     'user:read:any',
     'user:ban:any',
     'instructor_application:read:any',
     'instructor_application:review:any',
     'role:grant:any',
+    // Moderators must see every course (drafts and submitted revisions) to review them.
+    'course:read:any',
+    // Review queue, approve/reject revisions, takedown/restore: moderation is an admin duty.
+    'course:moderate:any',
+    // The category tree is a platform-wide taxonomy, not owned by any instructor.
+    'category:manage',
+    // Moderators inspect any asset (status, renditions) when reviewing a course. Read-only:
+    // admins never upload into or alter an instructor's assets.
+    'media_asset:read:any',
   ] as const satisfies readonly Permission[]),
 });
 

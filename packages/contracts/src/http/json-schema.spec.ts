@@ -22,7 +22,47 @@ const schemas = Object.entries(contracts).flatMap(([name, value]) =>
 
 describe('JSON Schema generation (Swagger)', () => {
   it('finds the exported schemas', () => {
-    expect(schemas.length).toBeGreaterThan(50);
+    expect(schemas.length).toBeGreaterThan(150);
+  });
+
+  it('covers the Phase 2 catalog & media schemas', () => {
+    const names = new Set(schemas.map(([name]) => name));
+    for (const name of [
+      // public catalog + playback
+      'CategoryTreeResponseSchema',
+      'BrowseCoursesQuerySchema',
+      'CourseCardPageSchema',
+      'CourseLandingSchema',
+      'ThumbnailQuerySchema',
+      'LectureVariantPlaylistParamsSchema',
+      'RevisionLectureVariantPlaylistParamsSchema',
+      'PublicArticleSchema',
+      // instructor builder
+      'MyCoursesQuerySchema',
+      'CreateCourseRequestSchema',
+      'UpdateCourseRequestSchema',
+      'CourseDetailSchema',
+      'CurriculumSchema',
+      'ReorderCurriculumRequestSchema',
+      'SubmitCourseRequestSchema',
+      'CourseNotReadyProblemSchema',
+      'CourseHistoryResponseSchema',
+      // media
+      'InitiateUploadRequestSchema',
+      'PresignPartsRequestSchema',
+      'AssetViewSchema',
+      'AssetsQuerySchema',
+      'UploadIncompleteProblemSchema',
+      // admin
+      'ReviewQueuePageSchema',
+      'RevisionReviewSchema',
+      'RejectRevisionRequestSchema',
+      'AdminCoursesQuerySchema',
+      'AdminCategoryTreeResponseSchema',
+      'ReorderCategoriesRequestSchema',
+    ]) {
+      expect(names.has(name), name).toBe(true);
+    }
   });
 
   it.each(schemas)('%s converts in input and output mode', (_name, schema) => {

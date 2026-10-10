@@ -36,6 +36,9 @@ ls apps/api/.secrets/jwt/*.pem > /dev/null 2>&1 || pnpm --filter @udemy/api keys
 step "migrations"
 pnpm --filter @udemy/db migrate:latest
 
+step "minio buckets (one-off minio-init container)"
+"${compose[@]}" run --rm --no-deps minio-init
+
 step "kafka topics (one-off kafka-init container)"
 "${compose[@]}" run --rm --no-deps kafka-init
 
@@ -46,8 +49,11 @@ node infra/ci/register-connector.mjs --url "${E2E_KAFKA_CONNECT_URL:-http://loca
   exit 1
 }
 
-step "build api, worker, web-*"
-pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*'
+step "build api, worker, transcoder, web-*"
+filters=(--filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*')
+# Same guard as CI: apps/transcoder only has its Dockerfile until P2-T12.
+[ -f apps/transcoder/package.json ] && filters+=(--filter=@udemy/transcoder)
+pnpm turbo run build "${filters[@]}"
 
 step "chromium"
 pnpm --filter @udemy/e2e browsers:install

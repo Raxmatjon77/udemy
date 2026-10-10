@@ -196,6 +196,11 @@ services:
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio12345
+      # Browsers PUT upload parts and fetch HLS segments / images straight from MinIO (presigned
+      # URLs), so the three web origins need CORS. MinIO has no per-bucket CORS API; this is the
+      # server-wide allowlist (its default is `*`, i.e. any origin). Comma-separated, exact origins.
+      # Override MINIO_CORS_ALLOW_ORIGIN in .env when the web apps run on other ports (E2E_*_PORT).
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_CORS_ALLOW_ORIGIN:-http://localhost:3000,http://localhost:3001,http://localhost:3002}
     ports:
       - '9000:9000' # S3 API
       - '9001:9001' # web console
@@ -226,6 +231,64 @@ services:
         mc anonymous set none local/udemy-media
         echo "buckets ready"
 
+  # ---------------------------------------------------------------- Transcoder
+  # OPTIONAL, opt-in profile. The default dev path runs apps/transcoder on the host with
+  # `pnpm dev` (needs ffmpeg/ffprobe >= 6 on PATH). This service runs the production image instead
+  # (pinned ffmpeg, non-root, read-only root fs), e.g. to reproduce prod encoder behaviour:
+  #   docker compose --env-file .env -f infra/docker/docker-compose.dev.yml --profile transcoder up -d --build transcoder
+  # Stop the host transcoder first: both would lease the same media.transcode_jobs rows (safe, but
+  # confusing). The caps below matter: the Docker VM has ~2 GB in total and ffmpeg is the heaviest
+  # process in the stack, so it gets one core, one encoder thread and a 720p ladder ceiling.
+  transcoder:
+    profiles: [transcoder]
+    build:
+      context: ../..
+      dockerfile: apps/transcoder/Dockerfile
+    image: udemy-transcoder:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    mem_limit: 768m
+    # = mem_limit: no swap on top (swap on the VM is already nearly full).
+    memswap_limit: 768m
+    cpus: 1
+    # Same confinement as prod (design §9): read-only root fs, no capabilities, no privilege gain.
+    # The only writable path is the tmp volume (the image sets TMPDIR to it as well).
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    # SIGTERM: the app kills ffmpeg and releases its lease without an attempt penalty.
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: debug
+      # Internal compose endpoints (the host ports from .env do not apply inside the network).
+      DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
+      S3_ENDPOINT: http://minio:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio12345
+      S3_BUCKET_UPLOADS: udemy-uploads
+      S3_BUCKET_MEDIA: udemy-media
+      # Paths and port are also baked into the image; repeated here so this file is the full picture.
+      TRANSCODER_FFMPEG_PATH: /usr/bin/ffmpeg
+      TRANSCODER_FFPROBE_PATH: /usr/bin/ffprobe
+      TRANSCODER_TMP_DIR: /tmp/transcoder
+      TRANSCODER_HEALTH_PORT: 4002
+      TRANSCODER_CONCURRENCY: 1
+      TRANSCODER_THREADS: 1
+      TRANSCODER_MAX_HEIGHT: 720
+      # Every other TRANSCODER_* knob uses the app default (see .env.example).
+    volumes:
+      - transcoder-tmp:/tmp/transcoder
+    # Health port is not published (it would clash with a host-run transcoder on 4002); the image's
+    # HEALTHCHECK probes /health/live from inside. Check: docker compose ... ps transcoder
+
   # ------------------------------------------------------------------- Mailpit
   mailpit:
     image: axllent/mailpit:v1.31.4
@@ -248,3 +311,6 @@ volumes:
   redis-data:
   minio-data:
   mailpit-data:
+  # Scratch space of the transcoder (source download + ffmpeg outputs, wiped per job by the app).
+  # On disk, not tmpfs: a tmpfs would count against the 768m memory cap.
+  transcoder-tmp:

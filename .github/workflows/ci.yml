@@ -7,6 +7,11 @@
 # re-run alone; and only `test` carries the service containers. The cost is the ~1 min setup per
 # job, mostly a cached `pnpm install`. Turbo's `^build` dependencies come from each job's cache.
 #
+# Every workspace package (pnpm-workspace.yaml: apps/*, packages/*) that has the script is covered
+# by `turbo run <task>` with no list to maintain, so apps/transcoder (Phase 2) is linted,
+# typechecked, tested and built here as soon as its package.json exists. Its tests generate their
+# fixtures with `ffmpeg -f lavfi`, hence the ffmpeg step in `test`.
+#
 # The full-stack Playwright run lives in e2e.yml and the Docker images in images.yml.
 name: CI
 
@@ -109,6 +114,11 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           turbo-cache: test
+
+      # apps/transcoder tests run the real ffprobe/ffmpeg (lavfi-generated fixtures, no binaries in
+      # git). Fails the job if the runner's ffmpeg is older than 6.
+      - name: ffmpeg (>= 6)
+        uses: ./.github/actions/ffmpeg
 
       # Random per run, masked in the logs, never stored. Assign first, then write: a failing
       # command inside `export X="$(cmd)"` would be hidden and export an empty value.

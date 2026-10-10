@@ -73,7 +73,7 @@ describe('me / profile responses', () => {
       displayName: 'Jane',
       emailVerified: true,
       roles: ['STUDENT'],
-      permissions: ['course:create'],
+      permissions: ['course:delete:any'],
       app: 'student',
       profile: { headline: null, bio: null, avatarUrl: null },
     };

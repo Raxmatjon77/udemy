@@ -29,6 +29,10 @@ SEVEN_DAYS_MS=604800000
 # Topic names are the outbox `aggregate_type` values (Debezium routes by it), see
 # docs/phase-1-identity-access-design.md §7. Topics carrying PII (email addresses) keep
 # 7 days of data; their DLQs hold the same payloads, so they get the same retention.
+#
+# Phase 2 (docs/phase-2-catalog-media-design.md §7): catalog.course and media.asset carry no PII
+# (ids, titles, reasons only), so they and their DLQs use the broker-default retention ("-").
+# Key = aggregateId, so 3 partitions keep events ordered per course / per asset.
 # ============================================================================================
 TOPICS="
 identity.user                       3 retention.ms=${SEVEN_DAYS_MS},cleanup.policy=delete
@@ -37,6 +41,10 @@ users.instructor_application        3 retention.ms=${SEVEN_DAYS_MS},cleanup.poli
 users.instructor_application.dlq    3 retention.ms=${SEVEN_DAYS_MS},cleanup.policy=delete
 access.user_role                    3 retention.ms=${SEVEN_DAYS_MS},cleanup.policy=delete
 access.user_role.dlq                3 retention.ms=${SEVEN_DAYS_MS},cleanup.policy=delete
+catalog.course                      3 -
+catalog.course.dlq                  3 -
+media.asset                         3 -
+media.asset.dlq                     3 -
 system.ping                         3 -
 "
 

@@ -1,0 +1,44 @@
+name: Install ffmpeg
+description: >-
+  ffmpeg + ffprobe from the runner's Ubuntu archive (ubuntu-24.04 / noble: 7:6.1.1-3ubuntu5), then
+  asserts that both report at least `min-major`. The transcoder tests and the e2e transcoder need a
+  real ffmpeg; the production image pins its own (apps/transcoder/Dockerfile, Alpine 8.1.2-r0), so
+  the minimum here is the oldest version the transcoder's ffmpeg arguments must support.
+
+inputs:
+  min-major:
+    description: Minimum major version of ffmpeg and ffprobe.
+    required: false
+    default: '6'
+
+outputs:
+  version:
+    description: The installed ffmpeg version string, e.g. 6.1.1-3ubuntu5.
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ffmpeg and assert its version
+      id: install
+      shell: bash
+      env:
+        MIN_MAJOR: ${{ inputs.min-major }}
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null
+        for bin in ffmpeg ffprobe; do
+          # Captured first: piping `-version` into `head` could SIGPIPE ffmpeg under pipefail.
+          out="$("$bin" -hide_banner -version)"
+          first="${out%%$'\n'*}"              # "ffmpeg version 6.1.1-3ubuntu5 Copyright ..."
+          version="$(awk '{print $3}' <<< "$first")"
+          major="${version%%.*}"
+          if ! [[ "$major" =~ ^[0-9]+$ ]] || (( major < MIN_MAJOR )); then
+            echo "::error::${bin} ${version} found; the transcoder needs ${bin} >= ${MIN_MAJOR}"
+            exit 1
+          fi
+          echo "${bin} ${version} ($(command -v "$bin"))"
+        done
+        echo "apt package: ffmpeg $(dpkg-query -W -f='${Version}' ffmpeg)"
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
