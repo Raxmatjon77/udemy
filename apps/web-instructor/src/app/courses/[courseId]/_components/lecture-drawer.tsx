@@ -23,24 +23,33 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@udemy/ui/components/dialog';
-import { HlsPlayer } from '@udemy/ui/components/hls-player';
 import { Input } from '@udemy/ui/components/input';
 import { Label } from '@udemy/ui/components/label';
 import { Skeleton } from '@udemy/ui/components/skeleton';
 
+import { LecturePlayer } from '@/components/lecture-player';
 import { MarkdownEditor } from '@/components/markdown-editor';
 import { QueryError } from '@/components/query-error';
 import { SubmitButton } from '@/components/submit-button';
 import { UploadField } from '@/components/upload-field';
 import { catalogApi } from '@/lib/catalog-api';
 import { catalogKeys, isTerminal, useAssetStatus } from '@/lib/catalog-queries';
+import { startDownload } from '@/lib/download';
 import { formatBytes, formatDuration } from '@/lib/format';
 import { LECTURE_TYPE_LABELS, MEDIA_STATUS_LABELS } from '@/lib/labels';
 import { markdownIssues, type MarkdownIssueView } from '@/lib/markdown-issues';
-import { hasCode, problemMessage } from '@/lib/problem';
+import { hasCode, problemMessage, type MessageOverrides } from '@/lib/problem';
 import { friendlyZodError } from '@/lib/zod-messages';
 
 const PREVIEWABLE: ReadonlySet<string> = new Set(PREVIEWABLE_LECTURE_TYPES);
+
+/** Errors of `GET /courses/:c/lectures/:l/download` (working copy). */
+const DOWNLOAD_MESSAGES: MessageOverrides = {
+  [ErrorCode.MediaNotReady]:
+    'The file is not ready to download yet (it is still uploading or being checked). Try again in a moment.',
+  [ErrorCode.LectureTypeMismatch]: 'Only resource lectures have a file to download.',
+  [ErrorCode.LectureNotFound]: 'This lecture no longer exists. The curriculum was reloaded.',
+};
 
 function useRefreshCurriculum(courseId: string) {
   const queryClient = useQueryClient();
@@ -277,9 +286,12 @@ function MediaPanel({
     setDownloadError(null);
     try {
       const { url } = await catalogApi.download(courseId, lecture.id);
-      window.location.assign(url);
+      startDownload(url);
     } catch (error) {
-      setDownloadError(problemMessage(error));
+      setDownloadError(problemMessage(error, DOWNLOAD_MESSAGES));
+      if (hasCode(error, ErrorCode.LectureNotFound) || hasCode(error, ErrorCode.MediaNotReady)) {
+        refresh();
+      }
     }
   }
 
@@ -294,11 +306,16 @@ function MediaPanel({
       ) : null}
 
       {isVideo && current?.status === 'READY' ? (
-        <HlsPlayer
+        <LecturePlayer
           src={catalogApi.previewPlaylistUrl(courseId, lecture.id)}
           title={lecture.title}
           className="overflow-hidden rounded-md"
         />
+      ) : null}
+      {isVideo && current && !isTerminal(current.status) ? (
+        <p className="text-sm text-muted-foreground">
+          The preview player appears once the video is ready.
+        </p>
       ) : null}
       {!isVideo && current?.status === 'READY' ? (
         <div className="grid gap-1">

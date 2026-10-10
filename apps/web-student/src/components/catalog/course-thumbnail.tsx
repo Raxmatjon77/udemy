@@ -12,12 +12,15 @@ import { thumbnailPath } from '@/lib/catalog/format';
  * presigned MinIO URL). `unoptimized`: the Next image optimizer would have to fetch MinIO
  * itself (and need `remotePatterns`); the transcoder already produced the sized variants.
  *
- * Courses without a thumbnail answer 404; the image then falls back to a neutral placeholder.
- * The `complete && naturalWidth === 0` check catches an error that fired before hydration.
+ * `hasThumbnail === false` (contracts `CourseCard`/`CourseLanding.hasThumbnail`): the placeholder
+ * is rendered at once, without an image request. When the flag is absent (older API) the route is
+ * tried, and a 404 falls back to the same placeholder. The `complete && naturalWidth === 0` check
+ * catches an error that fired before hydration.
  */
 export function CourseThumbnail({
   courseId,
   title,
+  hasThumbnail,
   variant = 'w480',
   priority = false,
   className,
@@ -26,6 +29,8 @@ export function CourseThumbnail({
   courseId: string;
   /** Used for the placeholder only; the image itself is decorative next to the title. */
   title: string;
+  /** From the API; `false` skips the image request, `undefined` means unknown. */
+  hasThumbnail?: boolean | undefined;
   variant?: ThumbnailVariant;
   priority?: boolean;
   className?: string;
@@ -47,9 +52,10 @@ export function CourseThumbnail({
         className,
       )}
     >
-      {failed ? (
+      {failed || hasThumbnail === false ? (
         <span
           aria-hidden="true"
+          data-slot="thumbnail-placeholder"
           className="absolute inset-0 flex items-center justify-center p-4 text-center text-3xl font-semibold text-primary/40 select-none"
         >
           {initials(title)}

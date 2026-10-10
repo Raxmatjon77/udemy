@@ -23,7 +23,12 @@ export function CourseCard({
       data-testid="course-card"
       className="group relative flex h-full flex-col overflow-hidden rounded-lg border bg-card text-card-foreground shadow-xs transition-shadow focus-within:ring-[3px] focus-within:ring-ring/50 hover:shadow-md"
     >
-      <CourseThumbnail courseId={course.id} title={course.title} priority={priority} />
+      <CourseThumbnail
+        courseId={course.id}
+        title={course.title}
+        hasThumbnail={course.hasThumbnail}
+        priority={priority}
+      />
       <div className="flex flex-1 flex-col gap-2 p-4">
         <h3 className="line-clamp-2 leading-snug font-semibold">
           <Link

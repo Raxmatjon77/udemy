@@ -3,7 +3,9 @@ import { ErrorCode } from '@udemy/contracts';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it, vi } from 'vitest';
+import { useEffect } from 'react';
+import type { HlsPlayerError } from '@udemy/ui/components/hls-player';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ARTICLE_PREVIEW_ID,
@@ -17,13 +19,30 @@ import { renderWithQuery } from '@/test/render';
 
 import { CourseLandingView } from './course-landing';
 
+/** What the fake player reports on mount (a refused master playlist), or null. */
+const playerOutcome: { error: HlsPlayerError | null } = { error: null };
+beforeEach(() => {
+  playerOutcome.error = null;
+});
+
 // jsdom has no MediaSource/HLS; the player itself is tested in @udemy/ui. Assert what it gets.
 vi.mock('@udemy/ui/components/hls-player', () => ({
-  HlsPlayer: (props: { src: string; poster?: string; title: string }) => (
-    <div data-testid="hls-player" data-src={props.src} data-poster={props.poster}>
-      {props.title}
-    </div>
-  ),
+  HlsPlayer: function FakePlayer(props: {
+    src: string;
+    poster?: string;
+    title: string;
+    onError?: (error: HlsPlayerError) => void;
+  }) {
+    useEffect(() => {
+      if (playerOutcome.error) props.onError?.(playerOutcome.error);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount, like the player
+    }, []);
+    return (
+      <div data-testid="hls-player" data-src={props.src} data-poster={props.poster}>
+        {props.title}
+      </div>
+    );
+  },
 }));
 
 const server = setupMswServer();
@@ -156,6 +175,84 @@ describe('preview modal', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('requests no poster when the course has no thumbnail', async () => {
+    const user = userEvent.setup();
+    renderWithQuery(<CourseLandingView landing={courseLanding({ hasThumbnail: false })} />);
+    // The sidebar shows the placeholder without an image request.
+    expect(document.querySelector('[data-slot="course-thumbnail"] img')).toBeNull();
+    expect(document.querySelector('[data-slot="thumbnail-placeholder"]')).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /^Welcome/ }));
+    const player = within(await screen.findByRole('dialog')).getByTestId('hls-player');
+    expect(player.hasAttribute('data-poster')).toBe(false);
+  });
+
+  it('renders the thumbnail image when the API says there is one', () => {
+    renderWithQuery(<CourseLandingView landing={courseLanding({ hasThumbnail: true })} />);
+    const img = document.querySelector('[data-slot="course-thumbnail"] img')!;
+    const src = new URL(img.getAttribute('src')!, 'http://localhost:3000');
+    expect(`${src.pathname}${src.search}`).toBe(
+      `/media/course-thumbnail/${COURSE_ID}?variant=w750`,
+    );
+  });
+
+  it('explains a 403 lecture_locked playlist instead of a generic player error', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(
+        `${PROXY}/catalog/courses/${COURSE_ID}/lectures/${VIDEO_PREVIEW_ID}/hls/master.m3u8`,
+        () =>
+          HttpResponse.json(
+            { type: 'about:blank', title: 'Forbidden', status: 403, code: ErrorCode.LectureLocked },
+            { status: 403, headers: { 'content-type': 'application/problem+json' } },
+          ),
+      ),
+    );
+    playerOutcome.error = { reason: 'forbidden', httpStatus: 403 };
+    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    await user.click(screen.getByRole('button', { name: /^Welcome/ }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(within(dialog).getByTestId('playback-problem').textContent).toBe(
+        'This lecture is not available as a free preview.',
+      ),
+    );
+    expect(within(dialog).queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+
+  it('explains a 429 on the playlist with the Retry-After wait', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${PROXY}/catalog/courses/:courseId/lectures/:lectureId/hls/master.m3u8`, () =>
+        HttpResponse.json(
+          { type: 'about:blank', title: 'Too Many Requests', status: 429, code: 'rate_limited' },
+          {
+            status: 429,
+            headers: { 'content-type': 'application/problem+json', 'retry-after': '30' },
+          },
+        ),
+      ),
+    );
+    playerOutcome.error = { reason: 'network', httpStatus: 429 };
+    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    await user.click(screen.getByRole('button', { name: /^Welcome/ }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() =>
+      expect(within(dialog).getByTestId('playback-problem').textContent).toContain(
+        'Too many playback requests. Try again in 30 seconds.',
+      ),
+    );
+    expect(
+      (within(dialog).getByRole('button', { name: 'Try again' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('offers no preview (and no download) for a RESOURCE lecture', () => {
+    renderWithQuery(<CourseLandingView landing={courseLanding()} />);
+    expect(screen.queryByRole('button', { name: /^Cheat sheet/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
   });
 
   it('explains a locked article instead of failing', async () => {

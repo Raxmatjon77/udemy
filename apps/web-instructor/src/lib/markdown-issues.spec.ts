@@ -1,9 +1,42 @@
 import { describe, expect, it } from 'vitest';
+import { MarkdownNotAllowedProblemSchema } from '@udemy/contracts';
 import { ProxyFetchError } from '@udemy/web-auth/client';
 
 import { markdownIssues, offsetOf } from './markdown-issues';
 
-const markdownProblem = new ProxyFetchError(422, {
+/** A structured 422 exactly as the API sends it (parsed with the contracts schema). */
+const structured = MarkdownNotAllowedProblemSchema.parse({
+  type: 'about:blank',
+  title: 'Unprocessable Entity',
+  status: 422,
+  code: 'markdown_not_allowed',
+  // The generic field errors stay in the body; the structured `issues` win.
+  errors: [
+    { path: 'bodyMd', message: 'Raw HTML is not allowed.' },
+    { path: 'descriptionMd', message: 'Images are not allowed.' },
+  ],
+  issues: [
+    {
+      path: 'bodyMd',
+      line: 3,
+      column: 5,
+      kind: 'raw_html',
+      construct: 'html_inline',
+      detail: 'Raw HTML is not allowed.',
+    },
+    {
+      path: 'descriptionMd',
+      line: 1,
+      column: 1,
+      kind: 'image',
+      construct: 'image',
+      detail: 'Images are not allowed.',
+    },
+  ],
+});
+
+/** A response from before the structured `issues` (positions only inside the message). */
+const legacy = new ProxyFetchError(422, {
   type: 'about:blank',
   title: 'Unprocessable',
   status: 422,
@@ -16,10 +49,38 @@ const markdownProblem = new ProxyFetchError(422, {
 });
 
 describe('markdownIssues', () => {
-  it('parses line and column from the api field errors of one field', () => {
-    expect(markdownIssues(markdownProblem, 'bodyMd')).toEqual([
-      { path: 'bodyMd', line: 3, column: 5, message: 'Raw HTML is not allowed (raw_html).' },
-      { path: 'bodyMd', line: null, column: null, message: 'Something without a position' },
+  it('uses the structured issues of one field (line, column, kind, construct, detail)', () => {
+    expect(markdownIssues(new ProxyFetchError(422, structured), 'bodyMd')).toEqual([
+      {
+        path: 'bodyMd',
+        line: 3,
+        column: 5,
+        kind: 'raw_html',
+        construct: 'html_inline',
+        message: 'Raw HTML is not allowed.',
+      },
+    ]);
+    expect(markdownIssues(new ProxyFetchError(422, structured))).toHaveLength(2);
+  });
+
+  it('falls back to parsing line and column from older field-error messages', () => {
+    expect(markdownIssues(legacy, 'bodyMd')).toEqual([
+      {
+        path: 'bodyMd',
+        line: 3,
+        column: 5,
+        kind: null,
+        construct: null,
+        message: 'Raw HTML is not allowed (raw_html).',
+      },
+      {
+        path: 'bodyMd',
+        line: null,
+        column: null,
+        kind: null,
+        construct: null,
+        message: 'Something without a position',
+      },
     ]);
   });
 

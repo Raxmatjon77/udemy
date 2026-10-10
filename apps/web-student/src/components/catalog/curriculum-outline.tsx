@@ -43,10 +43,13 @@ export function sectionTotals(section: LandingSection): { lectures: number; seco
 export function CurriculumOutline({
   courseId,
   courseTitle,
+  hasThumbnail,
   sections,
 }: {
   courseId: string;
   courseTitle: string;
+  /** `CourseLanding.hasThumbnail`: no poster request when false. */
+  hasThumbnail?: boolean | undefined;
   sections: readonly LandingSection[];
 }) {
   const [allOpen, setAllOpen] = useState<boolean | null>(null);
@@ -121,6 +124,7 @@ export function CurriculumOutline({
       <PreviewDialog
         courseId={courseId}
         courseTitle={courseTitle}
+        hasThumbnail={hasThumbnail}
         lecture={preview?.lecture ?? null}
         open={preview?.open ?? false}
         onOpenChange={(open) => setPreview((current) => (current ? { ...current, open } : null))}

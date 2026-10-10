@@ -110,6 +110,7 @@ export function CourseLandingView({ landing }: { landing: CourseLanding }) {
             <CurriculumOutline
               courseId={landing.id}
               courseTitle={landing.title}
+              hasThumbnail={landing.hasThumbnail}
               sections={landing.sections}
             />
           </section>
@@ -147,6 +148,7 @@ export function CourseLandingView({ landing }: { landing: CourseLanding }) {
             <CourseThumbnail
               courseId={landing.id}
               title={landing.title}
+              hasThumbnail={landing.hasThumbnail}
               variant="w750"
               priority
               sizes="(min-width: 1024px) 20rem, 100vw"

@@ -7,7 +7,7 @@ import { Button } from '@udemy/ui/components/button';
 
 import { UploadField } from '@/components/upload-field';
 import { catalogApi } from '@/lib/catalog-api';
-import { setCourseData, useAssetStatus } from '@/lib/catalog-queries';
+import { isTerminal, setCourseData, useAssetStatus } from '@/lib/catalog-queries';
 import { MEDIA_STATUS_LABELS } from '@/lib/labels';
 import { problemMessage } from '@/lib/problem';
 
@@ -15,9 +15,11 @@ import { problemMessage } from '@/lib/problem';
  * Course image: upload (COURSE_THUMBNAIL, re-encoded server-side to 16:9 JPEG), then
  * `PUT /courses/:id/thumbnail`. While it processes the status is polled.
  *
- * The preview shows the file chosen in this session (a local `blob:` URL; CSP `img-src` allows
- * it). Contract gap: there is no instructor endpoint for a signed URL of the working-copy
- * thumbnail, so a previously uploaded image is described, not shown.
+ * A READY image is shown through this app's signed-redirect route
+ * (`/media/course-thumbnail/{id}`, which calls `GET /courses/:id/thumbnail` with the owner's
+ * session). While it is uploading or processing (the API would answer 409 `media_not_ready`) no
+ * image is requested: the file chosen in this session is shown from a local `blob:` URL (CSP
+ * `img-src` allows it), otherwise the status. A failed image load falls back to the file name.
  */
 export function ThumbnailField({ course, readOnly }: { course: CourseDetail; readOnly: boolean }) {
   const queryClient = useQueryClient();
@@ -50,6 +52,11 @@ export function ThumbnailField({ course, readOnly }: { course: CourseDetail; rea
   });
 
   const current = asset.data ?? null;
+  const [brokenImage, setBrokenImage] = useState<string | null>(null);
+  const serverImage =
+    current?.status === 'READY' && brokenImage !== current.id
+      ? catalogApi.thumbnailImageUrl(course.id, current.id)
+      : null;
 
   return (
     <section aria-labelledby="thumbnail-heading" className="grid gap-4">
@@ -58,7 +65,17 @@ export function ThumbnailField({ course, readOnly }: { course: CourseDetail; rea
       </h3>
       <div className="grid gap-4 md:grid-cols-[16rem_1fr]">
         <div className="flex aspect-video items-center justify-center overflow-hidden rounded-md border bg-muted text-center text-xs text-muted-foreground">
-          {previewUrl ? (
+          {serverImage && current ? (
+            // A 302 to a short-lived presigned URL; next/image would have to fetch MinIO itself.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={serverImage}
+              alt="Current course image"
+              referrerPolicy="no-referrer"
+              className="h-full w-full object-cover"
+              onError={() => setBrokenImage(current.id)}
+            />
+          ) : previewUrl ? (
             // A local blob: preview; next/image cannot optimise it.
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -67,7 +84,14 @@ export function ThumbnailField({ course, readOnly }: { course: CourseDetail; rea
               className="h-full w-full object-cover"
             />
           ) : current ? (
-            <span className="px-3">{current.originalFilename}</span>
+            <span className="grid gap-1 px-3">
+              <span>{current.originalFilename}</span>
+              {current.status === 'READY' ? (
+                <span>The image could not be loaded.</span>
+              ) : !isTerminal(current.status) ? (
+                <span>The image appears here once it is processed.</span>
+              ) : null}
+            </span>
           ) : (
             <span className="px-3">No image yet</span>
           )}

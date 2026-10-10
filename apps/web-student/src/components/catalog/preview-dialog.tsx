@@ -11,10 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@udemy/ui/components/dialog';
-import { HlsPlayer } from '@udemy/ui/components/hls-player';
 import { Skeleton } from '@udemy/ui/components/skeleton';
 import type { RefObject } from 'react';
 
+import { LecturePlayer } from '@/components/lecture-player';
 import { catalogQueryKeys, fetchPreviewArticle } from '@/lib/catalog/client';
 import { previewPlaylistPath, thumbnailPath } from '@/lib/catalog/format';
 import { problemMessage } from '@/lib/problem';
@@ -28,6 +28,7 @@ import { problemMessage } from '@/lib/problem';
 export function PreviewDialog({
   courseId,
   courseTitle,
+  hasThumbnail,
   lecture,
   open,
   onOpenChange,
@@ -35,6 +36,8 @@ export function PreviewDialog({
 }: {
   courseId: string;
   courseTitle: string;
+  /** `CourseLanding.hasThumbnail`: the poster is only requested when not false. */
+  hasThumbnail?: boolean | undefined;
   /** The lecture to preview (kept while the dialog closes). */
   lecture: LandingLecture | null;
   open: boolean;
@@ -60,14 +63,16 @@ export function PreviewDialog({
             <DialogTitle>{lecture.title}</DialogTitle>
           </DialogHeader>
           {lecture.type === 'VIDEO' ? (
-            <HlsPlayer
+            <LecturePlayer
               src={previewPlaylistPath(courseId, lecture.id)}
-              poster={thumbnailPath(courseId, 'w750')}
+              poster={hasThumbnail === false ? undefined : thumbnailPath(courseId, 'w750')}
               title={lecture.title}
             />
           ) : lecture.type === 'ARTICLE' ? (
             <ArticlePreview courseId={courseId} lectureId={lecture.id} />
           ) : (
+            // RESOURCE lectures: a free preview never unlocks a download (P2-T11), so there is no
+            // download link here; `GET /catalog/.../download` answers 403 `lecture_locked`.
             <p className="text-sm text-muted-foreground">This lecture has no preview.</p>
           )}
         </DialogContent>

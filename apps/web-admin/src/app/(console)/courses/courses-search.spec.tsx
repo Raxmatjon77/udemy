@@ -19,7 +19,13 @@ const live = courseRow(1, {
   title: 'Live course',
   owner: { id: uuid(8001), displayName: 'Banned Bob', banned: true },
 });
-const archived = courseRow(2, { title: 'Archived course', status: 'ARCHIVED', badge: 'ARCHIVED' });
+const archived = courseRow(2, {
+  title: 'Archived course',
+  status: 'ARCHIVED',
+  badge: 'ARCHIVED',
+  archivedBy: { id: uuid(900), displayName: 'Mod Mary', isModerator: true },
+  archiveReason: 'Copyrighted material in section 2.',
+});
 const inReview = courseRow(3, {
   title: 'Draft in review',
   status: 'IN_REVIEW',
@@ -32,6 +38,24 @@ const inReview = courseRow(3, {
 const row = (title: string) => screen.getByText(title).closest('tr')!;
 
 describe('<CoursesSearch>', () => {
+  it('shows an owner archive, and nothing for an archived row from an older API', async () => {
+    const byOwner = courseRow(4, {
+      title: 'Retired course',
+      status: 'ARCHIVED',
+      badge: 'ARCHIVED',
+      archivedBy: { id: uuid(8004), displayName: 'Owner 4', isModerator: false },
+      archiveReason: null,
+    });
+    const legacy = courseRow(5, { title: 'Old archive', status: 'ARCHIVED', badge: 'ARCHIVED' });
+    mockApi({ 'GET /admin/courses': () => json(coursePage([byOwner, legacy])) });
+    renderWithClient(<CoursesSearch filters={{}} studentOrigin={ORIGIN} />);
+    const ownerRow = await screen.findByText('Retired course').then((el) => el.closest('tr')!);
+    expect(within(ownerRow).getByTestId('archive-info').textContent).toBe(
+      'Archived by Owner 4 (owner)',
+    );
+    expect(within(row('Old archive')).queryByTestId('archive-info')).toBeNull();
+  });
+
   it('shows status, the owner-banned flag, public and review links, and the right actions', async () => {
     mockApi({ 'GET /admin/courses': () => json(coursePage([live, archived, inReview])) });
     renderWithClient(<CoursesSearch filters={{}} studentOrigin={ORIGIN} />);
@@ -52,6 +76,14 @@ describe('<CoursesSearch>', () => {
     expect(
       within(archivedRow).getByRole('button', { name: 'Restore Archived course' }),
     ).toBeTruthy();
+
+    const archive = within(archivedRow).getByTestId('archive-info');
+    expect(archive.textContent).toBe(
+      'Taken down by Mod Mary (moderator)Reason: Copyrighted material in section 2.',
+    );
+    expect(within(archive).getByRole('link', { name: 'Mod Mary' }).getAttribute('href')).toBe(
+      `/users/${uuid(900)}`,
+    );
 
     const reviewRow = row('Draft in review');
     expect(

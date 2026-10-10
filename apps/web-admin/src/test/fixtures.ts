@@ -4,11 +4,13 @@ import {
   CategorySchema,
   CourseDetailSchema,
   ReviewQueuePageSchema,
+  RevisionLectureDownloadResponseSchema,
   RevisionReviewSchema,
   type AdminCategoryTreeResponse,
   type AdminCourseRow,
   type Category,
   type CourseDetail,
+  type RevisionLectureDownloadResponse,
   type ReviewQueueItem,
   type RevisionReview,
 } from '@udemy/contracts';
@@ -90,8 +92,11 @@ export function revisionReview(
     version?: number;
     ownerId?: string;
     pendingRevisionId?: string | null;
+    /** A diff from before `fieldChanges` / removed-lecture sections / category parents. */
+    legacy?: boolean;
   } = {},
 ): RevisionReview {
+  const legacy = overrides.legacy ?? false;
   const kind = overrides.kind ?? 'UPDATE';
   const ownerId = overrides.ownerId ?? OWNER_ID;
   const base = kind === 'UPDATE' ? LIVE_REVISION_ID : null;
@@ -118,7 +123,12 @@ export function revisionReview(
       descriptionMd: 'Learn **TypeScript** properly.\n\n## What is inside\n\n- Types\n- Generics',
       language: 'en',
       level: 'BEGINNER',
-      category: { id: uuid(601), slug: 'web-development', name: 'Web development' },
+      category: {
+        id: uuid(601),
+        slug: 'web-development',
+        name: 'Web development',
+        ...(legacy ? {} : { parent: { id: uuid(600), slug: 'development', name: 'Development' } }),
+      },
       thumbnailAssetId: ASSET_THUMB,
       outcomes: ['Write typed code', 'Use generics', 'Configure tsc', 'Read compiler errors'],
       requirements: ['Basic JavaScript'],
@@ -196,7 +206,30 @@ export function revisionReview(
       kind === 'UPDATE'
         ? {
             baseRevisionId: base,
-            changedFields: ['title', 'descriptionMd'],
+            changedFields: ['title', 'descriptionMd', 'outcomes'],
+            ...(legacy
+              ? {}
+              : {
+                  fieldChanges: [
+                    { field: 'title', before: 'TypeScript basics', after: 'TypeScript from zero' },
+                    {
+                      field: 'descriptionMd',
+                      before: 'Learn *TypeScript*.',
+                      after:
+                        'Learn **TypeScript** properly.\n\n## What is inside\n\n- Types\n- Generics',
+                    },
+                    {
+                      field: 'outcomes',
+                      before: ['Write typed code'],
+                      after: [
+                        'Write typed code',
+                        'Use generics',
+                        'Configure tsc',
+                        'Read compiler errors',
+                      ],
+                    },
+                  ],
+                }),
             sections: {
               added: [SECTION_2],
               removed: [{ id: uuid(399), title: 'Old appendix' }],
@@ -205,7 +238,14 @@ export function revisionReview(
             },
             lectures: {
               added: [LECTURE_RESOURCE],
-              removed: [{ id: uuid(499), title: 'Outdated setup guide', type: 'ARTICLE' }],
+              removed: [
+                {
+                  id: uuid(499),
+                  title: 'Outdated setup guide',
+                  type: 'ARTICLE',
+                  ...(legacy ? {} : { sectionId: uuid(399), sectionTitle: 'Old appendix' }),
+                },
+              ],
               changed: [LECTURE_VIDEO],
               moved: [LECTURE_MOVED],
             },
@@ -347,5 +387,16 @@ export function category(overrides: Partial<Category> & Pick<Category, 'id' | 'n
     position: 0,
     isActive: true,
     ...overrides,
+  });
+}
+
+/** The media host of the test env (vitest.config `MEDIA_PUBLIC_ORIGIN`). */
+export const MEDIA_ORIGIN = 'http://127.0.0.1:9000';
+
+/** A presigned URL response (`SignedUrl`), valid for `seconds`. */
+export function signedUrl(key: string, seconds = 300): RevisionLectureDownloadResponse {
+  return RevisionLectureDownloadResponseSchema.parse({
+    url: `${MEDIA_ORIGIN}/udemy-media/${key}?X-Amz-Signature=abc`,
+    expiresAt: new Date(Date.now() + seconds * 1000).toISOString(),
   });
 }

@@ -4,13 +4,18 @@ import {
   CourseDetailSchema,
   CourseHistoryResponseSchema,
   CurriculumSchema,
+  LectureDownloadResponseSchema,
   LectureSchema,
+  MarkdownNotAllowedProblemSchema,
   type AssetView,
   type CategoryTreeResponse,
   type CourseDetail,
   type CourseHistoryResponse,
   type Curriculum,
   type Lecture,
+  type LectureDownloadResponse,
+  type MarkdownIssue,
+  type MarkdownNotAllowedProblem,
 } from '@udemy/contracts';
 
 /*
@@ -193,5 +198,29 @@ export function history(): CourseHistoryResponse {
         occurredAt: NOW,
       },
     ],
+  });
+}
+
+/** The media host of the test env (vitest.config `MEDIA_PUBLIC_ORIGIN`). */
+export const MEDIA_ORIGIN = 'http://127.0.0.1:9000';
+
+/** A presigned URL response (`SignedUrl`), valid for `seconds`. */
+export function signedUrl(key: string, seconds = 300): LectureDownloadResponse {
+  return LectureDownloadResponseSchema.parse({
+    url: `${MEDIA_ORIGIN}/udemy-media/${key}?X-Amz-Signature=abc`,
+    expiresAt: new Date(Date.now() + seconds * 1000).toISOString(),
+  });
+}
+
+/** A structured 422 `markdown_not_allowed` body, as the API sends it. */
+export function markdownNotAllowed(issues: MarkdownIssue[]): MarkdownNotAllowedProblem {
+  return MarkdownNotAllowedProblemSchema.parse({
+    type: 'about:blank',
+    title: 'Unprocessable Entity',
+    status: 422,
+    code: 'markdown_not_allowed',
+    detail: 'The markdown contains constructs that are not allowed.',
+    errors: issues.map((issue) => ({ path: issue.path, message: issue.detail })),
+    issues,
   });
 }

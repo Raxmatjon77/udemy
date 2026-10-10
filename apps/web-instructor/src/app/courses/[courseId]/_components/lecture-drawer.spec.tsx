@@ -6,11 +6,14 @@ import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { ArticleSchema, MEDIA_FAILURE_LABELS, SaveArticleRequestSchema } from '@udemy/contracts';
 
-import { asset, IDS, lecture } from '@/test/fixtures';
+import { asset, IDS, lecture, markdownNotAllowed, signedUrl } from '@/test/fixtures';
 import { problem, proxy, server, setupMockApi } from '@/test/msw';
 import { renderWithClient } from '@/test/render';
 
 import { ArticleForm, LectureDrawer } from './lecture-drawer';
+
+const startDownload = vi.fn();
+vi.mock('@/lib/download', () => ({ startDownload: (url: string) => startDownload(url) }));
 
 // The player loads hls.js on mount; not needed for these specs.
 vi.mock('@udemy/ui/components/hls-player', () => ({
@@ -29,12 +32,27 @@ describe('article editor', () => {
         proxy(`/courses/${IDS.course}/lectures/${IDS.lecture2}/article`),
         async ({ request }) => {
           sent = SaveArticleRequestSchema.parse(await request.json());
-          return problem(422, 'markdown_not_allowed', {
-            errors: [
-              { path: 'bodyMd', message: 'Line 3, column 1: Raw HTML is not allowed (raw_html).' },
-              { path: 'bodyMd', message: 'Line 5, column 3: Images are not allowed (image).' },
-            ],
-          });
+          return HttpResponse.json(
+            markdownNotAllowed([
+              {
+                path: 'bodyMd',
+                line: 3,
+                column: 1,
+                kind: 'raw_html',
+                construct: 'html_inline',
+                detail: 'Raw HTML is not allowed.',
+              },
+              {
+                path: 'bodyMd',
+                line: 5,
+                column: 3,
+                kind: 'image',
+                construct: 'image',
+                detail: 'Images are not allowed.',
+              },
+            ]),
+            { status: 422, headers: { 'content-type': 'application/problem+json' } },
+          );
         },
       ),
       http.get(
@@ -61,8 +79,8 @@ describe('article editor', () => {
     expect(await screen.findByText('Some formatting is not allowed')).toBeTruthy();
     expect(sent).toEqual({ bodyMd: '# Intro\n\nHello\n<b>x</b>' });
     const issues = screen.getByRole('list', { name: 'Formatting problems' });
-    expect(issues.textContent).toContain('Line 3, column 1: Raw HTML is not allowed (raw_html).');
-    expect(issues.textContent).toContain('Line 5, column 3: Images are not allowed (image).');
+    expect(issues.textContent).toContain('Line 3, column 1: Raw HTML is not allowed.');
+    expect(issues.textContent).toContain('Line 5, column 3: Images are not allowed.');
     expect(textarea.getAttribute('aria-invalid')).toBe('true');
 
     await user.click(screen.getByRole('button', { name: 'Line 3, column 1' }));
@@ -186,5 +204,103 @@ describe('video lecture', () => {
         (screen.getByRole('checkbox', { name: 'Free preview' }) as HTMLInputElement).disabled,
       ).toBe(false),
     );
+  });
+});
+
+describe('resource lecture', () => {
+  const resource = (status: 'READY' | 'PROCESSING' = 'READY') =>
+    lecture({
+      id: IDS.lecture3,
+      sectionId: IDS.sectionB,
+      position: 0,
+      title: 'Cheat sheet',
+      type: 'RESOURCE',
+      mediaAssetId: IDS.asset,
+      asset: asset({
+        purpose: 'LECTURE_RESOURCE',
+        status,
+        originalFilename: 'cheatsheet.pdf',
+        durationSeconds: null,
+        width: null,
+        height: null,
+        renditions: [],
+        progressPct: status === 'PROCESSING' ? 50 : null,
+      }),
+    });
+
+  it('downloads the working-copy file through GET /courses/:c/lectures/:l/download', async () => {
+    startDownload.mockReset();
+    const file = signedUrl('res/cheatsheet.pdf');
+    server.use(
+      http.get(proxy(`/courses/${IDS.course}/lectures/${IDS.lecture3}/download`), () =>
+        HttpResponse.json(file),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithClient(
+      <LectureDrawer
+        courseId={IDS.course}
+        readOnly={false}
+        onClose={() => {}}
+        lecture={resource()}
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Download file' }));
+    await waitFor(() => expect(startDownload).toHaveBeenCalledWith(file.url));
+  });
+
+  it('explains 409 media_not_ready instead of downloading', async () => {
+    startDownload.mockReset();
+    server.use(
+      http.get(proxy(`/courses/${IDS.course}/lectures/${IDS.lecture3}/download`), () =>
+        problem(409, 'media_not_ready'),
+      ),
+      http.get(
+        proxy(`/courses/${IDS.course}/curriculum`),
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+      http.get(proxy(`/courses/${IDS.course}`), () => new HttpResponse(null, { status: 500 })),
+    );
+    const user = userEvent.setup();
+    renderWithClient(
+      <LectureDrawer
+        courseId={IDS.course}
+        readOnly={false}
+        onClose={() => {}}
+        lecture={resource()}
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Download file' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/not ready to download yet/);
+    expect(startDownload).not.toHaveBeenCalled();
+  });
+
+  it('offers no download while the file is still processing', async () => {
+    server.use(
+      http.get(proxy(`/media/assets/${IDS.asset}`), () =>
+        HttpResponse.json(
+          asset({
+            purpose: 'LECTURE_RESOURCE',
+            status: 'PROCESSING',
+            originalFilename: 'cheatsheet.pdf',
+            durationSeconds: null,
+            width: null,
+            height: null,
+            renditions: [],
+            progressPct: 50,
+          }),
+        ),
+      ),
+    );
+    renderWithClient(
+      <LectureDrawer
+        courseId={IDS.course}
+        readOnly={false}
+        onClose={() => {}}
+        lecture={resource('PROCESSING')}
+      />,
+    );
+    expect(await screen.findByLabelText('Processing progress')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Download file' })).toBeNull();
   });
 });

@@ -5,10 +5,10 @@ import {
   CourseDetailSchema,
   CourseHistoryResponseSchema,
   CurriculumSchema,
+  LectureDownloadResponseSchema,
   LectureSchema,
   MyCoursePageSchema,
   SectionSchema,
-  SignedUrlSchema,
   SubmitCourseResponseSchema,
   type Article,
   type AssetView,
@@ -26,6 +26,7 @@ import {
   type Section,
   type SignedUrl,
   type SubmitCourseRequest,
+  type ThumbnailVariant,
   type SubmitCourseResponse,
   type UpdateCourseRequest,
   type UpdateLectureRequest,
@@ -72,6 +73,13 @@ export const catalogApi = {
     }),
   clearThumbnail: (courseId: string): Promise<CourseDetail> =>
     api(`${course(courseId)}/thumbnail`, { method: 'DELETE', schema: CourseDetailSchema }),
+  /**
+   * Same-origin image URL of the working-copy thumbnail (app/media/course-thumbnail, a 302 to a
+   * presigned URL from `GET /courses/:id/thumbnail`). `assetId` is a cache key: a replaced image
+   * gets a new URL, so a cached redirect never shows the old one.
+   */
+  thumbnailImageUrl: (courseId: string, assetId: string, variant: ThumbnailVariant = 'w480') =>
+    `/media/course-thumbnail/${enc(courseId)}?variant=${variant}&v=${enc(assetId)}`,
 
   /* ---- curriculum ---- */
   curriculum: (courseId: string): Promise<Curriculum> =>
@@ -122,8 +130,9 @@ export const catalogApi = {
     }),
   detachMedia: (courseId: string, lectureId: string): Promise<Lecture> =>
     api(`${lecture(courseId, lectureId)}/media`, { method: 'DELETE', schema: LectureSchema }),
+  /** `GET /courses/:c/lectures/:l/download` (working copy, owner or admin): 409 while not READY. */
   download: (courseId: string, lectureId: string): Promise<SignedUrl> =>
-    api(`${lecture(courseId, lectureId)}/download`, { schema: SignedUrlSchema }),
+    api(`${lecture(courseId, lectureId)}/download`, { schema: LectureDownloadResponseSchema }),
   /** Same-origin master playlist of the instructor's own (working-copy) lecture video. */
   previewPlaylistUrl: (courseId: string, lectureId: string): string =>
     `/api/proxy${lecture(courseId, lectureId)}/preview/hls/master.m3u8`,

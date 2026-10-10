@@ -19,5 +19,18 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.spec.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
+    // The server env the BFF config reads (src/lib/env.ts) for route-handler specs; fake hosts,
+    // MSW answers for them.
+    env: {
+      API_INTERNAL_URL: 'http://api.test',
+      API_CLIENT_ID: 'admin-bff',
+      API_CLIENT_SECRET: 'test-secret',
+      APP_ORIGIN: 'http://localhost:3002',
+      JWT_ISSUER: 'http://api.test',
+      JWT_AUDIENCE: 'udemy-api',
+      JWKS_URL: 'http://api.test/.well-known/jwks.json',
+      COOKIE_SECURE: 'true',
+      MEDIA_PUBLIC_ORIGIN: 'http://127.0.0.1:9000',
+    },
   },
 });

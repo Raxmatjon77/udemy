@@ -187,6 +187,34 @@ function CourseActions({
   return null;
 }
 
+/** Who archived the course (owner or a moderator's takedown) and why (optional in contracts). */
+function ArchiveInfo({ course }: { course: AdminCourseRow }) {
+  const { archivedBy, archiveReason } = course;
+  if (!archivedBy && !archiveReason) return null;
+  return (
+    <div className="grid max-w-64 gap-0.5 text-xs text-muted-foreground" data-testid="archive-info">
+      {archivedBy ? (
+        <span>
+          {archivedBy.isModerator ? 'Taken down by ' : 'Archived by '}
+          {archivedBy.id ? (
+            <Link href={`/users/${archivedBy.id}`} className="underline-offset-4 hover:underline">
+              {archivedBy.displayName}
+            </Link>
+          ) : (
+            archivedBy.displayName
+          )}
+          {archivedBy.isModerator ? ' (moderator)' : ' (owner)'}
+        </span>
+      ) : null}
+      {archiveReason ? (
+        <span className="line-clamp-3 break-words" title={archiveReason}>
+          Reason: {archiveReason}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function Results({
   filters,
   studentOrigin,
@@ -307,6 +335,7 @@ function Results({
                           First published {formatDate(course.firstPublishedAt)}
                         </span>
                       ) : null}
+                      {course.status === 'ARCHIVED' ? <ArchiveInfo course={course} /> : null}
                     </div>
                   </TableCell>
                   <TableCell>

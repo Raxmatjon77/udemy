@@ -1,14 +1,25 @@
 'use client';
 
 import { useId, useState } from 'react';
-import type { AssetView, RevisionDiff, RevisionLecture, RevisionSection } from '@udemy/contracts';
+import { useMutation } from '@tanstack/react-query';
+import {
+  ErrorCode,
+  RevisionLectureDownloadResponseSchema,
+  type AssetView,
+  type RevisionDiff,
+  type RevisionLecture,
+  type RevisionSection,
+} from '@udemy/contracts';
 import { MarkdownView } from '@udemy/markdown/react';
 import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
-import { HlsPlayer } from '@udemy/ui/components/hls-player';
 
+import { LecturePlayer } from '@/components/lecture-player';
+import { api } from '@/lib/api';
+import { startDownload } from '@/lib/download';
 import { formatDuration, formatTotalDuration } from '@/lib/format';
 import { LECTURE_TYPE_LABEL, MEDIA_STATUS_LABEL } from '@/lib/labels';
+import { problemMessage, type MessageOverrides } from '@/lib/problem';
 
 import { ChangeBadges } from './change-badges';
 import type { DiffIndex } from './revision-diff';
@@ -16,6 +27,59 @@ import type { DiffIndex } from './revision-diff';
 /** Admin playback of a lecture inside a revision under review (design §8). */
 export function revisionPlaylistUrl(revisionId: string, lectureId: string): string {
   return `/api/proxy/admin/course-revisions/${encodeURIComponent(revisionId)}/lectures/${encodeURIComponent(lectureId)}/hls/master.m3u8`;
+}
+
+/** `GET /admin/course-revisions/:rid/lectures/:lid/download` (a RESOURCE file of the revision). */
+export function revisionDownloadPath(revisionId: string, lectureId: string): string {
+  return `/admin/course-revisions/${encodeURIComponent(revisionId)}/lectures/${encodeURIComponent(lectureId)}/download`;
+}
+
+const DOWNLOAD_MESSAGES: MessageOverrides = {
+  [ErrorCode.MediaNotReady]: 'This file is not ready to download (it is still being processed).',
+  [ErrorCode.LectureTypeMismatch]: 'Only resource lectures have a file to download.',
+  [ErrorCode.NotFound]: 'This file is not part of the revision any more (it may have been purged).',
+  [ErrorCode.LectureNotFound]: 'This lecture is not part of this revision.',
+  [ErrorCode.Forbidden]: 'You do not have permission to download files of courses under review.',
+};
+
+function ResourceDownload({
+  revisionId,
+  lecture,
+  asset,
+}: {
+  revisionId: string;
+  lecture: RevisionLecture;
+  asset: AssetView;
+}) {
+  const download = useMutation({
+    mutationFn: () =>
+      api(revisionDownloadPath(revisionId, lecture.id), {
+        schema: RevisionLectureDownloadResponseSchema,
+      }),
+    onSuccess: ({ url }) => startDownload(url),
+  });
+  const ready = asset.status === 'READY' && !asset.purged;
+  return (
+    <div className="grid gap-2">
+      <div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!ready || download.isPending}
+          onClick={() => download.mutate()}
+          aria-label={`Download ${asset.originalFilename}`}
+        >
+          {download.isPending ? 'Preparing download…' : 'Download file'}
+        </Button>
+      </div>
+      {download.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {problemMessage(download.error, DOWNLOAD_MESSAGES)}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function formatBytes(bytes: number): string {
@@ -70,7 +134,7 @@ function LecturePreview({
     media = <p className="text-sm text-muted-foreground">No file attached.</p>;
   } else if (lecture.type === 'VIDEO' && asset.status === 'READY') {
     media = (
-      <HlsPlayer
+      <LecturePlayer
         src={revisionPlaylistUrl(revisionId, lecture.id)}
         title={lecture.title}
         className="max-w-2xl"
@@ -85,10 +149,16 @@ function LecturePreview({
     );
   } else {
     media = (
-      <p className="text-sm text-muted-foreground">
-        File: <span className="font-medium text-foreground">{asset.originalFilename}</span> (
-        {formatBytes(asset.sizeBytes)}, {MEDIA_STATUS_LABEL[asset.status].toLowerCase()})
-      </p>
+      <div className="grid gap-2">
+        <p className="text-sm text-muted-foreground">
+          File: <span className="font-medium text-foreground">{asset.originalFilename}</span> (
+          {formatBytes(asset.sizeBytes)}, {MEDIA_STATUS_LABEL[asset.status].toLowerCase()}
+          {asset.purged ? ', purged' : ''})
+        </p>
+        {lecture.type === 'RESOURCE' ? (
+          <ResourceDownload revisionId={revisionId} lecture={lecture} asset={asset} />
+        ) : null}
+      </div>
     );
   }
 
@@ -263,6 +333,9 @@ export function RemovedItems({ diff }: { diff: RevisionDiff }) {
                 <Badge variant="destructive">Removed</Badge>
                 <span className="line-through decoration-destructive/60">{lecture.title}</span>
                 <Badge variant="outline">{LECTURE_TYPE_LABEL[lecture.type]}</Badge>
+                {lecture.sectionTitle ? (
+                  <span className="text-muted-foreground">in section “{lecture.sectionTitle}”</span>
+                ) : null}
               </li>
             ))}
           </ul>

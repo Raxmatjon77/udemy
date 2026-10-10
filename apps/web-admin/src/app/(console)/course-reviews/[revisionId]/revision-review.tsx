@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   COURSE_LANGUAGE_LABELS,
   COURSE_LEVEL_LABELS,
   RevisionReviewSchema,
   type AssetView,
+  type RevisionCategory,
   type RevisionDiffField,
   type RevisionReview as RevisionReviewData,
 } from '@udemy/contracts';
@@ -36,6 +37,7 @@ import { queryKeys } from '@/lib/queries';
 
 import { ChangeBadges } from './change-badges';
 import { CurriculumReview, RemovedItems } from './curriculum-review';
+import { FieldChanges } from './field-changes';
 import { ReviewDecision } from './review-decision';
 import { indexDiff, type DiffIndex } from './revision-diff';
 
@@ -73,19 +75,57 @@ function BulletList({ items, empty }: { items: string[]; empty: string }) {
   );
 }
 
-function Thumbnail({ asset, assetId }: { asset: AssetView | undefined; assetId: string | null }) {
+/** The revision's pinned thumbnail through the admin signed-redirect image route. */
+export function revisionThumbnailUrl(revisionId: string, variant: 'w480' | 'w750' = 'w480') {
+  return `/media/revision-thumbnail/${encodeURIComponent(revisionId)}?variant=${variant}`;
+}
+
+function Thumbnail({
+  revisionId,
+  asset,
+  assetId,
+}: {
+  revisionId: string;
+  asset: AssetView | undefined;
+  assetId: string | null;
+}) {
+  const [broken, setBroken] = useState(false);
   if (!assetId) return <>None</>;
   if (!asset) return <>Attached, but its details are unavailable.</>;
+  const showImage = asset.status === 'READY' && !asset.purged && !broken;
   return (
-    <span className="grid gap-1">
+    <span className="grid gap-2">
+      {showImage ? (
+        // A 302 to a short-lived presigned URL; next/image would have to fetch MinIO itself.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={revisionThumbnailUrl(revisionId)}
+          alt="Course image of this revision"
+          referrerPolicy="no-referrer"
+          className="aspect-video w-full max-w-xs rounded-md border object-cover"
+          onError={() => setBroken(true)}
+        />
+      ) : null}
       <span className="text-foreground">{asset.originalFilename}</span>
       <span>
         {MEDIA_STATUS_LABEL[asset.status]}
         {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ''}
         {asset.purged ? ' · purged' : ''}
       </span>
-      {/* No admin image route for a revision's thumbnail exists yet (contract gap, see report). */}
-      <span className="text-xs">Image preview is not available here yet.</span>
+      {broken ? <span className="text-xs">The image could not be loaded.</span> : null}
+    </span>
+  );
+}
+
+/** "Development › Web development" (the group is known for newer snapshots only). */
+function CategoryName({ category }: { category: RevisionCategory | null }) {
+  if (!category) return <>None</>;
+  return (
+    <span className="text-foreground">
+      {category.parent ? (
+        <span className="text-muted-foreground">{category.parent.name} › </span>
+      ) : null}
+      {category.name}
     </span>
   );
 }
@@ -116,7 +156,16 @@ function DiffSummary({ review, diff }: { review: RevisionReviewData; diff: DiffI
   const nonZero = counts.filter(([, n]) => n > 0);
   return (
     <div className="grid gap-4 text-sm">
-      {d.changedFields.length > 0 ? (
+      {d.fieldChanges && d.fieldChanges.length > 0 ? (
+        <div className="grid gap-2">
+          <h3 className="font-medium">Changed details</h3>
+          <FieldChanges
+            changes={d.fieldChanges}
+            revision={review.revision}
+            assets={new Map(review.assets.map((asset) => [asset.id, asset]))}
+          />
+        </div>
+      ) : d.changedFields.length > 0 ? (
         <div className="grid gap-1">
           <h3 className="font-medium">Changed details</h3>
           <ul className="flex flex-wrap gap-1" aria-label="Changed details">
@@ -223,7 +272,7 @@ export function RevisionReview({
                 </Field>
                 <div className="grid gap-5 sm:grid-cols-3">
                   <Field label="Category" field="categoryId" diff={diff}>
-                    {revision.category?.name ?? 'None'}
+                    <CategoryName category={revision.category} />
                   </Field>
                   <Field label="Language" field="language" diff={diff}>
                     {revision.language ? COURSE_LANGUAGE_LABELS[revision.language] : 'None'}
@@ -234,6 +283,7 @@ export function RevisionReview({
                 </div>
                 <Field label="Thumbnail" field="thumbnailAssetId" diff={diff}>
                   <Thumbnail
+                    revisionId={revision.id}
                     assetId={revision.thumbnailAssetId}
                     asset={
                       revision.thumbnailAssetId ? assets.get(revision.thumbnailAssetId) : undefined

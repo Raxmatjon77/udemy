@@ -50,11 +50,15 @@ export function courseDescription(landing: CourseLanding): string {
 export function courseMetadata(landing: CourseLanding, origin: string): Metadata {
   const url = courseUrl(origin, landing.slug);
   const description = courseDescription(landing);
-  const image = {
-    url: `${origin}${thumbnailPath(landing.id, 'w750')}`,
-    ...OG_IMAGE_SIZE,
-    alt: landing.title,
-  };
+  // No thumbnail (`hasThumbnail === false`): no image tags pointing at a 404.
+  const image =
+    landing.hasThumbnail === false
+      ? null
+      : {
+          url: `${origin}${thumbnailPath(landing.id, 'w750')}`,
+          ...OG_IMAGE_SIZE,
+          alt: landing.title,
+        };
   return {
     title: landing.title,
     description,
@@ -65,14 +69,14 @@ export function courseMetadata(landing: CourseLanding, origin: string): Metadata
       url,
       title: landing.title,
       description,
-      images: [image],
+      ...(image ? { images: [image] } : {}),
       ...(landing.language ? { locale: landing.language.replace('-', '_') } : {}),
     },
     twitter: {
-      card: 'summary_large_image',
+      card: image ? 'summary_large_image' : 'summary',
       title: landing.title,
       description,
-      images: [image.url],
+      ...(image ? { images: [image.url] } : {}),
     },
   };
 }
@@ -100,7 +104,9 @@ export function courseJsonLd(landing: CourseLanding, origin: string): Record<str
     url,
     name: landing.title,
     description: courseDescription(landing),
-    image: `${origin}${thumbnailPath(landing.id, 'w750')}`,
+    ...(landing.hasThumbnail === false
+      ? {}
+      : { image: `${origin}${thumbnailPath(landing.id, 'w750')}` }),
     provider: { '@type': 'Organization', name: SITE_NAME, sameAs: origin },
     datePublished: landing.publishedAt,
     dateModified: landing.lastUpdatedAt,
