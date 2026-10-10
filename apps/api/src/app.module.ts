@@ -5,12 +5,14 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { createConfigModule, DatabaseModule } from '@udemy/nest-common';
 import { AccessModule, PoliciesGuard } from './modules/access';
 import { CatalogModule } from './modules/catalog';
+import { CommerceModule } from './modules/commerce';
+import { EnrollmentEntitlements, EnrollmentModule } from './modules/enrollment';
 import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identity';
 import { MediaModule } from './modules/media';
 import { UsersModule } from './modules/users';
 import { AuthSupportModule } from './shared/auth';
 import { apiEnvSchema, AppConfigModule, ObjectStorageModule } from './shared/config';
-import { CourseEntitlementsModule, DenyAllCourseEntitlements } from './shared/entitlements';
+import { CourseEntitlementsModule } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
 import { createApiLoggerModule } from './shared/logging';
@@ -41,16 +43,21 @@ import { ValidationModule } from './shared/validation';
     ScheduleModule.forRoot(),
     AuthSupportModule,
     HealthModule,
-    // COURSE_ENTITLEMENTS (catalog asks "may this user watch this course?"). Phase 2 has no
-    // enrollments, so nobody is entitled; Phase 4 rebinds it here to the enrollment module:
-    // forRoot({ imports: [EnrollmentModule], useExisting: EnrollmentEntitlements }).
-    CourseEntitlementsModule.forRoot({ useClass: DenyAllCourseEntitlements }),
+    // COURSE_ENTITLEMENTS (catalog asks "may this user watch this course?"): an ACTIVE
+    // enrollment (Phase 4). Catalog injects only the global token, so EnrollmentModule may
+    // import CatalogModule without a cycle (EnrollmentEntitlements needs only its repository).
+    CourseEntitlementsModule.forRoot({
+      imports: [EnrollmentModule],
+      useExisting: EnrollmentEntitlements,
+    }),
     // Bounded contexts (src/modules/*), one import per module facade.
     AccessModule,
     IdentityModule,
     UsersModule,
     MediaModule,
     CatalogModule,
+    EnrollmentModule,
+    CommerceModule,
   ],
   providers: [
     // Global guards, in this exact order (design §1). Nest runs APP_GUARDs in registration

@@ -111,4 +111,38 @@ export const SECTION_8_PHASE_2: readonly Operation[] = [
   [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/download`, 'get'],
 ];
 
-export const SECTION_8: readonly Operation[] = [...SECTION_8_PHASE_1, ...SECTION_8_PHASE_2];
+/** Phase 4 commerce A (P4-T13); covered by modules/commerce/commerce.e2e.spec.ts. */
+export const SECTION_8_PHASE_4_COMMERCE_A: readonly Operation[] = [
+  [`${V1}/commerce/prices`, 'get'],
+  [`${V1}/me/cart`, 'get'],
+  [`${V1}/me/cart/items/{courseId}`, 'put'],
+  [`${V1}/me/cart/items/{courseId}`, 'delete'],
+  [`${V1}/me/cart/merge`, 'post'],
+  [`${V1}/me/cart/coupon`, 'put'],
+  [`${V1}/me/cart/coupon`, 'delete'],
+  [`${V1}/me/purchase-states`, 'get'],
+  [`${V1}/courses/{courseId}/pricing`, 'get'],
+  [`${V1}/courses/{courseId}/pricing`, 'put'],
+  [`${V1}/courses/{courseId}/coupons`, 'get'],
+  [`${V1}/courses/{courseId}/coupons`, 'post'],
+  [`${V1}/courses/{courseId}/coupons/{couponId}/deactivate`, 'post'],
+  [`${V1}/admin/coupons`, 'get'],
+  [`${V1}/admin/coupons`, 'post'],
+  [`${V1}/admin/coupons/{couponId}/deactivate`, 'post'],
+];
+
+/** Phase 4 enrollment (P4-T12); covered by modules/enrollment/enrollment.e2e.spec.ts. */
+export const SECTION_8_PHASE_4_ENROLLMENT: readonly Operation[] = [
+  [`${V1}/me/free-enrollments`, 'post'],
+  [`${V1}/me/enrollments`, 'get'],
+  [`${V1}/admin/users/{userId}/enrollments`, 'get'],
+  [`${V1}/admin/enrollments`, 'post'],
+  [`${V1}/admin/enrollments/{enrollmentId}/revoke`, 'post'],
+];
+
+export const SECTION_8: readonly Operation[] = [
+  ...SECTION_8_PHASE_1,
+  ...SECTION_8_PHASE_2,
+  ...SECTION_8_PHASE_4_COMMERCE_A,
+  ...SECTION_8_PHASE_4_ENROLLMENT,
+];

@@ -41,7 +41,12 @@ import {
   type SignedUpUser,
   useE2eApp,
 } from './testing/e2e/e2e-harness';
-import { type Operation, SECTION_8_PHASE_1, SECTION_8_PHASE_2 } from './testing/e2e/section-8';
+import {
+  type Operation,
+  SECTION_8,
+  SECTION_8_PHASE_1,
+  SECTION_8_PHASE_2,
+} from './testing/e2e/section-8';
 
 /*
  * P2-T18: the consolidated Phase 2 API sweep. Every Phase 2 task has its own e2e file
@@ -404,6 +409,9 @@ describe('Phase 2 API sweep (e2e: AppModule, Postgres, Redis, MinIO)', () => {
   describe('SECTION_8: the Phase 2 operations', () => {
     const phase1 = new Set(SECTION_8_PHASE_1.map(op));
     const phase2 = SECTION_8_PHASE_2.map(op).sort();
+    // Every other phase's operations (Phase 1 and Phase 4+), so later phases never break this
+    // check; endpoints.e2e.spec.ts compares the full SECTION_8.
+    const notPhase2 = new Set(SECTION_8.map(op).filter((o) => !phase2.includes(o)));
 
     it('has no duplicates and no overlap with Phase 1', () => {
       expect(new Set(phase2).size).toBe(phase2.length);
@@ -421,7 +429,7 @@ describe('Phase 2 API sweep (e2e: AppModule, Postgres, Redis, MinIO)', () => {
             .filter((m): m is HttpMethod => (METHODS as readonly string[]).includes(m))
             .map((method) => op([path, method])),
         )
-        .filter((o) => !phase1.has(o))
+        .filter((o) => !notPhase2.has(o))
         .sort();
       expect(documented).toEqual(phase2);
     });
@@ -431,7 +439,7 @@ describe('Phase 2 API sweep (e2e: AppModule, Postgres, Redis, MinIO)', () => {
       const served = expressRoutes(e2e.app.getHttpAdapter().getInstance())
         .filter(([path]) => path.startsWith(`${V1}/`) || path.startsWith('/.well-known/'))
         .map(op)
-        .filter((o) => !phase1.has(o));
+        .filter((o) => !notPhase2.has(o));
       expect([...new Set(served)].sort()).toEqual(phase2);
     });
   });
