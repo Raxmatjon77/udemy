@@ -1,0 +1,10 @@
+{
+  "extends": "@udemy/tsconfig/library.json",
+  "compilerOptions": {
+    // library.json is nodenext; with no "type" in package.json that emits CommonJS, like @udemy/db.
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

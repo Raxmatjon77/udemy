@@ -1,0 +1,48 @@
+{
+  "name": "@udemy/payments",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Payment provider port for @udemy/api commerce: the Stripe adapter (hosted Checkout, refunds), webhook signature verification and event normalization.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.mts",
+      "default": "./dist/testing/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@udemy/nest-common": "workspace:*",
+    "stripe": "23.0.0"
+  },
+  "peerDependencies": {
+    "vitest": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@udemy/eslint-config": "workspace:*",
+    "@udemy/tsconfig": "workspace:*",
+    "eslint": "10.12.0",
+    "typescript": "~6.0.3",
+    "vitest": "5.0.3"
+  }
+}

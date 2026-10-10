@@ -1055,3 +1055,11 @@ sequenceDiagram
 | Q6 Stripe in CI      | **Build `apps/stripe-emulator`** (D12) plus stripe-mock contract tests; optional live workflow when a secret exists.                                        |
 
 **Process rules for implementers (from Phases 1–2):** no wall-clock upper-bound assertions in tests (use CPU time, structural checks or lower bounds); run `pnpm format:check`; never kill processes you did not start; use the shared `pnpm install` lock; build frontends against contracts with mocks in parallel with the API.
+
+## 14. Amendments during implementation
+
+- **Stripe API version (P4-T4):** `stripe@23.0.0` pinned to `apiVersion 2026-09-30.endive`. That version removed `payment_method_types` from Checkout Session create (stripe-mock rejects it), so the adapter sends `allowed_payment_method_types: ['card']`. Cards only keeps payment synchronous ("completed means paid"); keep the `payment_status === 'paid'` guard. The emulator (P4-T5) must accept `allowed_payment_method_types` and reject `payment_method_types`.
+- **Webhook event shape:** `ProviderEvent.data` is a union keyed on Stripe's type names (`checkout.session.completed` / `expired`, `charge.refunded`, `refund.updated` / `refund.failed`, `charge.dispute.created`) plus `unhandled`, not the §3 `kind` names. **`charge.refunded` carries no refund ids** (charges stopped embedding refunds in 2022-11-15), so per-refund state comes from `refund.updated` / `refund.failed` with `metadata.refundId`.
+- **Webhook tolerance** rejects timestamps more than 300 s in the future as well as in the past. Currency is upper case in the port and lower case on the wire.
+- **API wiring (P4-T15):** add `@udemy/payments` to `apps/api` and bind `{ provide: PAYMENT_PROVIDER, useFactory: () => new StripePaymentProvider(stripeProviderConfigFromEnv()) }`. Idempotency keys: `checkout-session:{orderId}`, `refund:{id}:{attempt}`.
+- **CI:** stripe-mock `v0.206.0` is in the test job on port 12211 (`IT_STRIPE_MOCK_URL`). stripe-mock rejects keys with underscores after `sk_test_`; tests use `sk_test_123`.

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": false },
+  // src/testing (signTestWebhook, fixtures, InMemoryPaymentProvider) IS built, as ESM
+  // (.mts -> dist/testing/*.mjs), for the `@udemy/payments/testing` subpath. The main entry
+  // (src/index.ts) never imports it. The vitest stripe-mock harness is test-only and not built.
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.spec.mts",
+    "src/testing/it-stripe-mock.mts"
+  ]
+}
