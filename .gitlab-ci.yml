@@ -68,16 +68,23 @@ test:
       alias: postgres
     - name: redis:8.10.2-alpine
       alias: redis
+    # SMTP sink for the mail integration tests (nest-common SmtpMailer, worker identity mail).
+    - name: axllent/mailpit:v1.31.4
+      alias: mailpit
   variables:
     POSTGRES_DB: udemy
     POSTGRES_USER: udemy
     POSTGRES_PASSWORD: udemy
     DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
     REDIS_URL: redis://redis:6379
-    # api integration tests (apps/api/src/testing/integration.ts). GitLab sets CI=true, which
-    # makes an unreachable Postgres/Redis FAIL the tests instead of skipping them.
+    # Integration tests (apps/api|worker/src/testing/integration.ts, nest-common's mail spec).
+    # GitLab sets CI=true, which makes an unreachable Postgres/Redis/Mailpit FAIL the tests
+    # instead of skipping them.
     IT_DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
     IT_REDIS_URL: redis://redis:6379
+    IT_SMTP_HOST: mailpit
+    IT_SMTP_PORT: '1025'
+    IT_MAILPIT_URL: http://mailpit:8025
     NODE_ENV: test
     API_PUBLIC_URL: http://localhost:4000
     JWT_AUDIENCE: udemy-api

@@ -48,7 +48,7 @@ import { RegisterUserCommand } from '../application/use-cases/register-user.comm
  * on every route); login/refresh return the refresh token in the body, which the BFF keeps in
  * an httpOnly cookie and never forwards to the browser.
  *
- * The email/password endpoints (verification, forgot, reset, change) are T9.
+ * The email/password endpoints live in EmailVerificationController and PasswordController.
  */
 @ApiTags('auth')
 @Controller('auth')

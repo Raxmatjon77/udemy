@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Email } from '../../domain/email';
 import { PlainPassword } from '../../domain/password/plain-password';
 import {
@@ -86,15 +86,17 @@ describe('Argon2PasswordHasher', () => {
     await slow.onModuleInit();
     const real = await slow.hash(password);
 
-    const t0 = performance.now();
-    await slow.verify(real, 'wrong password!!');
-    const verifyMs = performance.now() - t0;
-    const t1 = performance.now();
+    const verifySpy = vi.spyOn(slow, 'verify');
     await expect(slow.dummyVerify('correct horse battery')).resolves.toBe(false);
-    const dummyMs = performance.now() - t1;
 
-    // Same parameters -> same work. Loose bound: CI machines are noisy.
-    expect(dummyMs).toBeGreaterThan(verifyMs * 0.3);
+    // Equal cost is a structural property, not a timing one (wall-clock ratios flake on loaded
+    // machines): the dummy path must run one real Argon2 verify against a hash encoded with the
+    // same algorithm and parameters as a real user's hash.
+    expect(verifySpy).toHaveBeenCalledTimes(1);
+    const [dummyHash] = verifySpy.mock.calls[0]!;
+    const paramsOf = (encoded: string) => encoded.split('$').slice(1, 4).join('$');
+    expect(paramsOf(dummyHash)).toBe(paramsOf(real));
+    expect(paramsOf(real)).toMatch(/^argon2id\$v=19\$m=19456,t=2,p=1$/);
   });
 
   it('rejects invalid parameters at construction', () => {

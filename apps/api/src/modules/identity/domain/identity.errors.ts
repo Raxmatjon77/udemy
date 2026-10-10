@@ -201,3 +201,48 @@ export class EmailAlreadyRegistered extends ConflictError {
     });
   }
 }
+
+/* ----------------------------------------------------------------------------------------
+ * Email verification and passwords (T9)
+ * -------------------------------------------------------------------------------------- */
+
+/**
+ * 400 `invalid_token`: unknown, wrong-purpose, expired, consumed, superseded or stale-email
+ * one-time token (indistinguishable for the client; the cause is only logged).
+ * A ValidationError by kind; the identity presentation layer answers it with 400 (design §8).
+ */
+export class InvalidOneTimeToken extends ValidationError {
+  constructor() {
+    super('The link is invalid or has expired. Please request a new one.', {
+      code: ErrorCode.InvalidToken,
+    });
+  }
+}
+
+/** 400 `invalid_current_password`: change-password with a wrong current password. */
+export class InvalidCurrentPassword extends ValidationError {
+  constructor() {
+    const message = 'The current password is incorrect.';
+    super(message, {
+      code: ErrorCode.InvalidCurrentPassword,
+      issues: [{ path: 'currentPassword', message }],
+    });
+  }
+}
+
+/** 409 `email_already_verified`: a verification mail was requested for a verified address. */
+export class EmailAlreadyVerified extends ConflictError {
+  constructor() {
+    super('The email address is already verified.', { code: ErrorCode.EmailAlreadyVerified });
+  }
+}
+
+/** 429 `rate_limited` + Retry-After: too many verification mails (`rl:verify-resend:u`). */
+export class VerificationRateLimited extends RateLimitedError {
+  constructor(retryAfterMs: number) {
+    super('Too many requests. Please wait and try again.', {
+      code: ErrorCode.RateLimited,
+      retryAfterMs,
+    });
+  }
+}

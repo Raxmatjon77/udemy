@@ -1,13 +1,18 @@
 import type { Role } from '@udemy/contracts';
 import { IdentityFacade } from '../identity.facade';
 import type { PasswordHasher } from '../ports/password-hasher';
+import { ChangePasswordCommand } from '../use-cases/change-password.command';
 import { ListMySessionsQuery } from '../use-cases/list-my-sessions.query';
 import { LoginCommand } from '../use-cases/login.command';
 import { LogoutCommand } from '../use-cases/logout.command';
 import { LogoutAllSessionsCommand } from '../use-cases/logout-all-sessions.command';
 import { RefreshSessionCommand } from '../use-cases/refresh-session.command';
 import { RegisterUserCommand } from '../use-cases/register-user.command';
+import { RequestEmailVerificationCommand } from '../use-cases/request-email-verification.command';
+import { RequestPasswordResetCommand } from '../use-cases/request-password-reset.command';
+import { ResetPasswordCommand } from '../use-cases/reset-password.command';
 import { RevokeSessionCommand } from '../use-cases/revoke-session.command';
+import { VerifyEmailCommand } from '../use-cases/verify-email.command';
 import {
   FakeAccessTokenIssuer,
   fakeAccessFacade,
@@ -18,6 +23,7 @@ import {
   FakeRevocations,
   FakeTransactionRunner,
   InMemoryIdentityStore,
+  InMemoryOneTimeTokens,
   InMemoryRateLimiter,
   InMemorySessions,
   InMemoryUserAccounts,
@@ -36,6 +42,7 @@ export function createIdentityHarness(options: { hasher?: PasswordHasher } = {})
   const bans = new InMemoryUserBans(store);
   const directory = new InMemoryUserDirectory(store);
   const sessions = new InMemorySessions(clock);
+  const oneTimeTokens = new InMemoryOneTimeTokens(clock);
   const securityLog = new RecordingSecurityLog();
   const events = new RecordingEventPublisher();
   const revocations = new FakeRevocations();
@@ -58,6 +65,7 @@ export function createIdentityHarness(options: { hasher?: PasswordHasher } = {})
     bans,
     directory,
     sessions,
+    oneTimeTokens,
     securityLog,
     events,
     revocations,
@@ -100,6 +108,42 @@ export function createIdentityHarness(options: { hasher?: PasswordHasher } = {})
     logoutAll: new LogoutAllSessionsCommand(sessions, securityLog, revocations, tx),
     revokeSession: new RevokeSessionCommand(sessions, securityLog, revocations, tx),
     listSessions: new ListMySessionsQuery(sessions),
+    requestEmailVerification: new RequestEmailVerificationCommand(
+      accounts,
+      events,
+      rateLimiter,
+      tx,
+    ),
+    verifyEmail: new VerifyEmailCommand(accounts, oneTimeTokens, securityLog, events, tx),
+    requestPasswordReset: new RequestPasswordResetCommand(
+      accounts,
+      events,
+      securityLog,
+      emailHasher,
+      rateLimiter,
+      tx,
+      floor,
+    ),
+    resetPassword: new ResetPasswordCommand(
+      accounts,
+      oneTimeTokens,
+      sessions,
+      securityLog,
+      events,
+      revocations,
+      hasher,
+      tx,
+    ),
+    changePassword: new ChangePasswordCommand(
+      accounts,
+      oneTimeTokens,
+      sessions,
+      securityLog,
+      events,
+      revocations,
+      hasher,
+      tx,
+    ),
     facade: new IdentityFacade(
       accounts,
       bans,

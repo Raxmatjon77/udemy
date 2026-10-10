@@ -4,6 +4,7 @@ import { type Database, InjectDatabase } from '@udemy/nest-common';
 import {
   type AccountRecord,
   type InsertedAccount,
+  type LockedAccount,
   type NewAccount,
   UserAccountRepository,
 } from '../../application/ports/user-account.repository';
@@ -110,5 +111,43 @@ export class KyselyUserAccountRepository extends UserAccountRepository {
       .forShare()
       .executeTakeFirst();
     return row !== undefined;
+  }
+
+  async lockAccount(trx: Transaction<DB>, userId: string): Promise<LockedAccount | null> {
+    const row = await trx
+      .selectFrom('identity.users')
+      .select([
+        'id',
+        'email',
+        'displayName',
+        'passwordHash',
+        'emailVerifiedAt',
+        sql<Date>`now()`.as('now'),
+      ])
+      .where('id', '=', userId)
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    return row ?? null;
+  }
+
+  async markEmailVerified(trx: Transaction<DB>, userId: string): Promise<Date | null> {
+    const row = await trx
+      .updateTable('identity.users')
+      .set({ emailVerifiedAt: sql<Date>`now()` })
+      .where('id', '=', userId)
+      .where('emailVerifiedAt', 'is', null)
+      .returning('emailVerifiedAt')
+      .executeTakeFirst();
+    return row?.emailVerifiedAt ?? null;
+  }
+
+  async changePassword(trx: Transaction<DB>, userId: string, hash: string): Promise<Date> {
+    const row = await trx
+      .updateTable('identity.users')
+      .set({ passwordHash: hash, passwordChangedAt: sql<Date>`now()` })
+      .where('id', '=', userId)
+      .returning('passwordChangedAt')
+      .executeTakeFirstOrThrow();
+    return row.passwordChangedAt;
   }
 }

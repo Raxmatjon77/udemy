@@ -7,6 +7,21 @@
       "env": ["NEXT_PUBLIC_*"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
+    "@udemy/web-admin#build": {
+      "dependsOn": ["^build", "typecheck"],
+      "env": ["NEXT_PUBLIC_*"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
+    "@udemy/web-instructor#build": {
+      "dependsOn": ["^build", "typecheck"],
+      "env": ["NEXT_PUBLIC_*"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
+    "@udemy/web-student#build": {
+      "dependsOn": ["^build", "typecheck"],
+      "env": ["NEXT_PUBLIC_*"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

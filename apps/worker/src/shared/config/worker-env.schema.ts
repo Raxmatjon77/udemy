@@ -1,5 +1,6 @@
 import {
   baseEnvSchema,
+  envBoolean,
   envInt,
   envList,
   envPort,
@@ -54,6 +55,24 @@ export const workerEnvSchema = baseEnvSchema
     STUDENT_APP_ORIGIN: appOrigin,
     INSTRUCTOR_APP_ORIGIN: appOrigin,
     ADMIN_APP_ORIGIN: appOrigin,
+
+    // ---- Phase 1: identity retention cleanup (schema doc §8)
+    /** Run the scheduled cleanup in this replica (an advisory lock still makes runs exclusive). */
+    IDENTITY_CLEANUP_ENABLED: envBoolean.default(true),
+    /** Time between two cleanup runs. */
+    IDENTITY_CLEANUP_INTERVAL_MS: envInt.min(10_000).default(60 * 60 * 1000),
+    /** Delay of the first run after startup (lets the consumer join its group first). */
+    IDENTITY_CLEANUP_INITIAL_DELAY_MS: envInt.default(60_000),
+    /** Rows are deleted this many days after expiry / revocation. */
+    IDENTITY_CLEANUP_GRACE_DAYS: envInt.max(365).default(7),
+    /** Batch size for refresh and one-time tokens. */
+    IDENTITY_CLEANUP_TOKEN_BATCH_SIZE: envInt.min(1).max(50_000).default(5_000),
+    /** Batch size for sessions (each delete cascades to the session's tokens). */
+    IDENTITY_CLEANUP_SESSION_BATCH_SIZE: envInt.min(1).max(50_000).default(500),
+    /** Batch size for security_events older than 180 days. */
+    IDENTITY_CLEANUP_SECURITY_EVENT_BATCH_SIZE: envInt.min(1).max(50_000).default(5_000),
+    /** Upper bound of batches per statement and run, so one run can never loop forever. */
+    IDENTITY_CLEANUP_MAX_BATCHES_PER_RUN: envInt.min(1).default(200),
   })
   // Refuse the `change-me` dev placeholders from .env.example when NODE_ENV=production.
   .superRefine(refuseDevPlaceholdersInProduction());

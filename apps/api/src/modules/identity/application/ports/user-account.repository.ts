@@ -21,6 +21,17 @@ export interface NewAccount {
   readonly emailVerified: boolean;
 }
 
+/** The account row under the per-user mutex, read together with the database clock. */
+export interface LockedAccount {
+  readonly id: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly passwordHash: string;
+  readonly emailVerifiedAt: Date | null;
+  /** SQL now() of this transaction. */
+  readonly now: Date;
+}
+
 export interface InsertedAccount {
   readonly id: string;
   /** SQL now() of the insert. */
@@ -72,4 +83,19 @@ export abstract class UserAccountRepository {
    * other. false = no user.
    */
   abstract lockUserShared(trx: Transaction<DB>, userId: string): Promise<boolean>;
+
+  /**
+   * `lockUser` that also returns the fresh account state and `now()`: the per-user mutex of
+   * the email/password flows (verify, reset, change, request reset/verification). null = no user.
+   */
+  abstract lockAccount(trx: Transaction<DB>, userId: string): Promise<LockedAccount | null>;
+
+  /**
+   * `email_verified_at = now()` if still unverified. Returns the timestamp it set, or null when
+   * the address was already verified (no update, no event).
+   */
+  abstract markEmailVerified(trx: Transaction<DB>, userId: string): Promise<Date | null>;
+
+  /** New password: sets the hash and `password_changed_at = now()`; returns that timestamp. */
+  abstract changePassword(trx: Transaction<DB>, userId: string, hash: string): Promise<Date>;
 }

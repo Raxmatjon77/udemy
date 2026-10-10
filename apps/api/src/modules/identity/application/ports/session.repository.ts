@@ -120,6 +120,14 @@ export abstract class SessionRepository {
     reason: SessionRevokeReason,
   ): Promise<string[]>;
 
+  /** Revokes every active session of the user except `keepSessionId`; returns their ids. */
+  abstract revokeOthersForUser(
+    trx: Transaction<DB>,
+    userId: string,
+    keepSessionId: string,
+    reason: SessionRevokeReason,
+  ): Promise<string[]>;
+
   /** The session a refresh token (current or consumed) belongs to; no lock. */
   abstract findTokenOwner(ex: Executor, tokenHash: Buffer): Promise<TokenOwner | null>;
 

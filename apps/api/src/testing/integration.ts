@@ -1,6 +1,7 @@
+import { basename } from 'node:path';
 import { createDatabase, type DB, type Kysely, sql } from '@udemy/db';
 import { Redis } from 'ioredis';
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, expect } from 'vitest';
 
 /**
  * The ONE convention for api integration tests (real Postgres / Redis):
@@ -10,6 +11,13 @@ import { afterAll, beforeAll } from 'vitest';
  * - Locally, an unreachable dependency SKIPS the tests with a clear message.
  * - With `CI=true` (set by GitLab CI), an unreachable dependency FAILS the suite: CI must never
  *   go green by silently skipping its integration tests.
+ * - A dependency that accepts the connection but does not answer within PROBE_TIMEOUT_MS
+ *   (an overloaded host / Docker VM, or a lock held by a running migration) always FAILS with a
+ *   message saying so: it is running, so skipping would hide the problem, and an unbounded wait
+ *   would only surface as vitest's anonymous "Hook timed out".
+ * - Files named `*.integration.spec.ts` / `*.e2e.spec.ts` run one at a time (the `integration`
+ *   project in vitest.config.mts). Still, every file must own its data: fresh ids/emails, Redis
+ *   keys under its own prefix, and no global FLUSH*: other processes share the dev stack.
  *
  *   const pg = useIntegrationDatabase();
  *   it('...', async (ctx) => {
@@ -33,6 +41,41 @@ export function itRedisUrl(): string {
 /** GitLab (and most CI systems) export `CI=true`. */
 export function isCi(): boolean {
   return process.env.CI === 'true';
+}
+
+/**
+ * Deadline for connecting + the first round trip. Below the 30 s hookTimeout (vitest.config.mts),
+ * so this message, not a bare "Hook timed out", reports a stalled dependency. Generous because
+ * under a full parallel `turbo run lint typecheck test build` connection setup through Docker
+ * Desktop's port forwarding was measured at up to ~25 s.
+ */
+export const PROBE_TIMEOUT_MS = 25_000;
+/** Teardown must never hang a run: a client stuck mid-connect is abandoned after this. */
+const TEARDOWN_TIMEOUT_MS = 5_000;
+
+class ProbeTimeout extends Error {}
+
+function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ProbeTimeout(message)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Awaits `promise` for at most `ms`; on timeout gives up (with a note) instead of hanging. */
+async function settleWithin(promise: Promise<unknown>, ms: number, what: string): Promise<void> {
+  try {
+    await withDeadline(promise, ms, `${what} did not finish within ${ms} ms`);
+  } catch (error) {
+    process.stderr.write(`[integration] ${describeError(error)}; abandoning it.\n`);
+  }
+}
+
+/** `udemy-api-it:<spec file>`: lets pg_stat_activity / pg_locks attribute a backend to a file. */
+function applicationName(): string {
+  const testPath = expect.getState().testPath;
+  return testPath === undefined ? 'udemy-api-it' : `udemy-api-it:${basename(testPath)}`;
 }
 
 function nonEmpty(value: string | undefined): string | undefined {
@@ -79,6 +122,14 @@ export interface IntegrationResource<T> {
 const reported = new Set<string>();
 
 function unavailable(name: string, envVar: string, url: string, error: unknown): string {
+  if (error instanceof ProbeTimeout) {
+    throw new Error(
+      `[integration] ${name} at ${redact(url)} accepted the connection but did not answer within ` +
+        `${PROBE_TIMEOUT_MS} ms. It is running, so this is not skipped: the host or the Docker VM ` +
+        `is overloaded (check \`docker stats\`, VM memory/swap), or a lock is held (pg_locks).`,
+      { cause: error },
+    );
+  }
   const reason =
     `${name} at ${redact(url)} is unreachable (${describeError(error)}). ` +
     `Start infra/docker/docker-compose.dev.yml (and run the migrations) or set ${envVar}.`;
@@ -139,10 +190,14 @@ export function useIntegrationDatabase(options: { max?: number } = {}): Integrat
     db = createDatabase({
       connectionString: url,
       max: options.max ?? 4,
-      applicationName: 'udemy-api-it',
+      applicationName: applicationName(),
     });
     try {
-      await sql`select 1 from identity.users limit 0`.execute(db);
+      await withDeadline(
+        sql`select 1 from identity.users limit 0`.execute(db),
+        PROBE_TIMEOUT_MS,
+        'Postgres probe timed out',
+      );
       reason = undefined;
     } catch (error) {
       reason = unavailable('Postgres', 'IT_DATABASE_URL', url, error);
@@ -150,7 +205,8 @@ export function useIntegrationDatabase(options: { max?: number } = {}): Integrat
   });
 
   afterAll(async () => {
-    await db?.destroy();
+    // pg's Pool.end() waits for a client that is still connecting (no connect timeout is set).
+    if (db !== undefined) await settleWithin(db.destroy(), TEARDOWN_TIMEOUT_MS, 'Closing the pool');
   });
 
   const base = resource(
@@ -175,27 +231,42 @@ export function useIntegrationRedis(): IntegrationRedis {
   let reason: string | undefined = 'not connected yet (used outside a test?)';
 
   beforeAll(async () => {
-    redis = new Redis(url, {
+    // A stopped Redis refuses the connection at once (ECONNREFUSED -> skip locally), so a long
+    // connect timeout costs nothing there. It used to be 1 s, which under load turned a slow but
+    // healthy Redis into a silent local skip. `connectTimeout` covers only the TCP connect, which
+    // Docker Desktop's port proxy accepts instantly; the deadline covers the ready check + PING.
+    const client = new Redis(url, {
       lazyConnect: true,
       enableOfflineQueue: false,
-      connectTimeout: 1_000,
+      connectTimeout: PROBE_TIMEOUT_MS,
       maxRetriesPerRequest: 0,
       retryStrategy: () => null,
     });
-    redis.on('error', () => undefined);
+    redis = client;
+    client.on('error', () => undefined);
     try {
-      await redis.connect();
-      if ((await redis.ping()) !== 'PONG') throw new Error('PING did not answer PONG');
+      await withDeadline(
+        (async () => {
+          await client.connect();
+          if ((await client.ping()) !== 'PONG') throw new Error('PING did not answer PONG');
+        })(),
+        PROBE_TIMEOUT_MS,
+        'Redis probe timed out',
+      );
       reason = undefined;
     } catch (error) {
       reason = unavailable('Redis', 'IT_REDIS_URL', url, error);
+    } finally {
+      if (reason !== undefined) client.disconnect();
     }
   });
 
   afterAll(async () => {
     if (redis === undefined) return;
-    if (reason === undefined) await redis.quit();
-    else redis.disconnect();
+    if (reason !== undefined) return;
+    const client = redis;
+    await settleWithin(client.quit(), TEARDOWN_TIMEOUT_MS, 'Redis QUIT');
+    client.disconnect();
   });
 
   const base = resource(

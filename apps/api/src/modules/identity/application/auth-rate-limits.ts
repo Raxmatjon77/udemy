@@ -18,6 +18,12 @@ export const AUTH_RATE_LIMITS = {
   signupIp: { limit: 10, windowMs: HOUR },
   /** "You already have an account" mails per existing user. */
   signupExistingNotice: { limit: 1, windowMs: 24 * HOUR },
+  /** Forgot-password requests per email (counted for unknown emails too; over it: silent drop). */
+  forgotEmail: { limit: 3, windowMs: HOUR },
+  /** Forgot-password requests per client IP. */
+  forgotIp: { limit: 10, windowMs: HOUR },
+  /** Verification mail re-sends per user. */
+  verifyResend: { limit: 3, windowMs: HOUR },
 } as const satisfies Record<string, RateLimitRule>;
 
 /** `rl:login:*` keys for one attempt; `emailHmac` is hex HMAC-SHA256 of the normalised email. */
@@ -38,4 +44,13 @@ export function signupIpKey(ip: string): string {
 
 export function signupExistingNoticeKey(userId: string): string {
   return `rl:signup-existing-notice:u:${userId}`;
+}
+
+/** `rl:forgot:*` keys; `emailHmac` is hex HMAC-SHA256 of the normalised email. */
+export function forgotLimiterKeys(emailHmac: string, ip: string): { email: string; ip: string } {
+  return { email: `rl:forgot:e:${emailHmac}`, ip: `rl:forgot:ip:${ip}` };
+}
+
+export function verifyResendKey(userId: string): string {
+  return `rl:verify-resend:u:${userId}`;
 }

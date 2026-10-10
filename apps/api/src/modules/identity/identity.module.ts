@@ -10,6 +10,7 @@ import { AccessTokenVerifier } from './application/ports/access-token-verifier';
 import { IdentityEventPublisher } from './application/ports/identity-event.publisher';
 import { KeyStore } from './application/ports/key-store';
 import { LoginEmailHasher } from './application/ports/login-email.hasher';
+import { OneTimeTokenRepository } from './application/ports/one-time-token.repository';
 import { PasswordHasher } from './application/ports/password-hasher';
 import { PermissionResolver } from './application/ports/permission-resolver';
 import { RefreshTokenCodec } from './application/ports/refresh-token.codec';
@@ -21,13 +22,18 @@ import { TransactionRunner } from './application/ports/transaction-runner';
 import { UserAccountRepository } from './application/ports/user-account.repository';
 import { UserBanRepository } from './application/ports/user-ban.repository';
 import { UserDirectory } from './application/ports/user-directory';
+import { ChangePasswordCommand } from './application/use-cases/change-password.command';
 import { ListMySessionsQuery } from './application/use-cases/list-my-sessions.query';
 import { LoginCommand } from './application/use-cases/login.command';
 import { LogoutCommand } from './application/use-cases/logout.command';
 import { LogoutAllSessionsCommand } from './application/use-cases/logout-all-sessions.command';
 import { RefreshSessionCommand } from './application/use-cases/refresh-session.command';
 import { RegisterUserCommand } from './application/use-cases/register-user.command';
+import { RequestEmailVerificationCommand } from './application/use-cases/request-email-verification.command';
+import { RequestPasswordResetCommand } from './application/use-cases/request-password-reset.command';
+import { ResetPasswordCommand } from './application/use-cases/reset-password.command';
 import { RevokeSessionCommand } from './application/use-cases/revoke-session.command';
+import { VerifyEmailCommand } from './application/use-cases/verify-email.command';
 import { HmacLoginEmailHasher } from './infrastructure/crypto/hmac-login-email.hasher';
 import { HmacRefreshTokenCodec } from './infrastructure/crypto/hmac-refresh-token.codec';
 import { OutboxIdentityEventPublisher } from './infrastructure/events/outbox-identity-event.publisher';
@@ -37,6 +43,7 @@ import {
   Argon2PasswordHasher,
   DEFAULT_ARGON2_PARAMS,
 } from './infrastructure/password/argon2-password.hasher';
+import { KyselyOneTimeTokenRepository } from './infrastructure/persistence/kysely-one-time-token.repository';
 import { KyselySecurityEventLog } from './infrastructure/persistence/kysely-security-event.log';
 import { KyselySessionRepository } from './infrastructure/persistence/kysely-session.repository';
 import { KyselyTransactionRunner } from './infrastructure/persistence/kysely-transaction-runner';
@@ -48,9 +55,12 @@ import { SleepResponseTimeFloor } from './infrastructure/timing/sleep-response-t
 import { JoseAccessTokenIssuer } from './infrastructure/tokens/jose-access-token.issuer';
 import { JoseAccessTokenVerifier } from './infrastructure/tokens/jose-access-token.verifier';
 import { AuthController } from './presentation/auth.controller';
+import { BadRequestErrorsInterceptor } from './presentation/bad-request-errors.interceptor';
+import { EmailVerificationController } from './presentation/email-verification.controller';
 import { ClientAuthGuard } from './presentation/guards/client-auth.guard';
 import { JwtAuthGuard } from './presentation/guards/jwt-auth.guard';
 import { JwksController } from './presentation/jwks.controller';
+import { PasswordController } from './presentation/password.controller';
 import { SessionsController } from './presentation/sessions.controller';
 
 /**
@@ -63,7 +73,13 @@ import { SessionsController } from './presentation/sessions.controller';
  */
 @Module({
   imports: [AccessModule],
-  controllers: [JwksController, AuthController, SessionsController],
+  controllers: [
+    JwksController,
+    AuthController,
+    SessionsController,
+    EmailVerificationController,
+    PasswordController,
+  ],
   providers: [
     // Passwords
     { provide: ARGON2_PARAMS, useValue: DEFAULT_ARGON2_PARAMS },
@@ -95,6 +111,7 @@ import { SessionsController } from './presentation/sessions.controller';
     { provide: UserBanRepository, useClass: KyselyUserBanRepository },
     { provide: UserDirectory, useClass: KyselyUserDirectory },
     { provide: SessionRepository, useClass: KyselySessionRepository },
+    { provide: OneTimeTokenRepository, useClass: KyselyOneTimeTokenRepository },
     { provide: SecurityEventLog, useClass: KyselySecurityEventLog },
     { provide: IdentityEventPublisher, useClass: OutboxIdentityEventPublisher },
     { provide: ResponseTimeFloor, useClass: SleepResponseTimeFloor },
@@ -107,7 +124,13 @@ import { SessionsController } from './presentation/sessions.controller';
     LogoutAllSessionsCommand,
     RevokeSessionCommand,
     ListMySessionsQuery,
+    RequestEmailVerificationCommand,
+    VerifyEmailCommand,
+    RequestPasswordResetCommand,
+    ResetPasswordCommand,
+    ChangePasswordCommand,
     IdentityFacade,
+    BadRequestErrorsInterceptor,
 
     // Request authentication
     RedisSessionRevocationStore,

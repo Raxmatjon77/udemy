@@ -179,6 +179,23 @@ export class KyselySessionRepository extends SessionRepository {
     return rows.map((r) => r.id);
   }
 
+  async revokeOthersForUser(
+    trx: Transaction<DB>,
+    userId: string,
+    keepSessionId: string,
+    reason: SessionRevokeReason,
+  ): Promise<string[]> {
+    const rows = await trx
+      .updateTable('identity.sessions')
+      .set({ revokedAt: sql<Date>`now()`, revokeReason: reason })
+      .where('userId', '=', userId)
+      .where('id', '<>', keepSessionId)
+      .where('revokedAt', 'is', null)
+      .returning('id')
+      .execute();
+    return rows.map((r) => r.id);
+  }
+
   async findTokenOwner(ex: Executor, tokenHash: Buffer): Promise<TokenOwner | null> {
     const row = await ex
       .selectFrom('identity.refreshTokens as rt')

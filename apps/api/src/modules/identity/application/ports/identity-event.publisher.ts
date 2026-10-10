@@ -1,6 +1,9 @@
 import type {
   DisplayNameChangedPayload,
   EmailVerificationRequestedPayload,
+  EmailVerifiedPayload,
+  PasswordChangedPayload,
+  PasswordResetRequestedPayload,
   SessionCompromiseDetectedPayload,
   SignupAttemptedForExistingEmailPayload,
   UserBannedPayload,
@@ -33,4 +36,10 @@ export abstract class IdentityEventPublisher {
   ): Promise<void>;
   abstract userBanned(trx: Transaction<DB>, payload: UserBannedPayload): Promise<void>;
   abstract userUnbanned(trx: Transaction<DB>, payload: UserUnbannedPayload): Promise<void>;
+  abstract emailVerified(trx: Transaction<DB>, payload: EmailVerifiedPayload): Promise<void>;
+  abstract passwordResetRequested(
+    trx: Transaction<DB>,
+    payload: PasswordResetRequestedPayload,
+  ): Promise<void>;
+  abstract passwordChanged(trx: Transaction<DB>, payload: PasswordChangedPayload): Promise<void>;
 }

@@ -11,6 +11,7 @@ import type { ClientContext, Principal } from '../../../../shared/auth';
 import type { RateLimiter, RateLimitResult, RateLimitRule } from '../../../../shared/redis';
 import { AccessFacade } from '../../../access';
 import { AlreadyBanned } from '../../domain/identity.errors';
+import type { OneTimeTokenPurpose } from '../../domain/one-time-token';
 import { normalizePassword, type PlainPassword } from '../../domain/password/plain-password';
 import type { SessionRevokeReason } from '../../domain/session';
 import type { BanRecord, UserSummary } from '../dto';
@@ -21,6 +22,7 @@ import {
 } from '../ports/access-token-issuer';
 import { IdentityEventPublisher } from '../ports/identity-event.publisher';
 import { LoginEmailHasher } from '../ports/login-email.hasher';
+import { type OneTimeTokenRow, OneTimeTokenRepository } from '../ports/one-time-token.repository';
 import { PasswordHasher } from '../ports/password-hasher';
 import { type GeneratedRefreshToken, RefreshTokenCodec } from '../ports/refresh-token.codec';
 import { ResponseTimeFloor } from '../ports/response-time-floor';
@@ -41,6 +43,7 @@ import { TransactionRunner } from '../ports/transaction-runner';
 import {
   type AccountRecord,
   type InsertedAccount,
+  type LockedAccount,
   type NewAccount,
   UserAccountRepository,
 } from '../ports/user-account.repository';
@@ -76,6 +79,7 @@ interface StoredAccount {
   displayName: string;
   passwordHash: string;
   emailVerifiedAt: Date | null;
+  passwordChangedAt: Date;
   createdAt: Date;
 }
 
@@ -90,7 +94,15 @@ export class InMemoryIdentityStore {
   }
 
   record(account: StoredAccount): AccountRecord {
-    return { ...account, banned: this.isBanned(account.id) };
+    return {
+      id: account.id,
+      email: account.email,
+      displayName: account.displayName,
+      passwordHash: account.passwordHash,
+      emailVerifiedAt: account.emailVerifiedAt,
+      createdAt: account.createdAt,
+      banned: this.isBanned(account.id),
+    };
   }
 
   /** Test setup helper. */
@@ -107,6 +119,7 @@ export class InMemoryIdentityStore {
       displayName: input.displayName ?? 'Test User',
       passwordHash: input.passwordHash,
       emailVerifiedAt: input.verified === true ? this.clock.now : null,
+      passwordChangedAt: this.clock.now,
       createdAt: this.clock.now,
     });
     return id;
@@ -186,6 +199,133 @@ export class InMemoryUserAccounts extends UserAccountRepository {
   async lockUserShared(_trx: Transaction<DB>, userId: string): Promise<boolean> {
     this.locks.push({ userId, mode: 'share' });
     return this.store.accounts.has(userId);
+  }
+
+  async lockAccount(_trx: Transaction<DB>, userId: string): Promise<LockedAccount | null> {
+    this.locks.push({ userId, mode: 'update' });
+    const a = this.store.accounts.get(userId);
+    return a === undefined
+      ? null
+      : {
+          id: a.id,
+          email: a.email,
+          displayName: a.displayName,
+          passwordHash: a.passwordHash,
+          emailVerifiedAt: a.emailVerifiedAt,
+          now: this.store.clock.now,
+        };
+  }
+
+  async markEmailVerified(_trx: Transaction<DB>, userId: string): Promise<Date | null> {
+    const a = this.store.accounts.get(userId);
+    if (a === undefined || a.emailVerifiedAt !== null) return null;
+    a.emailVerifiedAt = this.store.clock.now;
+    return a.emailVerifiedAt;
+  }
+
+  async changePassword(_trx: Transaction<DB>, userId: string, hash: string): Promise<Date> {
+    const a = this.store.accounts.get(userId);
+    if (a === undefined) throw new Error('no account');
+    a.passwordHash = hash;
+    a.passwordChangedAt = this.store.clock.now;
+    return a.passwordChangedAt;
+  }
+}
+
+/* ---------------------------------------------------------------- one-time tokens */
+
+export interface StoredOneTimeToken {
+  id: string;
+  userId: string;
+  purpose: OneTimeTokenPurpose;
+  tokenHash: Buffer;
+  email: string;
+  requestedAt: Date;
+  expiresAt: Date;
+  consumedAt: Date | null;
+  invalidatedAt: Date | null;
+}
+
+/** `identity.one_time_tokens` with the api's operations; `issue` stands in for the worker. */
+export class InMemoryOneTimeTokens extends OneTimeTokenRepository {
+  readonly tokens: StoredOneTimeToken[] = [];
+
+  constructor(private readonly clock: FakeClock) {
+    super();
+  }
+
+  /** Test setup: what the worker's IssueOneTimeToken would have stored for `rawToken`. */
+  issue(input: {
+    userId: string;
+    purpose: OneTimeTokenPurpose;
+    rawToken: string;
+    email: string;
+    ttlMs: number;
+  }): StoredOneTimeToken {
+    for (const t of this.tokens) {
+      if (t.userId === input.userId && t.purpose === input.purpose && this.live(t)) {
+        t.invalidatedAt = this.clock.now;
+      }
+    }
+    const token: StoredOneTimeToken = {
+      id: randomUUID(),
+      userId: input.userId,
+      purpose: input.purpose,
+      tokenHash: createHash('sha256').update(input.rawToken).digest(),
+      email: input.email,
+      requestedAt: this.clock.now,
+      expiresAt: new Date(this.clock.now.getTime() + input.ttlMs),
+      consumedAt: null,
+      invalidatedAt: null,
+    };
+    this.tokens.push(token);
+    return token;
+  }
+
+  private live(t: StoredOneTimeToken): boolean {
+    return t.consumedAt === null && t.invalidatedAt === null;
+  }
+
+  private row(t: StoredOneTimeToken | undefined): OneTimeTokenRow | null {
+    return t === undefined
+      ? null
+      : {
+          id: t.id,
+          userId: t.userId,
+          purpose: t.purpose,
+          email: t.email,
+          expiresAt: t.expiresAt,
+          consumedAt: t.consumedAt,
+          invalidatedAt: t.invalidatedAt,
+        };
+  }
+
+  async findByHash(tokenHash: Buffer): Promise<OneTimeTokenRow | null> {
+    return this.row(this.tokens.find((t) => t.tokenHash.equals(tokenHash)));
+  }
+
+  async lockByHash(_trx: Transaction<DB>, tokenHash: Buffer): Promise<OneTimeTokenRow | null> {
+    return this.findByHash(tokenHash);
+  }
+
+  async consume(_trx: Transaction<DB>, tokenId: string): Promise<void> {
+    const t = this.tokens.find((x) => x.id === tokenId);
+    if (t !== undefined && this.live(t)) t.consumedAt = this.clock.now;
+  }
+
+  async invalidateLive(
+    _trx: Transaction<DB>,
+    userId: string,
+    purpose: OneTimeTokenPurpose,
+  ): Promise<number> {
+    let count = 0;
+    for (const t of this.tokens) {
+      if (t.userId === userId && t.purpose === purpose && this.live(t)) {
+        t.invalidatedAt = this.clock.now;
+        count += 1;
+      }
+    }
+    return count;
   }
 }
 
@@ -464,6 +604,17 @@ export class InMemorySessions extends SessionRepository {
       .map((s) => s.id);
   }
 
+  async revokeOthersForUser(
+    _trx: Transaction<DB>,
+    userId: string,
+    keepSessionId: string,
+    reason: SessionRevokeReason,
+  ): Promise<string[]> {
+    return [...this.sessions.values()]
+      .filter((s) => s.userId === userId && s.id !== keepSessionId && this.revoke(s, reason))
+      .map((s) => s.id);
+  }
+
   async findTokenOwner(_ex: Executor, hash: Buffer): Promise<TokenOwner | null> {
     const t = this.tokenByHash(hash);
     const s = t === undefined ? undefined : this.sessions.get(t.sessionId);
@@ -553,6 +704,15 @@ export class RecordingEventPublisher extends IdentityEventPublisher {
   }
   userUnbanned(_t: Transaction<DB>, p: object): Promise<void> {
     return this.push('UserUnbanned', p);
+  }
+  emailVerified(_t: Transaction<DB>, p: object): Promise<void> {
+    return this.push('EmailVerified', p);
+  }
+  passwordResetRequested(_t: Transaction<DB>, p: object): Promise<void> {
+    return this.push('PasswordResetRequested', p);
+  }
+  passwordChanged(_t: Transaction<DB>, p: object): Promise<void> {
+    return this.push('PasswordChanged', p);
   }
 }
 

@@ -4,6 +4,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { createConfigModule, createLoggerModule, DatabaseModule } from '@udemy/nest-common';
 import { AccessModule, PoliciesGuard } from './modules/access';
 import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identity';
+import { UsersModule } from './modules/users';
 import { AuthSupportModule } from './shared/auth';
 import { apiEnvSchema, AppConfigModule } from './shared/config';
 import { ErrorsModule } from './shared/errors';
@@ -31,6 +32,7 @@ import { ValidationModule } from './shared/validation';
     // Bounded contexts (src/modules/*), one import per module facade.
     AccessModule,
     IdentityModule,
+    UsersModule,
   ],
   providers: [
     // Global guards, in this exact order (design §1). Nest runs APP_GUARDs in registration

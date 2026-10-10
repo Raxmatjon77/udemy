@@ -322,6 +322,12 @@ describe('API e2e: signup -> login -> sessions -> refresh -> logout (real guards
       .expect(200);
     const [session] = SessionListResponseSchema.parse(sessions.body).items;
     expect(session?.ip).toMatch(/^(127\.0\.0\.1|::1)$/);
+    // `rl:login:ip:<loopback>` is the one rate-limit key this file shares with every other run
+    // and process on this Redis (30 / 10 min): take back this test's hit instead of letting
+    // repeated runs drift into 429. (DECR only an existing key: on a missing one it would
+    // create a TTL-less -1.)
+    const loopbackKey = `rl:login:ip:${session?.ip ?? ''}`;
+    if ((await itRedis.redis.exists(loopbackKey)) === 1) await itRedis.redis.decr(loopbackKey);
   });
 
   it('sessions: deleting an unknown session is 404, a malformed id 400; logout-all is 204', async (ctx) => {

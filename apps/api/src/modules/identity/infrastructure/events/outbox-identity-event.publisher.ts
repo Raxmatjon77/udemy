@@ -4,6 +4,12 @@ import {
   type DisplayNameChangedPayload,
   EmailVerificationRequested,
   type EmailVerificationRequestedPayload,
+  EmailVerified,
+  type EmailVerifiedPayload,
+  PasswordChanged,
+  type PasswordChangedPayload,
+  PasswordResetRequested,
+  type PasswordResetRequestedPayload,
   SessionCompromiseDetected,
   type SessionCompromiseDetectedPayload,
   SignupAttemptedForExistingEmail,
@@ -64,5 +70,20 @@ export class OutboxIdentityEventPublisher extends IdentityEventPublisher {
 
   async userUnbanned(trx: Transaction<DB>, payload: UserUnbannedPayload): Promise<void> {
     await this.outbox.publish(trx, UserUnbanned, payload.userId, payload);
+  }
+
+  async emailVerified(trx: Transaction<DB>, payload: EmailVerifiedPayload): Promise<void> {
+    await this.outbox.publish(trx, EmailVerified, payload.userId, payload);
+  }
+
+  async passwordResetRequested(
+    trx: Transaction<DB>,
+    payload: PasswordResetRequestedPayload,
+  ): Promise<void> {
+    await this.outbox.publish(trx, PasswordResetRequested, payload.userId, payload);
+  }
+
+  async passwordChanged(trx: Transaction<DB>, payload: PasswordChangedPayload): Promise<void> {
+    await this.outbox.publish(trx, PasswordChanged, payload.userId, payload);
   }
 }
