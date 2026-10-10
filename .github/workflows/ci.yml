@@ -91,6 +91,20 @@ jobs:
         options: >-
           --health-cmd "/mailpit readyz"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      # S3 for the @udemy/storage integration tests (IT_S3_* defaults: localhost:9000,
+      # minio/minio12345, udemy-uploads + udemy-media). The bitnami image creates the buckets from
+      # MINIO_DEFAULT_BUCKETS, standing in for the dev stack's minio-init one-shot.
+      minio:
+        image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: minio12345
+          MINIO_DEFAULT_BUCKETS: udemy-uploads,udemy-media
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -fsS http://localhost:9000/minio/health/live"
+          --health-interval 5s --health-timeout 5s --health-retries 30
     env:
       # CI=true (GitHub sets it too; explicit because it matters): an unreachable Postgres, Redis
       # or Mailpit makes the integration tests FAIL instead of skipping them.
