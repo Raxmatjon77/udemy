@@ -10,6 +10,7 @@ import {
   SESSION_ID,
   stubApi,
   testConfig,
+  testInput,
   USER_ID,
 } from './internal/test-helpers';
 import { createAuthRouteHandlers } from './route-handlers';
@@ -201,6 +202,27 @@ describe('logout-all', () => {
     expect(parseSetCookies(response.headers).get(AT)!.attrs.get('max-age')).toBe('0');
   });
 
+  it('clears the cookies when the API says the session is already gone (401 unauthorized)', async () => {
+    const at = await mintAccessToken();
+    await stubApi({ 'POST /api/v1/auth/logout-all': () => problem(401, 'unauthorized') });
+    const response = await routes.logoutAll(
+      post('/api/auth/logout-all', { headers: { cookie: cookieHeader({ [AT]: at, [RT]: 'rt' }) } }),
+    );
+    expect(response.status).toBe(401);
+    const cookies = parseSetCookies(response.headers);
+    expect(cookies.get(AT)!.attrs.get('max-age')).toBe('0');
+    expect(cookies.get(RT)!.attrs.get('max-age')).toBe('0');
+  });
+
+  it('clears the cookies when the refresh before it is rejected', async () => {
+    await stubApi({ 'POST /api/v1/auth/refresh': () => problem(401, 'invalid_refresh_token') });
+    const response = await routes.logoutAll(
+      post('/api/auth/logout-all', { headers: { cookie: cookieHeader({ [RT]: 'rt-bad' }) } }),
+    );
+    expect(response.status).toBe(401);
+    expect(parseSetCookies(response.headers).get(RT)!.attrs.get('max-age')).toBe('0');
+  });
+
   it('keeps the cookies and reports 503 when the API is down (retryable)', async () => {
     const at = await mintAccessToken();
     await stubApi({ 'POST /api/v1/auth/logout-all': () => problem(503, 'service_unavailable') });
@@ -266,5 +288,51 @@ describe('refresh', () => {
     );
     expect(response.status).toBe(503);
     expect(response.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe('refresh failures: ended vs transient', () => {
+  it.each([
+    [401, 'invalid_refresh_token'],
+    [403, 'account_banned'],
+    [403, 'app_access_denied'],
+  ])('a %i %s ends the session: 401 + cleared cookies', async (status, code) => {
+    await stubApi({ 'POST /api/v1/auth/refresh': () => problem(status, code) });
+    const response = await routes.refresh(
+      post('/api/auth/refresh', { headers: { cookie: cookieHeader({ [RT]: 'rt-1' }) } }),
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).code).toBe('invalid_refresh_token');
+    expect(parseSetCookies(response.headers).get(AT)!.attrs.get('max-age')).toBe('0');
+    expect(parseSetCookies(response.headers).get(RT)!.attrs.get('max-age')).toBe('0');
+  });
+
+  it.each([
+    [429, 'rate_limited'],
+    [503, 'service_unavailable'],
+    [500, 'internal'],
+  ])('a %i %s is transient: 503, cookies kept', async (status, code) => {
+    await stubApi({ 'POST /api/v1/auth/refresh': () => problem(status, code) });
+    const response = await routes.refresh(
+      post('/api/auth/refresh', { headers: { cookie: cookieHeader({ [RT]: 'rt-1' }) } }),
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe('lazy config', () => {
+  it('a thunk is resolved on the first request only, then cached', async () => {
+    const thunk = vi.fn(() => testInput());
+    const lazy = createAuthRouteHandlers(thunk);
+    expect(thunk).not.toHaveBeenCalled();
+    await stubApi({ 'POST /api/v1/auth/logout': () => new Response(null, { status: 204 }) });
+    expect((await lazy.logout(post('/api/auth/logout'))).status).toBe(204);
+    expect((await lazy.refresh(post('/api/auth/refresh'))).status).toBe(401);
+    expect(thunk).toHaveBeenCalledTimes(1);
+  });
+
+  it('a plain invalid config still fails at creation', () => {
+    expect(() => createAuthRouteHandlers(testInput({ jwksUrl: 'nope' }))).toThrow(/Invalid/);
   });
 });

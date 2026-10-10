@@ -10,8 +10,13 @@
  */
 import 'server-only';
 
-export { defineWebAuthConfig, WebAuthConfigSchema } from './config';
-export type { ClientIpResolver, WebAuthConfig, WebAuthConfigInput } from './config';
+export { defineWebAuthConfig, lazyWebAuthConfig, WebAuthConfigSchema } from './config';
+export type {
+  ClientIpResolver,
+  WebAuthConfig,
+  WebAuthConfigInput,
+  WebAuthConfigSource,
+} from './config';
 export {
   ACCESS_COOKIE_MAX_AGE_S,
   clearSessionCookies,

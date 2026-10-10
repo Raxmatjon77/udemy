@@ -84,7 +84,13 @@ and CSRF checks need every origin to match the URL the browser uses:
 
 Other knobs: `E2E_DATABASE_URL`, `E2E_REDIS_URL`, `E2E_KAFKA_BROKERS` (default: the root `.env`),
 `E2E_MAILPIT_URL` (`http://localhost:8025`), `E2E_KAFKA_CONNECT_URL` (`http://localhost:8083`),
-`E2E_SERVER_LOG_LEVEL` (`info`), `E2E_SKIP_SLOW=1`.
+`E2E_DEBEZIUM_CONNECTOR` (`udemy-outbox`), `E2E_SERVER_LOG_LEVEL` (`info`), `E2E_SKIP_SLOW=1`, and
+`E2E_STUDENT_/INSTRUCTOR_/ADMIN_CLIENT_SECRET` (a BFF's client secret instead of the one in its
+`.env.local`; the api then needs the matching `CLIENT_<APP>_SECRET_HASH`, as in CI).
+
+The api and the worker inherit the suite's own environment (Playwright passes `process.env` to the
+servers), and exported variables win over the root `.env`. That is how CI configures them without
+any `.env` file.
 
 The worker joins the consumer group of the root `.env` (`KAFKA_GROUP_ID`, `udemy-worker`). Stop any
 other worker of that group first, or the partitions (and so the emails) are split between them.
@@ -96,17 +102,33 @@ like different visitors instead of tripping the limits.
 The apps run with `COOKIE_SECURE=true` on `http://localhost` (Chromium accepts `Secure` and
 `__Host-` cookies there). Use `localhost`, never `127.0.0.1`.
 
-## Known bugs (marked `test.fixme`)
+## CI (GitLab `e2e` job)
 
-1. **A revoked session is not logged out on its next navigation** (`packages/web-auth`).
-   After logout-all elsewhere, a password reset, a ban or refresh-token reuse, the API correctly
-   rejects the session (401 `unauthorized`), but `createApiProxyHandler` passes that 401 through
-   without clearing the cookies. The client then goes to `/login?next=…`, and `proxy.ts` sees a
-   locally valid access JWT on that guest-only page and redirects to `/` (307). The user stays on
-   `/` with dead cookies (cannot even open `/login`) until the access token expires (≤ 14.5 min).
-   The journeys assert what holds today (API 401, the protected page does not stay open); each
-   has a `test.fixme` twin with the intended assertion (`/login?next=…`).
-2. **Minor:** after "Sign out of all devices" the tab may land on `/login?next=/account/sessions`
-   instead of `/login`: `logout()` navigates to `/login`, but the same tab also receives its own
-   `BroadcastChannel('auth')` message and reloads (`packages/web-auth/src/client`). The sessions
-   journey accepts both.
+`.gitlab-ci.yml` runs the suite in stage `e2e`, after lint/typecheck/test/build: automatically on
+the default branch and on tags (the Docker images are only pushed when it passes), and as a manual
+job on branches with an open merge request. Timeout 30 min; typical run 12-18 min.
+
+- **Image:** `mcr.microsoft.com/playwright:v1.63.0-noble` (Chromium and its system libraries
+  preinstalled, Node 24 with corepack). Keep its tag equal to `@playwright/test`.
+- **Services** (same image tags as the dev compose, on one per-build network,
+  `FF_NETWORK_PER_BUILD=true`): `postgres` (`wal_level=logical`), `redis`, `mailpit`, `kafka`
+  (KRaft single node, one client listener `kafka:9092` for both the job and Connect) and
+  `kafka-connect` (Debezium, 512 MB heap caps, `CONNECT_PLUGIN_DISCOVERY=service_load`).
+- **Before the suite:** random `REFRESH_TOKEN_PEPPER` / `LOGIN_EMAIL_HMAC_KEY` /
+  `EMAIL_TOKEN_SECRET`, random BFF secrets (`E2E_<APP>_CLIENT_SECRET`) with their SHA-256 in
+  `CLIENT_<APP>_SECRET_HASH`, an ephemeral JWT key, the migrations, `infra/kafka/create-topics.sh`
+  (pinned Kafka CLI, cached, on a JRE), `infra/ci/register-connector.mjs` (PUTs
+  `infra/debezium/outbox-connector.json` with `database.hostname=postgres` and waits for RUNNING),
+  then the builds. Nothing secret is committed or stored.
+- **On failure** the job keeps `apps/e2e/.output/` for 7 days: `report/`, `test-results/`
+  (traces), `logs/` (the five servers) and `ci/connector-status.json`.
+- **Runner:** about 6 GB RAM at peak (Kafka + Connect + Postgres + the parallel Next builds,
+  then 5 Node servers + Chromium); use an 8 GB / 4 vCPU runner.
+
+Reproduce it locally against the docker dev stack (same steps, random secrets, the dev
+containers are not restarted):
+
+```bash
+infra/ci/e2e-local.sh                       # all journeys
+infra/ci/e2e-local.sh tests/sessions.spec.ts
+```

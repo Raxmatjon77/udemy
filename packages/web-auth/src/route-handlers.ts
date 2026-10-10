@@ -1,7 +1,7 @@
 import 'server-only';
 import { ErrorCode, LoginRequestSchema, type AuthUser } from '@udemy/contracts';
 import { ApiProblemError, apiLogin, apiLogout, apiLogoutAll } from './api-client';
-import { defineWebAuthConfig, type WebAuthConfig, type WebAuthConfigInput } from './config';
+import { lazyWebAuthConfig, type WebAuthConfigSource } from './config';
 import { clearSessionCookies, readAuthCookies, setSessionCookies } from './cookies';
 import {
   BodyTooLargeError,
@@ -19,8 +19,10 @@ import { refreshSingleFlight } from './refresh';
  * BFF auth route handlers (design §9): the only code that ever sees refresh tokens.
  *
  * ```ts
+ * // src/lib/auth/handlers.ts (a config, or () => config: resolved on the first request)
+ * export const authRoutes = createAuthRouteHandlers(webAuthConfig);
  * // app/api/auth/login/route.ts
- * export const { login: POST } = authRoutes;
+ * export const POST = authRoutes.login;
  * ```
  *
  * All are POST-only (Next answers 405 for other methods when only POST is exported) and
@@ -72,12 +74,11 @@ function upstreamFailure(error: unknown): Response {
   return problemResponse(503, ErrorCode.ServiceUnavailable, 'The API is unavailable');
 }
 
-export function createAuthRouteHandlers(
-  input: WebAuthConfigInput | WebAuthConfig,
-): AuthRouteHandlers {
-  const config = defineWebAuthConfig(input);
+export function createAuthRouteHandlers(source: WebAuthConfigSource): AuthRouteHandlers {
+  const getConfig = lazyWebAuthConfig(source);
 
   const login: RouteHandler = async (request) => {
+    const config = getConfig();
     const rejected = checkOrigin(request, config) ?? checkJsonBody(request);
     if (rejected) return rejected;
 
@@ -107,6 +108,7 @@ export function createAuthRouteHandlers(
   };
 
   const logout: RouteHandler = async (request) => {
+    const config = getConfig();
     const rejected = checkOrigin(request, config);
     if (rejected) return rejected;
     const { refreshToken } = readAuthCookies(request, config);
@@ -124,6 +126,7 @@ export function createAuthRouteHandlers(
   };
 
   const logoutAll: RouteHandler = async (request) => {
+    const config = getConfig();
     const rejected = checkOrigin(request, config);
     if (rejected) return rejected;
     let { accessToken } = readAuthCookies(request, config);
@@ -162,6 +165,7 @@ export function createAuthRouteHandlers(
   };
 
   const refresh: RouteHandler = async (request) => {
+    const config = getConfig();
     const rejected = checkOrigin(request, config);
     if (rejected) return rejected;
     const { refreshToken } = readAuthCookies(request, config);

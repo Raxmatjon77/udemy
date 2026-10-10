@@ -1,7 +1,5 @@
 import type { z } from 'zod';
-import { createProxyFetch, type ProxyRequestInit } from '@udemy/web-auth/client';
-
-import { ApiError } from './problem';
+import { createProxyFetch, ProxyFetchError, type ProxyRequestInit } from '@udemy/web-auth/client';
 
 /**
  * Browser → BFF calls. The browser only ever talks to this app's own origin: `/api/proxy/*`
@@ -30,19 +28,19 @@ async function readBody<T>(response: Response, schema?: z.ZodType<T>): Promise<T
   if (!parsed.success) {
     // The API and this app disagree on the contract: a generic error in the UI, the zod
     // details on `cause` for developers.
-    throw new ApiError(502, null, null, { cause: parsed.error });
+    throw new ProxyFetchError(502, null, { cause: parsed.error });
   }
   return parsed.data;
 }
 
 /**
  * `api('/me/profile')` → `GET /api/proxy/me/profile`, parsed JSON (or undefined for an empty
- * body). Throws `ApiError` on any non-2xx status.
+ * body). Throws `ProxyFetchError` on any non-2xx status.
  */
 export async function api<T = unknown>(path: string, init: ApiRequestInit<T> = {}): Promise<T> {
   const { schema, quiet, ...rest } = init;
   const response = await (quiet ? quietProxyFetch : proxyFetch)(path, rest);
-  if (!response.ok) throw await ApiError.fromResponse(response);
+  if (!response.ok) throw await ProxyFetchError.fromResponse(response);
   return readBody(response, schema);
 }
 
@@ -60,7 +58,7 @@ export async function authPost<T = unknown>(
     },
     ...(json === undefined ? {} : { body: JSON.stringify(json) }),
   });
-  if (!response.ok) throw await ApiError.fromResponse(response);
+  if (!response.ok) throw await ProxyFetchError.fromResponse(response);
   return readBody<T>(response);
 }
 

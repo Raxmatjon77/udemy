@@ -7,7 +7,8 @@ import { logout } from '@udemy/web-auth/client';
 
 /**
  * Ends this session (`POST /api/auth/logout`), tells other tabs and goes to `redirectTo`.
- * Logout always succeeds locally: the BFF clears the cookies even when the API is down.
+ * Logout always completes locally: the BFF clears the cookies even when the API is down, and
+ * `logout()` still broadcasts and navigates when the BFF cannot be reached.
  */
 export function LogoutButton({
   redirectTo = '/login',
@@ -21,7 +22,7 @@ export function LogoutButton({
       disabled={pending}
       onClick={() => {
         setPending(true);
-        logout({ loginPath: redirectTo }).catch(() => window.location.assign(redirectTo));
+        void logout({ loginPath: redirectTo });
       }}
     >
       {pending ? <Spinner /> : null}

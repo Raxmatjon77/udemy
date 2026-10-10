@@ -10,6 +10,7 @@ import {
   problem,
   stubApi,
   testConfig,
+  testInput,
 } from './internal/test-helpers';
 import { createAuthProxy, RECOMMENDED_PROXY_MATCHER } from './proxy';
 
@@ -239,6 +240,104 @@ describe('createAuthProxy redirect matrix', () => {
     const res = await proxy(nav('/api/proxy/me', { [RT]: 'rt' }));
     expect(isNext(res)).toBe(true);
     expect(api.fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('guest-only pages after a session ended (BUG #1: no login ↔ home bounce)', () => {
+  it('/login?next= with the cookies cleared by a BFF 401 renders, without calling anything', async () => {
+    const api = await stubApi({});
+    // What the browser sends after `Max-Age=0`: no auth cookies (an emptied value counts too).
+    for (const cookies of [{}, { [AT]: '', [RT]: '' }]) {
+      const res = await proxy(
+        nav(`/login?next=${encodeURIComponent('/account/sessions')}`, cookies),
+      );
+      expect(isNext(res)).toBe(true);
+      expect(res.headers.getSetCookie()).toEqual([]);
+    }
+    expect(api.fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('an ended session (refresh rejected) renders the login page and clears the cookies', async () => {
+    await stubApi({ 'POST /api/v1/auth/refresh': () => problem(401, 'invalid_refresh_token') });
+    const res = await proxy(
+      nav('/login?next=%2Faccount', {
+        [AT]: await mintAccessToken({ expiresIn: -60 }),
+        [RT]: 'rt-revoked',
+      }),
+    );
+    expect(isNext(res)).toBe(true);
+    const cookies = parseSetCookies(res.headers);
+    expect(cookies.get(AT)!.attrs.get('max-age')).toBe('0');
+    expect(cookies.get(RT)!.attrs.get('max-age')).toBe('0');
+    // ... and the login render itself no longer sees them.
+    expect(requestCookie(res)).toBe('theme=dark');
+  });
+
+  it('an access token of another app on /login renders and clears (no redirect home)', async () => {
+    await stubApi({});
+    const res = await proxy(nav('/login', { [AT]: await mintAccessToken({ app: 'admin' }) }));
+    expect(isNext(res)).toBe(true);
+    expect(parseSetCookies(res.headers).get(AT)!.attrs.get('max-age')).toBe('0');
+  });
+
+  it('API down during the refresh: the login page renders, cookies kept (no loop, no logout)', async () => {
+    await stubApi({ 'POST /api/v1/auth/refresh': () => problem(503, 'service_unavailable') });
+    const res = await proxy(nav('/login', { [RT]: 'rt-1' }));
+    expect(isNext(res)).toBe(true);
+    expect(res.headers.getSetCookie()).toEqual([]);
+  });
+
+  it('expired at + rt that refreshes fine on /login: signed in, redirected home with the new cookies', async () => {
+    const fresh = await mintAccessToken();
+    await stubApi({
+      'POST /api/v1/auth/refresh': () =>
+        json({
+          accessToken: fresh,
+          accessTokenExpiresAt: isoIn(900),
+          refreshToken: 'rt-2',
+          refreshTokenExpiresAt: isoIn(86_400),
+        }),
+    });
+    const res = await proxy(
+      nav('/login', { [AT]: await mintAccessToken({ expiresIn: -5 }), [RT]: 'rt-1' }),
+    );
+    expect(location(res)).toBe('/');
+    expect(parseSetCookies(res.headers).get(AT)!.value).toBe(fresh);
+  });
+});
+
+describe('forbiddenRedirect default', () => {
+  it('is loginPath?error=forbidden, and that page renders for the role-less session', async () => {
+    await stubApi({});
+    const input = testInput({ app: 'instructor', requiredRole: 'INSTRUCTOR', publicPaths: [] });
+    delete input.forbiddenRedirect;
+    const instructor = createAuthProxy(input);
+    const at = await mintAccessToken({ app: 'instructor', roles: ['STUDENT'] });
+    const res = await instructor(nav('/dashboard', { '__Host-udemy-instructor-at': at }));
+    expect(location(res)).toBe('/login?error=forbidden');
+    const login = await instructor(
+      nav('/login?error=forbidden', { '__Host-udemy-instructor-at': at }),
+    );
+    expect(isNext(login)).toBe(true);
+  });
+});
+
+describe('lazy config', () => {
+  it('a thunk is resolved on the first request only (build imports need no secrets)', async () => {
+    const thunk = vi.fn(() => testInput());
+    const lazy = createAuthProxy(thunk);
+    expect(thunk).not.toHaveBeenCalled();
+    await stubApi({});
+    expect(isNext(await lazy(nav('/login')))).toBe(true);
+    expect(location(await lazy(nav('/account')))).toBe('/login?next=%2Faccount');
+    expect(thunk).toHaveBeenCalledTimes(1);
+  });
+
+  it('a thunk that throws (missing env) fails the request, not the import', async () => {
+    const lazy = createAuthProxy(() => {
+      throw new Error('Invalid environment variables');
+    });
+    await expect(lazy(nav('/account'))).rejects.toThrow(/environment/);
   });
 });
 

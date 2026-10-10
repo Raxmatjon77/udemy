@@ -6,8 +6,11 @@ import { isSafeNextPath } from './safe-next';
 /**
  * Per-app configuration of the BFF auth layer (design §10). Each Next app builds one from its
  * server-only env (`API_INTERNAL_URL`, `API_CLIENT_ID`, ...) and passes it to the factories.
- * It is validated with zod when created, so a misconfigured app fails at boot, not at the
- * first login.
+ *
+ * The factories accept either a config (validated immediately, so a misconfigured app fails at
+ * boot) or a thunk `() => config` (a `WebAuthConfigSource`), which is called, validated and
+ * cached on first use. The thunk form lets `next build` import route modules and `proxy.ts`
+ * without any of the server secrets.
  */
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
@@ -72,10 +75,12 @@ export const WebAuthConfigSchema = z
     /** Where a signed-in user landing on login/signup/forgot-password is sent. */
     homePath: appPath.default('/'),
     /**
-     * Where a signed-in user without `requiredRole` is sent (instructor: `/not-instructor`,
-     * admin: `/login?error=forbidden`). This path itself is never role-gated (no loops).
+     * Where a signed-in user without `requiredRole` is sent (instructor: `/not-instructor`).
+     * This path itself is never role-gated (no loops). Defaults to `{loginPath}?error=forbidden`,
+     * which suits apps where every principal holds `requiredRole` (student) or the login page
+     * explains the refusal (admin).
      */
-    forbiddenRedirect: appPath,
+    forbiddenRedirect: appPath.optional(),
     /** Upstream API timeout per request. */
     apiTimeoutMs: z.number().int().positive().max(120_000).default(10_000),
     /** Max request body the API proxy forwards (JSON only; uploads go direct to MinIO). */
@@ -90,6 +95,7 @@ export const WebAuthConfigSchema = z
   .transform((config) => ({
     ...config,
     cookiePrefix: config.cookiePrefix ?? `udemy-${config.app}`,
+    forbiddenRedirect: config.forbiddenRedirect ?? `${config.loginPath}?error=forbidden`,
   }))
   .superRefine((config, ctx) => {
     if (!config.cookieSecure && process.env.NODE_ENV === 'production') {
@@ -121,4 +127,45 @@ export function defineWebAuthConfig(input: WebAuthConfigInput | WebAuthConfig): 
 
 function isValidated(input: unknown): input is WebAuthConfig {
   return typeof input === 'object' && input !== null && VALIDATED in input;
+}
+
+/**
+ * What the factories accept: a config (raw or already validated), or a thunk returning one.
+ * A thunk is called on first use (the first request), not at import time.
+ */
+export type WebAuthConfigSource =
+  WebAuthConfigInput | WebAuthConfig | (() => WebAuthConfigInput | WebAuthConfig);
+
+/**
+ * Turns a `WebAuthConfigSource` into a memoised getter of the validated config.
+ *
+ * - A plain config is validated NOW (the factories keep failing at boot for a bad literal).
+ * - A thunk is called and validated on the first `get()` and cached. If it throws (missing env,
+ *   invalid value), nothing is cached: the error surfaces on that request and the next request
+ *   tries again.
+ */
+export function lazyWebAuthConfig(source: WebAuthConfigSource): () => WebAuthConfig {
+  if (typeof source !== 'function') {
+    const config = defineWebAuthConfig(source);
+    return () => config;
+  }
+  let cached: WebAuthConfig | undefined;
+  return () => (cached ??= defineWebAuthConfig(source()));
+}
+
+/**
+ * Like `lazyWebAuthConfig`, plus values derived from the config (cookie names, path sets, ...),
+ * computed once together with it.
+ */
+export function lazyWithConfig<T>(
+  source: WebAuthConfigSource,
+  derive: (config: WebAuthConfig) => T,
+): () => T {
+  const getConfig = lazyWebAuthConfig(source);
+  if (typeof source !== 'function') {
+    const value = derive(getConfig());
+    return () => value;
+  }
+  let cached: { value: T } | undefined;
+  return () => (cached ??= { value: derive(getConfig()) }).value;
 }

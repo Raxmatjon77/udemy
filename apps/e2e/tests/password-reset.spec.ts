@@ -1,25 +1,21 @@
-import { expect, test, type JourneyFixtures } from '../src/fixtures';
+import { expect, test } from '../src/fixtures';
 import { urls } from '../src/env';
 import {
-  expectRevokedSessionLoggedOut,
+  expectLoggedOutOnNextNavigation,
   logIn,
   MESSAGES,
   SUBJECTS,
   signUpInNewPage,
   submitLogin,
-  type LogoutCheck,
 } from '../src/flows';
 import { extractTokenLink } from '../src/mailpit';
 
-async function passwordResetJourney(
-  {
-    page,
-    newPage,
-    users,
-    mailpit,
-  }: Pick<JourneyFixtures, 'page' | 'newPage' | 'users' | 'mailpit'>,
-  logoutCheck: LogoutCheck,
-): Promise<void> {
+test('password reset: mail link → new password works, old fails, old session ends', async ({
+  page,
+  newPage,
+  users,
+  mailpit,
+}) => {
   const user = users.next('Reset');
   const newPassword = `new-${user.password}`;
   await signUpInNewPage(newPage, user);
@@ -60,7 +56,9 @@ async function passwordResetJourney(
   });
 
   await test.step('the session opened before the reset is logged out on its next navigation', async () => {
-    await expectRevokedSessionLoggedOut(before, 'student', '/account/sessions', logoutCheck);
+    // The reset revoked every session (API: 401 `unauthorized`); the BFF clears the cookies
+    // and the client lands on /login?next=….
+    await expectLoggedOutOnNextNavigation(before, 'student', '/account/sessions');
   });
 
   await test.step('the old password fails', async () => {
@@ -76,21 +74,4 @@ async function passwordResetJourney(
     const page3 = await newPage();
     await logIn(page3, 'student', { email: user.email, password: newPassword }, '/');
   });
-}
-
-test('password reset: mail link → new password works, old fails, old session ends', ({
-  page,
-  newPage,
-  users,
-  mailpit,
-}) => passwordResetJourney({ page, newPage, users, mailpit }, 'current'));
-
-// BUG #1 (packages/web-auth, apps/e2e/README.md "Known bugs"): the session opened before the
-// reset is rejected by the API (401 `unauthorized`) but the BFF keeps its cookies, so its next
-// navigation ends on `/` (login → 307 → `/`) instead of `/login?next=/account/sessions`.
-test.fixme('password reset: the old session lands on /login on its next navigation', ({
-  page,
-  newPage,
-  users,
-  mailpit,
-}) => passwordResetJourney({ page, newPage, users, mailpit }, 'strict'));
+});

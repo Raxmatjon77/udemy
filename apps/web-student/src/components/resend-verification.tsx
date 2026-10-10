@@ -9,7 +9,7 @@ import { Button } from '@udemy/ui/components/button';
 import { Spinner } from '@udemy/ui/components/spinner';
 
 import { api } from '@/lib/api';
-import { hasCode, isApiError, problemMessage, retryAfterSeconds } from '@/lib/problem';
+import { hasCode, isApiError, problemMessage } from '@/lib/problem';
 import { queryKeys } from '@/lib/queries';
 
 const COOLDOWN_S = 60;
@@ -33,7 +33,7 @@ export function ResendVerification() {
         void queryClient.invalidateQueries({ queryKey: queryKeys.me });
         return;
       }
-      const wait = isApiError(error) ? retryAfterSeconds(error.retryAfter) : null;
+      const wait = isApiError(error) ? error.retryAfterSeconds : null;
       if (wait) setCooldown(Math.min(wait, 3600));
     },
   });

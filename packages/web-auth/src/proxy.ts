@@ -1,10 +1,11 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { defineWebAuthConfig, type WebAuthConfig, type WebAuthConfigInput } from './config';
+import { lazyWithConfig, type WebAuthConfig, type WebAuthConfigSource } from './config';
 import {
   clearSetCookies,
   cookieNames,
   readAuthCookies,
+  type CookieNames,
   rewriteCookieHeader,
   sessionSetCookies,
 } from './cookies';
@@ -19,7 +20,7 @@ import { safeNextPath } from './safe-next';
  * ```ts
  * // src/proxy.ts
  * import { createAuthProxy } from '@udemy/web-auth/proxy';
- * export const proxy = createAuthProxy(webAuthConfig);
+ * export const proxy = createAuthProxy(webAuthConfig); // a config, or () => config
  * export const config = {
  *   // Must be a literal (statically analysed); copy RECOMMENDED_PROXY_MATCHER.
  *   matcher: ['/((?!api/|_next/|favicon\\.ico$|robots\\.txt$|sitemap\\.xml$|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|woff2?)$).*)'],
@@ -29,8 +30,12 @@ import { safeNextPath } from './safe-next';
  * Rules:
  * - `/verify-email`, `/reset-password`: always render, with `Referrer-Policy: no-referrer`
  *   (their links carry a token in the fragment).
- * - `loginPath`, `/signup`, `/forgot-password`: a signed-in user (valid token for this app
- *   with `requiredRole`) is redirected to `homePath`.
+ * - `loginPath`, `/signup`, `/forgot-password` (guest-only): a signed-in user (valid token for
+ *   this app with `requiredRole`) is redirected to `homePath`. Anything else renders the page:
+ *   no cookies (or cookies cleared by a BFF 401), an ended session (its cookies are cleared on
+ *   the way), a user without the role, or an unknown status (API/JWKS down). This check is
+ *   local, so it cannot see a session revoked on the server; that case cannot loop, because
+ *   the BFF clears the cookies on the 401 that sends the client here (see ./api-proxy.ts).
  * - `publicPaths`: render; an expiring session is refreshed opportunistically so the header
  *   can show the user, but nothing is enforced.
  * - Everything else is protected:
@@ -42,7 +47,8 @@ import { safeNextPath } from './safe-next';
  *   - API/JWKS unreachable: redirect to login WITHOUT clearing cookies (a blip must not log
  *     anybody out);
  *   - token of another app (`app` claim): clear the cookies, redirect to login;
- *   - signed in without `requiredRole`: redirect to `forbiddenRedirect`.
+ *   - signed in without `requiredRole`: redirect to `forbiddenRedirect` (default
+ *     `loginPath?error=forbidden`).
  * - `/api/*` is passed through untouched: the auth route handlers and the API proxy handle
  *   sessions themselves (so a request never refreshes twice).
  */
@@ -82,13 +88,26 @@ function matchesPublic(pathname: string, patterns: readonly string[]): boolean {
   });
 }
 
-export function createAuthProxy(input: WebAuthConfigInput | WebAuthConfig): AuthProxy {
-  const config = defineWebAuthConfig(input);
-  const names = cookieNames(config);
-  const guestOnly = new Set<string>([config.loginPath, ...GUEST_ONLY_EXTRA]);
-  const forbiddenPathname = new URL(config.forbiddenRedirect, 'http://x.invalid').pathname;
+interface ProxySettings {
+  config: WebAuthConfig;
+  names: CookieNames;
+  guestOnly: ReadonlySet<string>;
+  forbiddenPathname: string;
+}
+
+export function createAuthProxy(source: WebAuthConfigSource): AuthProxy {
+  const settings = lazyWithConfig(source, (config): ProxySettings => ({
+    config,
+    names: cookieNames(config),
+    guestOnly: new Set<string>([
+      new URL(config.loginPath, 'http://x.invalid').pathname,
+      ...GUEST_ONLY_EXTRA,
+    ]),
+    forbiddenPathname: new URL(config.forbiddenRedirect, 'http://x.invalid').pathname,
+  }));
 
   async function resolveSession(request: NextRequest): Promise<Resolution> {
+    const { config } = settings();
     const { accessToken, refreshToken } = readAuthCookies(request, config);
     let current: AccessClaims | undefined;
     let unknown = false;
@@ -131,6 +150,7 @@ export function createAuthProxy(input: WebAuthConfigInput | WebAuthConfig): Auth
 
   /** Continue to the route, making the refreshed/cleared cookies visible to this render. */
   function proceed(request: NextRequest, resolution: Resolution): NextResponse {
+    const { config, names } = settings();
     const { session, newAccessToken, newRefreshToken, setCookies } = resolution;
     const ended = session.kind === 'ended';
     if (!newAccessToken && !ended) return NextResponse.next();
@@ -163,6 +183,7 @@ export function createAuthProxy(input: WebAuthConfigInput | WebAuthConfig): Auth
   }
 
   function loginRedirect(request: NextRequest, resolution: Resolution): NextResponse {
+    const { config } = settings();
     const here = `${request.nextUrl.pathname}${request.nextUrl.search}`;
     const next = safeNextPath(here);
     const target =
@@ -179,6 +200,7 @@ export function createAuthProxy(input: WebAuthConfigInput | WebAuthConfig): Auth
     const { pathname } = request.nextUrl;
 
     if (pathname === '/api' || pathname.startsWith('/api/')) return NextResponse.next();
+    const { config, guestOnly, forbiddenPathname } = settings();
 
     if (ALWAYS_RENDER.has(pathname)) {
       const response = NextResponse.next();

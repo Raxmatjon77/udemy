@@ -1,8 +1,10 @@
-# Pipeline: install -> verify (lint/typecheck/test/build in parallel) -> docker (main + tags only)
+# Pipeline: install -> verify (lint/typecheck/test/build in parallel) -> e2e (full stack, Playwright)
+# -> docker (main + tags only; images are only pushed after the e2e journeys passed)
 
 stages:
   - install
   - verify
+  - e2e
   - docker
 
 variables:
@@ -117,13 +119,194 @@ build:
   script:
     - pnpm turbo run build
 
+# ---- End-to-end journeys against the whole stack (apps/e2e, Playwright) ----
+# The built api + worker + three Next BFFs run inside the job container; Postgres (logical WAL),
+# Redis, Mailpit, Kafka (KRaft) and Debezium Connect run as services. The connector streams
+# outbox.events to Kafka, so every journey that waits for an email exercises the full outbox path.
+# Mirror it locally against the docker dev stack with infra/ci/e2e-local.sh (apps/e2e/README.md).
+#
+# Runner: docker executor (FF_NETWORK_PER_BUILD below) or kubernetes executor (services share the
+# pod network and aliases resolve via hostAliases). Needs ~6 GB RAM, 8 GB recommended (README).
+#
+# Service env: GitLab passes job-level variables to EVERY service container. apache/kafka turns any
+# KAFKA_* variable into a broker property and Debezium Connect reads LOG_LEVEL, GROUP_ID, HEAP_OPTS
+# and CONNECT_*, so service settings live in the per-service `variables:` and the app-side KAFKA_*
+# values are exported in before_script instead of being job variables.
+e2e:
+  stage: e2e
+  # Chromium + its system libraries are preinstalled; Node 24 (nodesource, ships corepack).
+  # Keep the tag in sync with @playwright/test in apps/e2e/package.json.
+  image: mcr.microsoft.com/playwright:v1.63.0-noble
+  needs: [lint, typecheck, test, build]
+  timeout: 30m
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+    # Branch pipelines of branches with an open MR: on demand. (The pipeline runs branch
+    # pipelines, not MR pipelines, so the verify jobs this job needs exist here.)
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: manual
+      allow_failure: true
+  services:
+    - name: postgres:18.6-alpine
+      alias: postgres
+      # Debezium reads the outbox through logical decoding (same settings as the dev compose).
+      command:
+        [
+          'postgres',
+          '-c',
+          'wal_level=logical',
+          '-c',
+          'max_replication_slots=10',
+          '-c',
+          'max_wal_senders=10',
+        ]
+      variables:
+        POSTGRES_DB: udemy
+        POSTGRES_USER: udemy
+        POSTGRES_PASSWORD: udemy
+    - name: redis:8.10.2-alpine
+      alias: redis
+    - name: axllent/mailpit:v1.31.4
+      alias: mailpit
+    - name: apache/kafka:4.2.2
+      alias: kafka
+      # KRaft single node (broker + controller). Every client here (job container, Connect) is on
+      # the per-build network and reaches the broker as kafka:9092, so one advertised client
+      # listener covers both; there is no "host" side as in the dev compose.
+      variables:
+        KAFKA_NODE_ID: '1'
+        KAFKA_PROCESS_ROLES: broker,controller
+        KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+        KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+        KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+        KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+        KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+        KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+        KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+        KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+        KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: '0'
+        KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+        KAFKA_NUM_PARTITIONS: '3'
+        KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    - name: quay.io/debezium/connect:3.6.3.Final
+      alias: kafka-connect
+      variables:
+        BOOTSTRAP_SERVERS: kafka:9092
+        # Heap cap + ServiceLoader plugin discovery: the full reflective scan of every bundled
+        # connector needs far more memory (see infra/docker/docker-compose.dev.yml).
+        HEAP_OPTS: -Xms256m -Xmx512m
+        CONNECT_PLUGIN_DISCOVERY: service_load
+        GROUP_ID: udemy-connect
+        CONFIG_STORAGE_TOPIC: _connect_configs
+        OFFSET_STORAGE_TOPIC: _connect_offsets
+        STATUS_STORAGE_TOPIC: _connect_status
+        CONFIG_STORAGE_REPLICATION_FACTOR: '1'
+        OFFSET_STORAGE_REPLICATION_FACTOR: '1'
+        STATUS_STORAGE_REPLICATION_FACTOR: '1'
+        KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+        VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+  variables:
+    FF_NETWORK_PER_BUILD: 'true'
+    # api + worker (the servers inherit the job env; apps/e2e/src/env.ts adds ports and origins).
+    # There is no .env in CI, so everything they need is set here or in before_script.
+    DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
+    REDIS_URL: redis://redis:6379
+    SMTP_HOST: mailpit
+    SMTP_PORT: '1025'
+    MAIL_FROM: 'Udemy Clone <no-reply@udemy.local>'
+    JWT_AUDIENCE: udemy-api
+    JWT_KEYS_DIR: $CI_PROJECT_DIR/apps/api/.secrets/jwt
+    CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+    # The suite's own view of the stack (apps/e2e/src/env.ts; defaults are the dev host ports).
+    E2E_DATABASE_URL: postgres://udemy:udemy@postgres:5432/udemy
+    E2E_REDIS_URL: redis://redis:6379
+    E2E_KAFKA_BROKERS: kafka:9092
+    E2E_MAILPIT_URL: http://mailpit:8025
+    E2E_KAFKA_CONNECT_URL: http://kafka-connect:8083
+    E2E_DEBEZIUM_CONNECTOR: udemy-outbox
+    # Kafka CLI for infra/kafka/create-topics.sh (the job image has no Kafka tools). Pinned to the
+    # broker version; the SHA-512 is from downloads.apache.org/kafka/<v>/<file>.sha512.
+    E2E_KAFKA_CLI_VERSION: '4.2.2'
+    E2E_KAFKA_CLI_SHA512: acb9961f7ec72f5ff1544afdfbcca39030f2c9ca0d80e8466cf961bd83ae2030bafc28d2577f3f1a099b39c06e6252b8886c1eaf6477f2a2aca8be8b68c0b25e
+  cache:
+    - key:
+        files: [pnpm-lock.yaml]
+      paths: [.pnpm-store]
+      policy: pull
+    - key: turbo-$CI_COMMIT_REF_SLUG
+      paths: [.turbo]
+      fallback_keys: [turbo-$CI_DEFAULT_BRANCH]
+      policy: pull
+    - key: kafka-cli-$E2E_KAFKA_CLI_VERSION
+      paths: [.cache/kafka-cli]
+      policy: pull-push
+  before_script:
+    - *pnpm-setup
+    # App-side Kafka settings (exported, not job variables: see the note above the job).
+    - export KAFKA_BROKERS=kafka:9092 KAFKA_GROUP_ID=udemy-worker
+    # ---- Ephemeral secrets: random per job, never stored. Each BFF secret is handed to its app via
+    # E2E_<APP>_CLIENT_SECRET and the api gets its SHA-256 (CLIENT_<APP>_SECRET_HASH).
+    - rand() { head -c 32 /dev/urandom | base64 | tr -d '\n'; }
+    - sha256() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+    # Assign, then export: `export X="$(cmd)"` would hide a failing cmd and export an empty value.
+    - |
+      REFRESH_TOKEN_PEPPER="$(rand)"; LOGIN_EMAIL_HMAC_KEY="$(rand)"; EMAIL_TOKEN_SECRET="$(rand)"
+      E2E_STUDENT_CLIENT_SECRET="$(rand)"; E2E_INSTRUCTOR_CLIENT_SECRET="$(rand)"; E2E_ADMIN_CLIENT_SECRET="$(rand)"
+      CLIENT_STUDENT_SECRET_HASH="$(sha256 "$E2E_STUDENT_CLIENT_SECRET")"
+      CLIENT_INSTRUCTOR_SECRET_HASH="$(sha256 "$E2E_INSTRUCTOR_CLIENT_SECRET")"
+      CLIENT_ADMIN_SECRET_HASH="$(sha256 "$E2E_ADMIN_CLIENT_SECRET")"
+      export REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET \
+        E2E_STUDENT_CLIENT_SECRET E2E_INSTRUCTOR_CLIENT_SECRET E2E_ADMIN_CLIENT_SECRET \
+        CLIENT_STUDENT_SECRET_HASH CLIENT_INSTRUCTOR_SECRET_HASH CLIENT_ADMIN_SECRET_HASH
+    # Ephemeral Ed25519 signing key (same as the test job).
+    - JWT_ACTIVE_KID="ed25519-$(date -u +%Y-%m)-ci${CI_PIPELINE_ID}"; export JWT_ACTIVE_KID
+    - pnpm --filter @udemy/api keys:generate --kid "$JWT_ACTIVE_KID"
+    # ---- Migrations (they also create the dbz_outbox publication the connector needs).
+    - until (exec 3<>/dev/tcp/postgres/5432) 2>/dev/null; do echo "waiting for postgres..."; sleep 2; done
+    - pnpm --filter @udemy/db migrate:latest
+    # ---- Topics with retention: infra/kafka/create-topics.sh with a pinned Kafka CLI (cached) on a JRE.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends openjdk-21-jre-headless > /dev/null
+    - |
+      KAFKA_DIST="kafka_2.13-${E2E_KAFKA_CLI_VERSION}"
+      if [ ! -x ".cache/kafka-cli/${KAFKA_DIST}/bin/kafka-topics.sh" ]; then
+        rm -rf .cache/kafka-cli && mkdir -p .cache/kafka-cli
+        curl -fsSL --retry 3 -o /tmp/kafka.tgz "https://dlcdn.apache.org/kafka/${E2E_KAFKA_CLI_VERSION}/${KAFKA_DIST}.tgz" \
+          || curl -fsSL --retry 3 -o /tmp/kafka.tgz "https://archive.apache.org/dist/kafka/${E2E_KAFKA_CLI_VERSION}/${KAFKA_DIST}.tgz"
+        echo "${E2E_KAFKA_CLI_SHA512}  /tmp/kafka.tgz" | sha512sum -c -
+        tar -xzf /tmp/kafka.tgz -C .cache/kafka-cli && rm /tmp/kafka.tgz
+      fi
+      KAFKA_BOOTSTRAP=kafka:9092 TOPIC_REPLICATION=1 KAFKA_HEAP_OPTS='-Xms32m -Xmx128m' \
+        KAFKA_BIN="$CI_PROJECT_DIR/.cache/kafka-cli/${KAFKA_DIST}/bin" sh infra/kafka/create-topics.sh
+    # ---- Debezium outbox connector, pointed at the service aliases; waits until RUNNING.
+    - node infra/ci/register-connector.mjs --url "$E2E_KAFKA_CONNECT_URL" --name "$E2E_DEBEZIUM_CONNECTOR"
+      --set database.hostname=postgres --set database.port=5432 --timeout 240
+    # ---- Everything the suite starts, then the browser (a no-op on the Playwright image).
+    - pnpm turbo run build --filter=@udemy/api --filter=@udemy/worker --filter='@udemy/web-*'
+    - pnpm --filter @udemy/e2e browsers:install
+  script:
+    # Directly, not via `turbo run e2e`: turbo's strict env mode would strip DATABASE_URL & co.
+    - pnpm --filter @udemy/e2e e2e
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" = "failed" ]; then
+        mkdir -p apps/e2e/.output/ci
+        curl -sS "$E2E_KAFKA_CONNECT_URL/connectors/$E2E_DEBEZIUM_CONNECTOR/status" > apps/e2e/.output/ci/connector-status.json || true
+      fi
+  artifacts:
+    when: on_failure
+    expire_in: 7 days
+    # report/ (HTML), test-results/ (traces, screenshots, videos), logs/ (the five servers), ci/
+    paths: [apps/e2e/.output/]
+
 # ---- Docker images (Kaniko, no privileged daemon needed) ----
 .kaniko:
   stage: docker
   image:
     name: gcr.io/kaniko-project/executor:v1.23.2-debug
     entrypoint: ['']
-  needs: [lint, typecheck, test, build]
+  needs: [lint, typecheck, test, build, e2e]
   # Only main and tags
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

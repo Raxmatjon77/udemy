@@ -10,6 +10,7 @@ import {
   problem,
   stubApi,
   testConfig,
+  testInput,
 } from './internal/test-helpers';
 import { inflightRefreshCount } from './refresh';
 
@@ -402,5 +403,222 @@ describe('refresh in the proxy', () => {
     const api = await stubApi({ 'GET /api/v1/users/u/profile': () => json({}) });
     await proxy(request('GET', 'users/u/profile'));
     expect(api.calls[0]!.headers.has('authorization')).toBe(false);
+  });
+});
+
+describe('session ended upstream (revoked sid): cookies are cleared', () => {
+  const expectCleared = (response: Response) => {
+    const cookies = parseSetCookies(response.headers);
+    expect(cookies.get(AT)!.value).toBe('');
+    expect(cookies.get(AT)!.attrs.get('max-age')).toBe('0');
+    expect(cookies.get(RT)!.value).toBe('');
+    expect(cookies.get(RT)!.attrs.get('max-age')).toBe('0');
+    expect(response.headers.getSetCookie()).toHaveLength(2);
+  };
+
+  it('401 unauthorized for our access token: passes the 401 through and clears both cookies', async () => {
+    const at = await mintAccessToken();
+    const api = await stubApi({
+      'GET /api/v1/auth/sessions': () =>
+        new Response(
+          JSON.stringify({ type: 'about:blank', title: 'x', status: 401, code: 'unauthorized' }),
+          {
+            status: 401,
+            headers: { 'content-type': 'application/problem+json', 'x-request-id': 'r-1' },
+          },
+        ),
+    });
+    const response = await proxy(
+      request('GET', 'auth/sessions', { cookies: { [AT]: at, [RT]: 'rt-1' } }),
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).code).toBe('unauthorized');
+    expect(response.headers.get('x-request-id')).toBe('r-1');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expectCleared(response);
+    // A revoked session is not "expired": no refresh is attempted.
+    expect(api.callsTo('POST', '/api/v1/auth/refresh')).toHaveLength(0);
+  });
+
+  it('also when the at is the only cookie', async () => {
+    await stubApi({ 'GET /api/v1/me': () => problem(401, 'unauthorized') });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken() } }),
+    );
+    expect(response.status).toBe(401);
+    expectCleared(response);
+  });
+
+  it('token_expired → refresh → retry → 401 unauthorized: clears instead of setting the new tokens', async () => {
+    const fresh = await mintAccessToken();
+    let attempts = 0;
+    const api = await stubApi({
+      'POST /api/v1/auth/refresh': () => json(refreshResult(fresh, 'rt-2')),
+      'GET /api/v1/me': () => {
+        attempts += 1;
+        return problem(401, attempts === 1 ? 'token_expired' : 'unauthorized');
+      },
+    });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken(), [RT]: 'rt-1' } }),
+    );
+    expect(response.status).toBe(401);
+    expect(api.callsTo('GET', '/api/v1/me')).toHaveLength(2);
+    expect(api.callsTo('POST', '/api/v1/auth/refresh')).toHaveLength(1);
+    expectCleared(response);
+  });
+
+  it('a second token_expired after a successful refresh is final: clears (no login ↔ home loop)', async () => {
+    await stubApi({
+      'POST /api/v1/auth/refresh': async () => json(refreshResult(await mintAccessToken(), 'rt-2')),
+      'GET /api/v1/me': () => problem(401, 'token_expired'),
+    });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken(), [RT]: 'rt-1' } }),
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).code).toBe('token_expired');
+    expectCleared(response);
+  });
+
+  it('token_expired without a refresh token cannot be fixed: clears', async () => {
+    await stubApi({ 'GET /api/v1/me': () => problem(401, 'token_expired') });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken() } }),
+    );
+    expect(response.status).toBe(401);
+    expectCleared(response);
+  });
+
+  it('a refresh rejected with invalid_refresh_token on the token_expired retry path clears', async () => {
+    await stubApi({
+      'POST /api/v1/auth/refresh': () => problem(401, 'invalid_refresh_token'),
+      'GET /api/v1/me': () => problem(401, 'token_expired'),
+    });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken(), [RT]: 'rt-1' } }),
+    );
+    expect(response.status).toBe(401);
+    expect((await response.json()).code).toBe('unauthorized');
+    expectCleared(response);
+  });
+
+  it('streamed body + token_expired still hands the fresh cookies to the client retry (no clear)', async () => {
+    const fresh = await mintAccessToken({ expiresIn: 899 });
+    await stubApi({
+      'POST /api/v1/auth/refresh': () => json(refreshResult(fresh, 'rt-2')),
+      'PUT /api/v1/me/blob': async (req) => {
+        await req.text();
+        return problem(401, 'token_expired');
+      },
+    });
+    const response = await proxy(
+      request('PUT', 'me/blob', {
+        body: new Blob(['{"a":1}']).stream(),
+        headers: { origin: ORIGIN, 'content-type': 'application/json' },
+        cookies: { [AT]: await mintAccessToken(), [RT]: 'rt-1' },
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(parseSetCookies(response.headers).get(AT)!.value).toBe(fresh);
+  });
+
+  it('an anonymous 401 (no access token sent) sets no cookies', async () => {
+    await stubApi({ 'GET /api/v1/me': () => problem(401, 'unauthorized') });
+    const response = await proxy(request('GET', 'me', { cookies: { other: 'x' } }));
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it('a 401 without a readable problem body keeps the cookies', async () => {
+    await stubApi({ 'GET /api/v1/me': () => new Response('nope', { status: 401 }) });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken() } }),
+    );
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe('nope');
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it('403 forbidden is not a session problem: keeps the cookies', async () => {
+    await stubApi({ 'GET /api/v1/admin/users': () => problem(403, 'forbidden') });
+    const response = await proxy(
+      request('GET', 'admin/users', { cookies: { [AT]: await mintAccessToken(), [RT]: 'rt' } }),
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe('transient failures never clear cookies', () => {
+  it.each([
+    [503, 'service_unavailable'],
+    [500, 'internal'],
+    [502, 'service_unavailable'],
+    [429, 'rate_limited'],
+  ])('upstream %i %s is passed through, cookies kept', async (status, code) => {
+    await stubApi({ 'GET /api/v1/me': () => problem(status, code) });
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken(), [RT]: 'rt-1' } }),
+    );
+    expect(response.status).toBe(status);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it('API unreachable (network error): 502, cookies kept', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    const response = await proxy(
+      request('GET', 'me', { cookies: { [AT]: await mintAccessToken(), [RT]: 'rt-1' } }),
+    );
+    expect(response.status).toBe(502);
+    expect((await response.json()).code).toBe('service_unavailable');
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it('a rate-limited refresh (429) is transient: 503, cookies kept', async () => {
+    await stubApi({ 'POST /api/v1/auth/refresh': () => problem(429, 'rate_limited') });
+    const response = await proxy(request('GET', 'me', { cookies: { [RT]: 'rt-1' } }));
+    expect(response.status).toBe(503);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it('refresh down + still-valid at + upstream token_expired: keeps the cookies', async () => {
+    await stubApi({
+      'POST /api/v1/auth/refresh': () => problem(503, 'service_unavailable'),
+      'GET /api/v1/me': () => problem(401, 'token_expired'),
+    });
+    const response = await proxy(
+      request('GET', 'me', {
+        cookies: { [AT]: await mintAccessToken({ expiresIn: 10 }), [RT]: 'rt-1' },
+      }),
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+});
+
+describe('lazy config', () => {
+  it('a thunk is not called at creation, then called once and cached', async () => {
+    const thunk = vi.fn(() => testInput());
+    const lazy = createApiProxyHandler(thunk);
+    expect(thunk).not.toHaveBeenCalled();
+    await stubApi({ 'GET /api/v1/me': () => json({ ok: true }) });
+    expect((await lazy(request('GET', 'me'))).status).toBe(200);
+    expect((await lazy(request('GET', 'me'))).status).toBe(200);
+    expect(thunk).toHaveBeenCalledTimes(1);
+  });
+
+  it('an invalid thunk config fails on the request (not at creation), and is retried', async () => {
+    const thunk = vi.fn(() => testInput({ apiInternalUrl: 'not a url' }));
+    const lazy = createApiProxyHandler(thunk);
+    await expect(lazy(request('GET', 'me'))).rejects.toThrow(/Invalid @udemy\/web-auth config/);
+    await expect(lazy(request('GET', 'me'))).rejects.toThrow(/Invalid @udemy\/web-auth config/);
+    expect(thunk).toHaveBeenCalledTimes(2);
+  });
+
+  it('a plain invalid config still fails at creation (backwards compatible)', () => {
+    expect(() => createApiProxyHandler(testInput({ apiInternalUrl: 'nope' }))).toThrow(
+      /Invalid @udemy\/web-auth config/,
+    );
   });
 });

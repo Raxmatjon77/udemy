@@ -91,18 +91,20 @@ export function workerEnv(): Record<string, string> {
 }
 
 /**
- * Full server env of one Next BFF for `next start`. The client secret comes from the app's
- * `.env.local` (else `.env.example`, whose dev placeholder matches the root .env hash).
+ * Full server env of one Next BFF for `next start`. The client secret comes from
+ * `E2E_<APP>_CLIENT_SECRET` (CI: random per job, its SHA-256 in CLIENT_<APP>_SECRET_HASH), else the
+ * app's `.env.local` (else `.env.example`, whose dev placeholder matches the root .env hash).
  */
 export function webEnv(app: AppName): Record<string, string> {
   const appDir = resolve(REPO_ROOT, `apps/web-${app}`);
   const local = readEnvFile(resolve(appDir, '.env.local'), resolve(appDir, '.env.example'));
+  const secretOverride = process.env[`E2E_${app.toUpperCase()}_CLIENT_SECRET`];
   const env: Record<string, string> = {
     NODE_ENV: 'production',
     PORT: String(ports[app]),
     API_INTERNAL_URL: urls.api,
     API_CLIENT_ID: local.API_CLIENT_ID ?? `${app}-bff`,
-    API_CLIENT_SECRET: local.API_CLIENT_SECRET ?? '',
+    API_CLIENT_SECRET: secretOverride || local.API_CLIENT_SECRET || '',
     APP_ORIGIN: urls[app],
     JWT_ISSUER: urls.api,
     JWT_AUDIENCE: rootEnv.JWT_AUDIENCE ?? 'udemy-api',

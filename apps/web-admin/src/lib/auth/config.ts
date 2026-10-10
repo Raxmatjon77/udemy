@@ -1,18 +1,16 @@
 import 'server-only';
-import { defineWebAuthConfig, type WebAuthConfig } from '@udemy/web-auth';
+import type { WebAuthConfigInput } from '@udemy/web-auth';
 
 import { serverEnv } from '../env';
 
-let cached: WebAuthConfig | undefined;
-
 /**
- * The validated @udemy/web-auth config of the admin BFF, built on first use. Every page except
- * login requires a session with the ADMIN role; cookies are SameSite=Strict (design §9).
+ * The @udemy/web-auth config of the admin BFF, from the server env. Passed to the factories as a
+ * thunk: they call and validate it on the first request (never at build time). Every page
+ * except login requires a session with the ADMIN role; cookies are SameSite=Strict (design §9).
  */
-export function getWebAuthConfig(): WebAuthConfig {
-  if (cached) return cached;
+export function webAuthConfig(): WebAuthConfigInput {
   const env = serverEnv();
-  cached = defineWebAuthConfig({
+  return {
     app: 'admin',
     requiredRole: 'ADMIN',
     clientId: env.API_CLIENT_ID,
@@ -26,6 +24,5 @@ export function getWebAuthConfig(): WebAuthConfig {
     sameSite: 'strict',
     homePath: '/instructor-applications',
     forbiddenRedirect: '/login?error=forbidden',
-  });
-  return cached;
+  };
 }

@@ -1,27 +1,15 @@
 import 'server-only';
-import {
-  createApiProxyHandler,
-  createAuthRouteHandlers,
-  type ApiProxyHandler,
-  type AuthRouteHandlers,
-} from '@udemy/web-auth';
+import { createApiProxyHandler, createAuthRouteHandlers } from '@udemy/web-auth';
 
-import { getWebAuthConfig } from './config';
+import { webAuthConfig } from './config';
 
 /*
- * The handlers are created on first use, not at import: `next build` imports every route
- * module, and must not need the server secrets to do so.
+ * The config is passed as a thunk: @udemy/web-auth resolves (and validates) it on the first
+ * request, so `next build` can import every route module without the server secrets.
  */
 
-let routes: AuthRouteHandlers | undefined;
-let proxy: ApiProxyHandler | undefined;
+/** `POST /api/auth/{login,logout,logout-all,refresh}`. */
+export const authRoutes = createAuthRouteHandlers(webAuthConfig);
 
-export function authRoutes(): AuthRouteHandlers {
-  routes ??= createAuthRouteHandlers(getWebAuthConfig());
-  return routes;
-}
-
-export function apiProxy(): ApiProxyHandler {
-  proxy ??= createApiProxyHandler(getWebAuthConfig());
-  return proxy;
-}
+/** `/api/proxy/*` → the API with the session's access token. */
+export const apiProxy = createApiProxyHandler(webAuthConfig);

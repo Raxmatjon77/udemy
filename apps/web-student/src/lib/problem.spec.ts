@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ErrorCode, type ProblemDetails } from '@udemy/contracts';
 
-import { ApiError, formatWait, problemMessage, retryAfterSeconds, toFormProblem } from './problem';
+import { ProxyFetchError } from '@udemy/web-auth/client';
+
+import { formatWait, problemMessage, toFormProblem } from './problem';
 
 function problem(
   status: number,
@@ -12,7 +14,9 @@ function problem(
 }
 
 const err = (status: number, code?: string, extra?: Partial<ProblemDetails>, retryAfter?: string) =>
-  new ApiError(status, problem(status, code, extra), retryAfter ?? null);
+  new ProxyFetchError(status, problem(status, code, extra), {
+    headers: retryAfter ? { 'retry-after': retryAfter } : {},
+  });
 
 describe('problemMessage', () => {
   it('maps known codes to their message, regardless of status', () => {
@@ -39,8 +43,8 @@ describe('problemMessage', () => {
 
   it('falls back to the status for unknown codes or bodies', () => {
     expect(problemMessage(err(409, 'something_new'))).toMatch(/changed in the meantime/);
-    expect(problemMessage(new ApiError(503, null))).toMatch(/temporarily unavailable/);
-    expect(problemMessage(new ApiError(500, null))).toMatch(/on our side/);
+    expect(problemMessage(new ProxyFetchError(503, null))).toMatch(/temporarily unavailable/);
+    expect(problemMessage(new ProxyFetchError(500, null))).toMatch(/on our side/);
   });
 
   it('treats non-API errors as network failures', () => {
@@ -85,34 +89,7 @@ describe('toFormProblem', () => {
   });
 });
 
-describe('ApiError.fromResponse', () => {
-  it('parses a problem body and the Retry-After header', async () => {
-    const response = new Response(JSON.stringify(problem(429, ErrorCode.RateLimited)), {
-      status: 429,
-      headers: { 'content-type': 'application/problem+json', 'retry-after': '30' },
-    });
-    const error = await ApiError.fromResponse(response);
-    expect(error.status).toBe(429);
-    expect(error.code).toBe(ErrorCode.RateLimited);
-    expect(error.retryAfter).toBe('30');
-  });
-
-  it('tolerates a non-JSON body', async () => {
-    const error = await ApiError.fromResponse(new Response('<html>', { status: 502 }));
-    expect(error.problem).toBeNull();
-    expect(error.status).toBe(502);
-  });
-});
-
-describe('retryAfterSeconds / formatWait', () => {
-  it('parses delta-seconds and HTTP dates', () => {
-    expect(retryAfterSeconds('90')).toBe(90);
-    const now = Date.parse('2026-10-10T10:00:00Z');
-    expect(retryAfterSeconds('Sat, 10 Oct 2026 10:01:00 GMT', now)).toBe(60);
-    expect(retryAfterSeconds('soon')).toBeNull();
-    expect(retryAfterSeconds(null)).toBeNull();
-  });
-
+describe('formatWait', () => {
   it('formats waits for humans', () => {
     expect(formatWait(1)).toBe('in 1 second');
     expect(formatWait(45)).toBe('in 45 seconds');

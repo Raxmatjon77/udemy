@@ -7,7 +7,8 @@ import {
   rewriteCookieHeader,
   sessionSetCookies,
 } from './cookies';
-import { isoIn, parseSetCookies, testConfig } from './internal/test-helpers';
+import { defineWebAuthConfig, lazyWebAuthConfig } from './config';
+import { isoIn, parseSetCookies, testConfig, testInput } from './internal/test-helpers';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -153,6 +154,30 @@ describe('config validation', () => {
     expect(config.appOrigin).toBe('https://a.test');
     expect(config.loginPath).toBe('/login');
     expect(config.cookiePrefix).toBe('udemy-student');
+  });
+
+  it('defaults forbiddenRedirect to loginPath?error=forbidden', () => {
+    const input = testInput();
+    delete input.forbiddenRedirect;
+    expect(defineWebAuthConfig(input).forbiddenRedirect).toBe('/login?error=forbidden');
+    expect(defineWebAuthConfig({ ...input, loginPath: '/sign-in' }).forbiddenRedirect).toBe(
+      '/sign-in?error=forbidden',
+    );
+    expect(testConfig({ forbiddenRedirect: '/not-instructor' }).forbiddenRedirect).toBe(
+      '/not-instructor',
+    );
+  });
+
+  it('lazyWebAuthConfig: validates a plain config now, a thunk on first use (cached)', () => {
+    expect(() => lazyWebAuthConfig(testInput({ appOrigin: 'nope' }))).toThrow(/Invalid/);
+    const thunk = vi.fn(() => testInput());
+    const get = lazyWebAuthConfig(thunk);
+    expect(thunk).not.toHaveBeenCalled();
+    expect(get()).toBe(get());
+    expect(thunk).toHaveBeenCalledTimes(1);
+    // An already validated config is accepted as is.
+    const validated = testConfig();
+    expect(lazyWebAuthConfig(() => validated)()).toBe(validated);
   });
 
   it('rejects unsafe redirect paths', () => {

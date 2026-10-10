@@ -1,26 +1,22 @@
-import { expect, test, type JourneyFixtures } from '../src/fixtures';
+import { expect, test } from '../src/fixtures';
 import { urls } from '../src/env';
 import {
-  expectRevokedSessionLoggedOut,
+  expectLoggedOutOnNextNavigation,
   logIn,
   MESSAGES,
   SUBJECTS,
   signUpInNewPage,
   submitLogin,
-  type LogoutCheck,
 } from '../src/flows';
 
 const BAN_REASON = 'E2E: repeated spam in course discussions.';
 
-async function banJourney(
-  {
-    newPage,
-    users,
-    admin,
-    mailpit,
-  }: Pick<JourneyFixtures, 'newPage' | 'users' | 'admin' | 'mailpit'>,
-  logoutCheck: LogoutCheck,
-): Promise<void> {
+test('admin ban: session ends, login refused, mail sent; unban restores access', async ({
+  newPage,
+  users,
+  admin,
+  mailpit,
+}) => {
   const user = users.next('Banned');
   await signUpInNewPage(newPage, user);
 
@@ -52,16 +48,15 @@ async function banJourney(
   });
 
   await test.step("the user's open session is logged out on its next navigation", async () => {
-    await expectRevokedSessionLoggedOut(userPage, 'student', '/account/sessions', logoutCheck);
+    // The ban revoked the session (API: 401 `unauthorized`); the BFF clears the cookies and the
+    // client lands on /login?next=….
+    await expectLoggedOutOnNextNavigation(userPage, 'student', '/account/sessions');
   });
 
-  await test.step('the login shows the banned message', async () => {
-    // A fresh browser: under BUG #1 the old one cannot even open /login (its dead cookies
-    // still pass the local JWT check, so the guest-only login page redirects to `/`).
-    const page = await newPage();
-    await submitLogin(page, 'student', user);
-    await expect(page.getByRole('alert').filter({ hasText: MESSAGES.banned })).toBeVisible();
-    await expect(page).toHaveURL(`${urls.student}/login`);
+  await test.step('the login (in the same browser) shows the banned message', async () => {
+    await submitLogin(userPage, 'student', user);
+    await expect(userPage.getByRole('alert').filter({ hasText: MESSAGES.banned })).toBeVisible();
+    await expect(userPage).toHaveURL(`${urls.student}/login`);
   });
 
   await test.step('the ban mail arrives', async () => {
@@ -82,21 +77,4 @@ async function banJourney(
     const page = await newPage();
     await logIn(page, 'student', user, '/');
   });
-}
-
-test('admin ban: session ends, login refused, mail sent; unban restores access', ({
-  newPage,
-  users,
-  admin,
-  mailpit,
-}) => banJourney({ newPage, users, admin, mailpit }, 'current'));
-
-// BUG #1 (packages/web-auth, apps/e2e/README.md "Known bugs"): the ban revokes the user's
-// sessions (the API answers 401 `unauthorized`), but the BFF keeps the cookies, so the user's
-// next navigation ends on `/` instead of `/login?next=/account/sessions`.
-test.fixme('admin ban: the open session lands on /login on its next navigation', ({
-  newPage,
-  users,
-  admin,
-  mailpit,
-}) => banJourney({ newPage, users, admin, mailpit }, 'strict'));
+});

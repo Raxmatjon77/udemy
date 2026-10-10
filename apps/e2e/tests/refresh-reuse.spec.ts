@@ -1,13 +1,12 @@
-import { expect, test, type JourneyFixtures } from '../src/fixtures';
+import { expect, test } from '../src/fixtures';
 import { cookieName, urls } from '../src/env';
 import {
-  expectRevokedSessionLoggedOut,
+  expectLoggedOutOnNextNavigation,
   getCookie,
   logIn,
   SUBJECTS,
   setAuthCookie,
   signUpInNewPage,
-  type LogoutCheck,
 } from '../src/flows';
 
 /** The API answers a replayed refresh token with the grace path for this long (design §9). */
@@ -17,15 +16,13 @@ const GRACE_MARGIN_MS = 1_500;
 const SKIP_SLOW = process.env.E2E_SKIP_SLOW === '1';
 const SKIP_REASON = 'E2E_SKIP_SLOW=1 skips the journey that waits out the 10 s reuse-grace window';
 
-async function reuseJourney(
-  {
-    newContext,
-    newPage,
-    users,
-    mailpit,
-  }: Pick<JourneyFixtures, 'newContext' | 'newPage' | 'users' | 'mailpit'>,
-  logoutCheck: LogoutCheck,
-): Promise<void> {
+test('refresh-token reuse: replaying a rotated token ends the whole session', async ({
+  newContext,
+  newPage,
+  users,
+  mailpit,
+}) => {
+  test.skip(SKIP_SLOW, SKIP_REASON);
   const user = users.next('Reuse');
   await signUpInNewPage(newPage, user);
   const contextA = await newContext();
@@ -70,34 +67,15 @@ async function reuseJourney(
   });
 
   await test.step('the original session is logged out as well', async () => {
-    await expectRevokedSessionLoggedOut(a, 'student', '/account/profile', logoutCheck);
+    // The reuse revoked the whole family (API: 401 `unauthorized` for A's still locally valid
+    // access JWT); the BFF clears A's cookies and the client lands on /login?next=….
+    await expectLoggedOutOnNextNavigation(a, 'student', '/account/profile');
+    expect(await getCookie(contextA, 'student', 'at')).toBeUndefined();
+    expect(await getCookie(contextA, 'student', 'rt')).toBeUndefined();
   });
 
   await test.step('the "session compromise" mail arrives', async () => {
     const mail = await mailpit.waitForMail({ to: user.email, subject: SUBJECTS.compromise });
     expect(mail.Text).toContain('used twice');
   });
-}
-
-test('refresh-token reuse: replaying a rotated token ends the whole session', ({
-  newContext,
-  newPage,
-  users,
-  mailpit,
-}) => {
-  test.skip(SKIP_SLOW, SKIP_REASON);
-  return reuseJourney({ newContext, newPage, users, mailpit }, 'current');
-});
-
-// BUG #1 (packages/web-auth, apps/e2e/README.md "Known bugs"): after the reuse is detected the
-// API rejects A's session (401 `unauthorized`), but the BFF keeps A's cookies, so A's next
-// navigation ends on `/` instead of `/login?next=/account/profile`.
-test.fixme('refresh-token reuse: the original session lands on /login on its next navigation', ({
-  newContext,
-  newPage,
-  users,
-  mailpit,
-}) => {
-  test.skip(SKIP_SLOW, SKIP_REASON);
-  return reuseJourney({ newContext, newPage, users, mailpit }, 'strict');
 });

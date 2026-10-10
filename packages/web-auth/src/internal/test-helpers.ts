@@ -16,7 +16,12 @@ export const USER_ID = '0192f0c4-7d6a-7b3e-8f00-000000000001';
 export const SESSION_ID = '0192f0c4-7d6a-7b3e-8f00-000000000002';
 
 export function testConfig(overrides: Partial<WebAuthConfigInput> = {}): WebAuthConfig {
-  return defineWebAuthConfig({
+  return defineWebAuthConfig(testInput(overrides));
+}
+
+/** The raw (unvalidated) input behind `testConfig`. */
+export function testInput(overrides: Partial<WebAuthConfigInput> = {}): WebAuthConfigInput {
+  return {
     app: 'student',
     requiredRole: 'STUDENT',
     clientId: 'student-bff',
@@ -31,7 +36,7 @@ export function testConfig(overrides: Partial<WebAuthConfigInput> = {}): WebAuth
     publicPaths: ['/', '/courses/*'],
     forbiddenRedirect: '/not-allowed',
     ...overrides,
-  });
+  };
 }
 
 let keys: Promise<{ privateKey: CryptoKey; jwk: JWK }> | undefined;

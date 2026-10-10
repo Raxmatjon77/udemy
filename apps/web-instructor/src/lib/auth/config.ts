@@ -1,21 +1,19 @@
 import 'server-only';
-import { defineWebAuthConfig, type WebAuthConfig } from '@udemy/web-auth';
+import type { WebAuthConfigInput } from '@udemy/web-auth';
 
 import { serverEnv } from '../env';
 
 /** Where a signed-in user without the INSTRUCTOR role is sent (never role-gated itself). */
 export const NOT_INSTRUCTOR_PATH = '/not-instructor';
 
-let cached: WebAuthConfig | undefined;
-
 /**
- * The validated @udemy/web-auth config of the instructor BFF, built on first use. Every page
- * except login requires a session with the INSTRUCTOR role.
+ * The @udemy/web-auth config of the instructor BFF, from the server env. Passed to the
+ * factories as a thunk: they call and validate it on the first request (never at build time).
+ * Every page except login requires a session with the INSTRUCTOR role.
  */
-export function getWebAuthConfig(): WebAuthConfig {
-  if (cached) return cached;
+export function webAuthConfig(): WebAuthConfigInput {
   const env = serverEnv();
-  cached = defineWebAuthConfig({
+  return {
     app: 'instructor',
     requiredRole: 'INSTRUCTOR',
     clientId: env.API_CLIENT_ID,
@@ -28,6 +26,5 @@ export function getWebAuthConfig(): WebAuthConfig {
     cookieSecure: env.COOKIE_SECURE,
     sameSite: 'lax',
     forbiddenRedirect: NOT_INSTRUCTOR_PATH,
-  });
-  return cached;
+  };
 }

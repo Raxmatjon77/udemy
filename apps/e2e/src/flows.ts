@@ -92,49 +92,6 @@ export async function expectLoggedOutOnNextNavigation(
   await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible();
 }
 
-/**
- * BUG (packages/web-auth, see README "Known bugs" #1): a session revoked on the server
- * (logout-all elsewhere, password reset, ban, refresh-token reuse) is NOT logged out on the next
- * navigation. proxy.ts only verifies the access JWT locally, so the protected page renders; its
- * `/api/proxy/*` call gets 401 `unauthorized` from the API, which the BFF passes through WITHOUT
- * clearing the cookies; the client then goes to `/login?next=…`, and proxy.ts sends the
- * still-"valid" token on that guest-only page back to `/` (307). The user stays on `/` with dead
- * cookies until the access token expires (≤ 14.5 min).
- *
- * Until it is fixed, the journeys assert what does hold: the API rejects the session and the
- * protected page does not stay open. `expectLoggedOutOnNextNavigation` (the intended behaviour)
- * runs in the `test.fixme` variant of each affected journey.
- */
-export async function expectSessionEndedOnNextNavigation(
-  page: Page,
-  app: AppName,
-  protectedPath: string,
-): Promise<void> {
-  const response = await page.request.get(`${urls[app]}/api/proxy/me`);
-  expect(response.status(), 'the API rejects the revoked session').toBe(401);
-  expect(((await response.json()) as { code?: string }).code).toBe('unauthorized');
-  await page.goto(`${urls[app]}${protectedPath}`);
-  await expect(page).not.toHaveURL(`${urls[app]}${protectedPath}`);
-}
-
-/**
- * How a journey checks that a revoked session is logged out on its next navigation:
- * `strict` = the intended behaviour (lands on `/login?next=…`), only in the `test.fixme`
- * variants until BUG #1 is fixed; `current` = what holds today (see above).
- */
-export type LogoutCheck = 'strict' | 'current';
-
-export function expectRevokedSessionLoggedOut(
-  page: Page,
-  app: AppName,
-  protectedPath: string,
-  check: LogoutCheck,
-): Promise<void> {
-  return check === 'strict'
-    ? expectLoggedOutOnNextNavigation(page, app, protectedPath)
-    : expectSessionEndedOnNextNavigation(page, app, protectedPath);
-}
-
 /** Sets one of the BFF's auth cookies directly (host-only, Secure, HttpOnly, like the BFF). */
 export async function setAuthCookie(
   context: BrowserContext,

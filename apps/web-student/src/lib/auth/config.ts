@@ -1,5 +1,5 @@
 import 'server-only';
-import { defineWebAuthConfig, type WebAuthConfig } from '@udemy/web-auth';
+import type { WebAuthConfigInput } from '@udemy/web-auth';
 
 import { serverEnv } from '../env';
 
@@ -9,13 +9,14 @@ import { serverEnv } from '../env';
  */
 export const PUBLIC_PATHS = ['/', '/verify-email/pending'];
 
-let cached: WebAuthConfig | undefined;
-
-/** The validated @udemy/web-auth config of the student BFF, built on first use. */
-export function getWebAuthConfig(): WebAuthConfig {
-  if (cached) return cached;
+/**
+ * The @udemy/web-auth config of the student BFF, from the server env. Passed to the factories
+ * as a thunk: they call and validate it on the first request (never at build time). Every
+ * signed-in user holds STUDENT, so the default `forbiddenRedirect` is never reached in practice.
+ */
+export function webAuthConfig(): WebAuthConfigInput {
   const env = serverEnv();
-  cached = defineWebAuthConfig({
+  return {
     app: 'student',
     requiredRole: 'STUDENT',
     clientId: env.API_CLIENT_ID,
@@ -28,8 +29,5 @@ export function getWebAuthConfig(): WebAuthConfig {
     cookieSecure: env.COOKIE_SECURE,
     sameSite: 'lax',
     publicPaths: PUBLIC_PATHS,
-    // Every signed-in user holds STUDENT, so this is only reached by a malformed token.
-    forbiddenRedirect: '/login',
-  });
-  return cached;
+  };
 }

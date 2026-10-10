@@ -21,7 +21,7 @@ export type RefreshOutcome =
   | { ok: true; result: RefreshResult }
   /** The API rejected the token (`invalid_refresh_token`, or any 4xx): the session is over. */
   | { ok: false; reason: 'invalid' }
-  /** Network error, timeout, 5xx: the session may still be fine; do not clear cookies. */
+  /** Network error, timeout, 5xx, 408/429: the session may still be fine; keep the cookies. */
   | { ok: false; reason: 'unavailable' };
 
 // Shared across module copies in the same process (route handlers and proxy.ts may be
@@ -41,6 +41,9 @@ export async function sha256Base64url(value: string): Promise<string> {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** 4xx answers that say "not now" rather than "never": a rate limit must not log anybody out. */
+const TRANSIENT_CLIENT_ERRORS: ReadonlySet<number> = new Set([408, 429]);
+
 async function callRefresh(
   config: WebAuthConfig,
   incoming: Request,
@@ -49,7 +52,11 @@ async function callRefresh(
   try {
     return { ok: true, result: await apiRefresh(config, incoming, refreshToken) };
   } catch (error) {
-    if (error instanceof ApiProblemError && error.status < 500) {
+    if (
+      error instanceof ApiProblemError &&
+      error.status < 500 &&
+      !TRANSIENT_CLIENT_ERRORS.has(error.status)
+    ) {
       // 401 invalid_refresh_token is the documented case; any other 4xx (400 shape, 403
       // banned/app access) equally means this refresh token cannot be used again.
       return { ok: false, reason: 'invalid' };

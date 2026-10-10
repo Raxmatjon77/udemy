@@ -1,8 +1,13 @@
 import 'server-only';
 import { ErrorCode, ProblemDetailsSchema } from '@udemy/contracts';
 import { ApiUnavailableError, apiFetch } from './api-client';
-import { defineWebAuthConfig, type WebAuthConfig, type WebAuthConfigInput } from './config';
-import { clearSessionCookies, readAuthCookies, sessionSetCookies } from './cookies';
+import { lazyWebAuthConfig, type WebAuthConfig, type WebAuthConfigSource } from './config';
+import {
+  clearSetCookies,
+  clearSessionCookies,
+  readAuthCookies,
+  sessionSetCookies,
+} from './cookies';
 import {
   BodyTooLargeError,
   checkJsonBody,
@@ -22,7 +27,7 @@ import { refreshSingleFlight, type RefreshOutcome } from './refresh';
  *
  * ```ts
  * // app/api/proxy/[...path]/route.ts
- * const handler = createApiProxyHandler(webAuthConfig);
+ * const handler = createApiProxyHandler(webAuthConfig); // a config, or () => config
  * export { handler as GET, handler as POST, handler as PUT, handler as PATCH, handler as DELETE };
  * ```
  *
@@ -36,6 +41,15 @@ import { refreshSingleFlight, type RefreshOutcome } from './refresh';
  *   buffered so the retry can replay them; a larger or chunked body is streamed (capped at
  *   `maxProxyBodyBytes`) and cannot be replayed: on `token_expired` the BFF still refreshes
  *   (new cookies) and returns the 401 `token_expired`, which the client helper retries once.
+ * - Session ended upstream: when the API rejects the request made with our access token with
+ *   401 `unauthorized` (revoked sid: logout-all, password reset, ban, refresh-token reuse;
+ *   checked after the token_expired refresh-and-retry) or with a `token_expired` that cannot be
+ *   fixed (already refreshed once, or no refresh token), or a refresh is rejected
+ *   (`invalid_refresh_token`), the 401 goes back WITH both cookies cleared. Otherwise the
+ *   browser would keep a dead but locally valid access JWT, and proxy.ts would keep treating
+ *   it as signed in (bouncing `/login` to home) until it expired.
+ * - Transient failures (API unreachable, timeouts, 5xx, 503 `service_unavailable`) never clear
+ *   cookies: a blip must not log anybody out.
  */
 
 const DENIED_PATHS: ReadonlySet<string> = new Set(['auth/login', 'auth/refresh', 'auth/logout']);
@@ -151,10 +165,11 @@ async function planBody(request: Request, config: WebAuthConfig): Promise<BodyPl
 
 export type ApiProxyHandler = (request: Request) => Promise<Response>;
 
-export function createApiProxyHandler(input: WebAuthConfigInput | WebAuthConfig): ApiProxyHandler {
-  const config = defineWebAuthConfig(input);
+export function createApiProxyHandler(source: WebAuthConfigSource): ApiProxyHandler {
+  const getConfig = lazyWebAuthConfig(source);
 
   return async function apiProxy(request) {
+    const config = getConfig();
     const method = request.method.toUpperCase();
     if (!ALLOWED_METHODS.has(method)) {
       return problemResponse(405, 'method_not_allowed', 'Method not allowed', {
@@ -185,11 +200,14 @@ export function createApiProxyHandler(input: WebAuthConfigInput | WebAuthConfig)
     let accessToken = cookies.accessToken;
     const refreshToken = cookies.refreshToken;
     let refreshed = false;
+    /** A refresh in this request produced a new access token (so a token_expired is final). */
+    let refreshSucceeded = false;
 
     /** Applies a refresh outcome; returns an error response when the request must stop. */
     const applyRefresh = (outcome: RefreshOutcome, canFallBack: boolean): Response | null => {
       refreshed = true;
       if (outcome.ok) {
+        refreshSucceeded = true;
         accessToken = outcome.result.accessToken;
         cookieUpdates.push(...sessionSetCookies(config, outcome.result));
         return null;
@@ -236,8 +254,7 @@ export function createApiProxyHandler(input: WebAuthConfigInput | WebAuthConfig)
 
       if (upstream.status === 401 && refreshToken && !refreshed) {
         const text = await upstream.text();
-        const problem = ProblemDetailsSchema.safeParse(safeJson(text));
-        if (problem.success && problem.data.code === ErrorCode.TokenExpired) {
+        if (problemCode(text) === ErrorCode.TokenExpired) {
           const stop = applyRefresh(
             await refreshSingleFlight(config, request, refreshToken),
             false,
@@ -271,6 +288,26 @@ export function createApiProxyHandler(input: WebAuthConfigInput | WebAuthConfig)
       throw error;
     }
 
+    // The API rejected our access token for good (revoked session, or a token_expired that the
+    // refresh-and-retry above could not fix): end the browser session too, because the client
+    // sends every final 401 to the login page, and a login page that still sees a locally valid
+    // access cookie bounces back home (redirect loop). Anonymous requests have no session to end.
+    if (upstream.status === 401 && accessToken) {
+      // An unreadable body (connection dropped) has no code: treat it as transient.
+      const text = await upstream.text().catch(() => '');
+      const code = problemCode(text);
+      const rejected =
+        code === ErrorCode.Unauthorized ||
+        (code === ErrorCode.TokenExpired && (refreshSucceeded || !refreshToken));
+      const replay = new Response(text, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: responseHeaders(upstream.headers, config),
+      });
+      // Clearing replaces any cookies a refresh in this request set: the session is over.
+      return finish(replay, rejected ? clearSetCookies(config) : cookieUpdates);
+    }
+
     const headers = responseHeaders(upstream.headers, config);
     const streamBody =
       method === 'HEAD' || NULL_BODY_STATUSES.has(upstream.status) ? null : upstream.body;
@@ -286,12 +323,16 @@ export function createApiProxyHandler(input: WebAuthConfigInput | WebAuthConfig)
   };
 }
 
-function safeJson(text: string): unknown {
+/** The `code` of a problem+json body, or undefined for anything else. */
+function problemCode(text: string): string | undefined {
+  let raw: unknown;
   try {
-    return JSON.parse(text);
+    raw = JSON.parse(text);
   } catch {
     return undefined;
   }
+  const parsed = ProblemDetailsSchema.safeParse(raw);
+  return parsed.success ? parsed.data.code : undefined;
 }
 
 /** Adds Set-Cookie values; rebuilds the response so it never mutates possibly-immutable headers. */

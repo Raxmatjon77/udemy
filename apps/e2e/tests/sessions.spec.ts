@@ -1,16 +1,11 @@
-import { expect, test, type JourneyFixtures } from '../src/fixtures';
+import { expect, test } from '../src/fixtures';
 import { urls } from '../src/env';
-import {
-  expectRevokedSessionLoggedOut,
-  logIn,
-  signUpInNewPage,
-  type LogoutCheck,
-} from '../src/flows';
+import { expectLoggedOutOnNextNavigation, logIn, signUpInNewPage } from '../src/flows';
 
-async function sessionsJourney(
-  { newPage, users }: Pick<JourneyFixtures, 'newPage' | 'users'>,
-  logoutCheck: LogoutCheck,
-): Promise<void> {
+test('sessions: two devices listed, "sign out everywhere" ends the other one', async ({
+  newPage,
+  users,
+}) => {
   const user = users.next('Sessions');
   await signUpInNewPage(newPage, user);
 
@@ -33,29 +28,17 @@ async function sessionsJourney(
     await a.getByRole('button', { name: 'Sign out of all devices' }).click();
     const dialog = a.getByRole('dialog', { name: 'Sign out of all devices?' });
     await dialog.getByRole('button', { name: 'Sign out everywhere' }).click();
-    // Finding #2 (minor, packages/web-auth/client): logout() navigates to /login, but the same
-    // tab also receives its own BroadcastChannel('auth') message and reloads, so it can land on
-    // /login?next=/account/sessions instead. Both are a logged-out login page.
-    await expect(a).toHaveURL(
-      new RegExp(`^${urls.student}/login(\\?next=${encodeURIComponent('/account/sessions')})?$`),
-    );
+    // Exactly /login: the tab ignores its own BroadcastChannel('auth') logout message, so it
+    // does not reload into /login?next=/account/sessions.
+    await expect(a).toHaveURL(`${urls.student}/login`);
     await expect(a.getByRole('button', { name: 'Log in' })).toBeVisible();
+    // ... and stays there (no late reload from its own broadcast).
+    expect(a.url()).toBe(`${urls.student}/login`);
   });
 
   await test.step('context B is logged out on its next navigation', async () => {
-    await expectRevokedSessionLoggedOut(b, 'student', '/account/sessions', logoutCheck);
+    // B's access JWT is still valid locally; the API rejects the revoked session (401
+    // `unauthorized`), the BFF clears B's cookies and the client lands on /login?next=….
+    await expectLoggedOutOnNextNavigation(b, 'student', '/account/sessions');
   });
-}
-
-test('sessions: two devices listed, "sign out everywhere" ends the other one', ({
-  newPage,
-  users,
-}) => sessionsJourney({ newPage, users }, 'current'));
-
-// BUG #1 (packages/web-auth, apps/e2e/README.md "Known bugs"): after "sign out everywhere" in A,
-// B's calls get 401 `unauthorized` but the BFF keeps B's cookies, so B's next navigation ends on
-// `/` (login → 307 → `/`) instead of `/login?next=/account/sessions`.
-test.fixme('sessions: the other device lands on /login on its next navigation', ({
-  newPage,
-  users,
-}) => sessionsJourney({ newPage, users }, 'strict'));
+});

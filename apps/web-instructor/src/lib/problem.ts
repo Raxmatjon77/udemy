@@ -1,63 +1,22 @@
-import { ErrorCode, ProblemDetailsSchema, type ProblemDetails } from '@udemy/contracts';
+import { ErrorCode } from '@udemy/contracts';
+import { ProxyFetchError } from '@udemy/web-auth/client';
 
 /**
  * Turning API problems (`application/problem+json`, design §8) into words a user can act on.
  * The UI branches on the stable `code` only, never on `title`/`detail` (those are for developers).
  */
 
-/** A non-2xx answer from the BFF (`/api/auth/*` or `/api/proxy/*`). */
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly problem: ProblemDetails | null,
-    /** Raw `Retry-After` header (seconds or an HTTP date), when the server sent one. */
-    readonly retryAfter: string | null = null,
-    options?: ErrorOptions,
-  ) {
-    super(problem?.detail ?? problem?.title ?? `Request failed with status ${status}`, options);
-    this.name = 'ApiError';
-  }
-
-  get code(): string | undefined {
-    return this.problem?.code;
-  }
-
-  /** Builds the error from a failed response, tolerating non-JSON bodies. */
-  static async fromResponse(response: Response): Promise<ApiError> {
-    let raw: unknown;
-    try {
-      raw = await response.json();
-    } catch {
-      raw = undefined;
-    }
-    const parsed = ProblemDetailsSchema.safeParse(raw);
-    return new ApiError(
-      response.status,
-      parsed.success ? parsed.data : null,
-      response.headers.get('retry-after'),
-    );
-  }
-}
-
-export function isApiError(error: unknown): error is ApiError {
-  return error instanceof ApiError;
+/**
+ * A non-2xx answer from the BFF (`/api/auth/*` or `/api/proxy/*`): a `ProxyFetchError` from
+ * @udemy/web-auth, with the status, the parsed problem (or null), the response headers and
+ * `retryAfterSeconds`.
+ */
+export function isApiError(error: unknown): error is ProxyFetchError {
+  return error instanceof ProxyFetchError;
 }
 
 export function hasCode(error: unknown, code: ErrorCode): boolean {
   return isApiError(error) && error.code === code;
-}
-
-/** `Retry-After` in seconds from now (delta-seconds or HTTP-date form), or null. */
-export function retryAfterSeconds(
-  value: string | null | undefined,
-  now = Date.now(),
-): number | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (/^\d+$/.test(trimmed)) return Number(trimmed);
-  const date = Date.parse(trimmed);
-  if (Number.isNaN(date)) return null;
-  return Math.max(0, Math.ceil((date - now) / 1000));
 }
 
 /** "in 45 seconds", "in about 3 minutes", "in about 2 hours". */
@@ -69,14 +28,14 @@ export function formatWait(seconds: number): string {
   return `in about ${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
-function waitSuffix(error: ApiError): string {
-  const seconds = retryAfterSeconds(error.retryAfter);
+function waitSuffix(error: ProxyFetchError): string {
+  const seconds = error.retryAfterSeconds;
   return seconds === null
     ? 'Please wait a little and try again.'
     : `Try again ${formatWait(seconds)}.`;
 }
 
-type Message = string | ((error: ApiError) => string);
+type Message = string | ((error: ProxyFetchError) => string);
 export type MessageOverrides = Partial<Record<ErrorCode | (string & {}), Message>>;
 
 /** Default wording per code. Screens override the ones that need context (see `overrides`). */
@@ -123,7 +82,7 @@ const MESSAGES: Partial<Record<ErrorCode, Message>> = {
   [ErrorCode.SelfDecisionForbidden]: 'You cannot decide on your own application.',
 };
 
-function byStatus(error: ApiError): string {
+function byStatus(error: ProxyFetchError): string {
   const { status } = error;
   if (status === 400 || status === 422) return MESSAGES[ErrorCode.ValidationFailed] as string;
   if (status === 401) return MESSAGES[ErrorCode.Unauthorized] as string;

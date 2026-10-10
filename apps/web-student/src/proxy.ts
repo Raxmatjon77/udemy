@@ -1,19 +1,13 @@
-import type { NextRequest } from 'next/server';
-import { createAuthProxy, type AuthProxy } from '@udemy/web-auth/proxy';
+import { createAuthProxy } from '@udemy/web-auth/proxy';
 
-import { getWebAuthConfig } from '@/lib/auth/config';
+import { webAuthConfig } from '@/lib/auth/config';
 
 /**
  * Session gate for pages (design §10): refreshes expiring sessions inline and redirects
  * signed-out users to `/login?next=`. A UX gate only; the API is the authority.
- * Created on the first request so the build never needs the server secrets.
+ * The config thunk is resolved on the first request, so the build never needs the secrets.
  */
-let authProxy: AuthProxy | undefined;
-
-export function proxy(request: NextRequest) {
-  authProxy ??= createAuthProxy(getWebAuthConfig());
-  return authProxy(request);
-}
+export const proxy = createAuthProxy(webAuthConfig);
 
 export const config = {
   // Must be a literal (Next analyses it statically). Equal to RECOMMENDED_PROXY_MATCHER from
