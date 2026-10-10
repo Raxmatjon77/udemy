@@ -1,8 +1,11 @@
+import { join } from 'node:path';
 import { EnvValidationError, validateEnv } from '@udemy/nest-common';
 import { describe, expect, it } from 'vitest';
+import { PRODUCTION_SECRETS, TEST_ENV } from '../../testing/test-env';
 import { apiEnvSchema } from './api-env.schema';
+import { API_ROOT_DIR } from './api-root-dir';
 
-const validEnv = { DATABASE_URL: 'postgres://udemy:udemy@localhost:5432/udemy' };
+const validEnv: Record<string, string> = { ...TEST_ENV };
 
 describe('apiEnvSchema', () => {
   it('applies defaults to a minimal valid env', () => {
@@ -31,7 +34,9 @@ describe('apiEnvSchema', () => {
   });
 
   it('rejects a missing DATABASE_URL', () => {
-    expect(() => validateEnv(apiEnvSchema, {})).toThrow(EnvValidationError);
+    const env = { ...validEnv };
+    delete env.DATABASE_URL;
+    expect(() => validateEnv(apiEnvSchema, env)).toThrow(EnvValidationError);
   });
 
   it.each([
@@ -41,6 +46,20 @@ describe('apiEnvSchema', () => {
     ['NODE_ENV', 'staging'],
     ['LOG_LEVEL', 'verbose'],
     ['CORS_ORIGINS', 'http://ok.example,not a url'],
+    ['REDIS_URL', 'http://localhost:6379'],
+    ['API_PUBLIC_URL', 'localhost:4000'],
+    ['JWT_AUDIENCE', ' '],
+    ['JWT_ACTIVE_KID', 'rsa-2026-10'],
+    ['JWT_ACTIVE_KID', 'ed25519-2026-13'],
+    ['JWT_ACTIVE_KID', 'ed25519-2026-10/../../x'],
+    ['REFRESH_TOKEN_PEPPER', 'short'],
+    ['LOGIN_EMAIL_HMAC_KEY', 'x'.repeat(31)],
+    [
+      'CLIENT_STUDENT_SECRET_HASH',
+      'A53F56679C9A171D127E55EE0D0A5B4A37C713317C0C21A6144F26C4044EC441',
+    ],
+    ['CLIENT_INSTRUCTOR_SECRET_HASH', 'abc123'],
+    ['CLIENT_ADMIN_SECRET_HASH', `${'0'.repeat(63)}g`],
   ])('rejects an invalid %s (%s) and names the variable', (key, value) => {
     const run = (): unknown => validateEnv(apiEnvSchema, { ...validEnv, [key]: value });
 
@@ -48,11 +67,87 @@ describe('apiEnvSchema', () => {
     expect(run).toThrow(new RegExp(key));
   });
 
+  it.each(Object.keys(TEST_ENV).filter((key) => key !== 'JWT_KEYS_DIR'))('requires %s', (key) => {
+    const env = { ...validEnv };
+    delete env[key];
+    expect(() => validateEnv(apiEnvSchema, env)).toThrow(new RegExp(key));
+  });
+
+  it('resolves a relative JWT_KEYS_DIR against apps/api and keeps an absolute one', () => {
+    expect(validateEnv(apiEnvSchema, validEnv).JWT_KEYS_DIR).toBe(
+      join(API_ROOT_DIR, '.secrets', 'jwt'),
+    );
+    expect(API_ROOT_DIR.endsWith(join('apps', 'api'))).toBe(true);
+    expect(
+      validateEnv(apiEnvSchema, { ...validEnv, JWT_KEYS_DIR: '/etc/udemy/jwt' }).JWT_KEYS_DIR,
+    ).toBe('/etc/udemy/jwt');
+  });
+
+  it('accepts a same-month emergency kid', () => {
+    expect(
+      validateEnv(apiEnvSchema, { ...validEnv, JWT_ACTIVE_KID: 'ed25519-2026-10-b' })
+        .JWT_ACTIVE_KID,
+    ).toBe('ed25519-2026-10-b');
+  });
+
+  it('refuses identical client secret hashes (app confinement)', () => {
+    expect(() =>
+      validateEnv(apiEnvSchema, {
+        ...validEnv,
+        CLIENT_ADMIN_SECRET_HASH: TEST_ENV.CLIENT_STUDENT_SECRET_HASH,
+      }),
+    ).toThrow(/CLIENT_ADMIN_SECRET_HASH/);
+  });
+
+  it('refuses a pepper equal to the login HMAC key', () => {
+    expect(() =>
+      validateEnv(apiEnvSchema, {
+        ...validEnv,
+        LOGIN_EMAIL_HMAC_KEY: TEST_ENV.REFRESH_TOKEN_PEPPER,
+      }),
+    ).toThrow(/LOGIN_EMAIL_HMAC_KEY/);
+  });
+
+  describe('in production', () => {
+    const production = { ...validEnv, ...PRODUCTION_SECRETS, NODE_ENV: 'production' };
+
+    it('accepts real secrets', () => {
+      expect(() => validateEnv(apiEnvSchema, production)).not.toThrow();
+    });
+
+    it.each(['REFRESH_TOKEN_PEPPER', 'LOGIN_EMAIL_HMAC_KEY'] as const)(
+      'refuses the change-me placeholder in %s',
+      (key) => {
+        expect(() => validateEnv(apiEnvSchema, { ...production, [key]: TEST_ENV[key] })).toThrow(
+          new RegExp(key),
+        );
+      },
+    );
+
+    it.each([
+      'CLIENT_STUDENT_SECRET_HASH',
+      'CLIENT_INSTRUCTOR_SECRET_HASH',
+      'CLIENT_ADMIN_SECRET_HASH',
+    ] as const)('refuses the dev hash in %s', (key) => {
+      expect(() => validateEnv(apiEnvSchema, { ...production, [key]: TEST_ENV[key] })).toThrow(
+        new RegExp(key),
+      );
+    });
+  });
+
   it('never echoes variable values in the error message', () => {
     const secret = 'postgres-but-wrong://user:S3cret@host/db';
 
-    expect(() => validateEnv(apiEnvSchema, { DATABASE_URL: secret })).toThrow(
+    expect(() => validateEnv(apiEnvSchema, { ...validEnv, DATABASE_URL: secret })).toThrow(
       expect.objectContaining({ message: expect.not.stringContaining('S3cret') }),
     );
+    expect(() =>
+      validateEnv(apiEnvSchema, {
+        ...validEnv,
+        NODE_ENV: 'production',
+        ...PRODUCTION_SECRETS,
+        REFRESH_TOKEN_PEPPER: 'my-pepper-change-me-xxxxxxxxxxxxxxxxx',
+      }),
+    ).toThrow(expect.objectContaining({ message: expect.not.stringContaining('my-pepper') }));
   });
 });

@@ -1,0 +1,15 @@
+{
+  "extends": "@udemy/tsconfig/base.json",
+  "compilerOptions": {
+    // Same module settings as the Next apps (@udemy/tsconfig/nextjs.json): this package ships
+    // TypeScript source that the apps compile via transpilePackages.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "vitest.config.mts"]
+}

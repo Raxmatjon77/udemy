@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PROBLEM_JSON_CONTENT_TYPE, type ProblemDetails } from '@udemy/contracts';
 import { REQUEST_ID_HEADER } from '@udemy/nest-common';
+import { DependencyUnavailableError } from '@udemy/nest-common/errors';
 import type { Request, Response } from 'express';
 import { AppConfigService } from '../config/app-config.service';
 import { toProblemDetails } from './to-problem-details';
@@ -53,12 +54,22 @@ export class ProblemDetailsFilter implements ExceptionFilter {
   }
 
   /**
-   * Unexpected errors (bugs) -> ERROR with stack. Deliberate 5xx HttpExceptions (e.g. a
-   * failing readiness probe) -> WARN. Client errors (4xx) -> DEBUG: they are normal traffic.
+   * Unexpected errors (bugs) -> ERROR with stack. An unavailable dependency (fail-closed 503)
+   * -> ERROR with the dependency and cause: it is an outage, not a bug. Deliberate 5xx
+   * HttpExceptions (e.g. a failing readiness probe) -> WARN. Client errors (4xx) -> DEBUG.
    */
   private log(exception: unknown, problem: ProblemDetails): void {
     if (problem.status < 500) {
       this.logger.debug({ problem }, 'Request rejected');
+    } else if (exception instanceof DependencyUnavailableError) {
+      this.logger.error(
+        {
+          err: exception.cause ?? exception,
+          dependency: exception.dependency,
+          traceId: problem.traceId,
+        },
+        'Dependency unavailable; request refused (fail-closed)',
+      );
     } else if (exception instanceof HttpException) {
       this.logger.warn({ problem }, 'Request failed');
     } else {

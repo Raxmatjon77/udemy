@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ApiEnv } from './api-env.schema';
+import type { ClientApp } from '@udemy/contracts';
+import { type ApiEnv, CLIENT_SECRET_HASH_KEYS } from './api-env.schema';
 
 /**
  * Typed, read-only access to the validated env. Inject this instead of ConfigService:
@@ -16,5 +17,10 @@ export class AppConfigService {
 
   get isProduction(): boolean {
     return this.get('NODE_ENV') === 'production';
+  }
+
+  /** Lowercase hex SHA-256 of the given BFF's client secret (compare in constant time). */
+  clientSecretHash(app: ClientApp): string {
+    return this.get(CLIENT_SECRET_HASH_KEYS[app]);
   }
 }

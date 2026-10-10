@@ -1,7 +1,11 @@
 import { STATUS_CODES } from 'node:http';
 import { HttpException, HttpStatus } from '@nestjs/common';
-import type { ProblemDetails, ProblemFieldError } from '@udemy/contracts';
-import { DomainError, type DomainErrorKind } from '@udemy/nest-common/errors';
+import { ErrorCode, type ProblemDetails, type ProblemFieldError } from '@udemy/contracts';
+import {
+  DependencyUnavailableError,
+  DomainError,
+  type DomainErrorKind,
+} from '@udemy/nest-common/errors';
 import { ZodError } from 'zod';
 import { RequestValidationException } from './request-validation.exception';
 
@@ -51,10 +55,25 @@ function fromDomainError(error: DomainError): ProblemDetails {
   return problem;
 }
 
+/**
+ * Fail-closed (design D11, §13): when Redis or another required dependency is down, the
+ * request is refused with 503 instead of skipping the check. The detail is generic; which
+ * dependency failed, and why, is only logged.
+ */
+function fromDependencyUnavailable(): ProblemDetails {
+  return {
+    ...baseProblem(
+      HttpStatus.SERVICE_UNAVAILABLE,
+      'The service is temporarily unavailable. Please retry later.',
+    ),
+    code: ErrorCode.ServiceUnavailable,
+  };
+}
+
 function fromZodError(error: ZodError): ProblemDetails {
   return {
     ...baseProblem(HttpStatus.BAD_REQUEST, 'Invalid input'),
-    code: 'validation_failed',
+    code: ErrorCode.ValidationFailed,
     errors: error.issues.map((issue) => ({
       path: pathToString(issue.path),
       message: issue.message,
@@ -110,6 +129,7 @@ export function toProblemDetails(
   options: ProblemMappingOptions,
 ): ProblemDetails {
   if (exception instanceof DomainError) return fromDomainError(exception);
+  if (exception instanceof DependencyUnavailableError) return fromDependencyUnavailable();
   if (exception instanceof HttpException) return fromHttpException(exception);
   if (exception instanceof ZodError) return fromZodError(exception);
   return fromUnknown(exception, options);

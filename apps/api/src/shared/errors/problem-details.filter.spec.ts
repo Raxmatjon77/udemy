@@ -6,6 +6,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { AppConfigService } from '../config/app-config.service';
+import { RedisUnavailableError } from '../redis/redis-unavailable.error';
 import { ProblemDetailsFilter } from './problem-details.filter';
 import { toProblemDetails } from './to-problem-details';
 
@@ -21,6 +22,11 @@ class ThrowingController {
     throw new ValidationError('Price is too low', {
       issues: [{ path: 'price.amount', message: 'Must be at least 1.99' }],
     });
+  }
+
+  @Get('dependency-down')
+  redisDown(): never {
+    throw new RedisUnavailableError({ cause: new Error('connect ECONNREFUSED 10.0.0.7:6379') });
   }
 
   @Get('crash')
@@ -83,6 +89,22 @@ describe('ProblemDetailsFilter (production mode)', () => {
 
     expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
     expect(res.body).toMatchObject({ status: 404, title: 'Not Found', instance: '/test/nope' });
+  });
+
+  it('fails closed: an unavailable Redis becomes a generic 503 service_unavailable', async () => {
+    const res = await request(app.getHttpServer()).get('/test/dependency-down').expect(503);
+
+    expect(res.headers['content-type']).toMatch(/^application\/problem\+json/);
+    expect(res.body).toEqual({
+      type: 'about:blank',
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'The service is temporarily unavailable. Please retry later.',
+      code: 'service_unavailable',
+      instance: '/test/dependency-down',
+      traceId: expect.any(String),
+    });
+    expect(res.text).not.toMatch(/redis|ECONNREFUSED|10\.0\.0\.7/i);
   });
 
   it('hides internals of unexpected errors', async () => {

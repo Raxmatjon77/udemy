@@ -10,13 +10,32 @@ export interface CreateLoggerModuleOptions {
   serviceName: string;
 }
 
-/** Paths are relative to the serialized log object (pino-http's `req` / `res`). */
-const REDACTED_PATHS = [
+/** Body/DTO fields that hold credentials or tokens (design §9 "Audit"). */
+export const SENSITIVE_FIELD_NAMES = [
+  'password',
+  'newPassword',
+  'currentPassword',
+  'token',
+  'refreshToken',
+  'accessToken',
+] as const;
+
+/**
+ * Pino redact paths, relative to the serialized log object (pino-http's `req` / `res`, or the
+ * object passed to `logger.info({...})`). Sensitive fields are matched at the top level and
+ * one or two levels deep, so `{ password }`, `{ body: { password } }` and
+ * `{ req: { body: { password } } }` are all censored.
+ */
+export const LOG_REDACT_PATHS: readonly string[] = [
   'req.headers.authorization',
   'req.headers.cookie',
+  'req.headers["x-client-secret"]',
   'req.headers["x-api-key"]',
   'res.headers["set-cookie"]',
+  ...SENSITIVE_FIELD_NAMES.flatMap((field) => [field, `*.${field}`, `*.*.${field}`]),
 ];
+
+export const LOG_REDACT_CENSOR = '[REDACTED]';
 
 /** Kubernetes probes hit these every few seconds; logging them is pure noise. */
 function isHealthProbe(req: IncomingMessage): boolean {
@@ -41,7 +60,7 @@ export function buildPinoParams(
         : undefined,
       genReqId: (req, res) => resolveRequestId(req, res),
       customProps: (req) => ({ correlationId: resolveCorrelationId(req, String(req.id)) }),
-      redact: { paths: REDACTED_PATHS, censor: '[REDACTED]' },
+      redact: { paths: [...LOG_REDACT_PATHS], censor: LOG_REDACT_CENSOR },
       autoLogging: { ignore: isHealthProbe },
     },
   };

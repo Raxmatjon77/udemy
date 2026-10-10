@@ -1,0 +1,124 @@
+import 'server-only';
+import { ClientAppSchema, RoleSchema } from '@udemy/contracts';
+import { z } from 'zod';
+import { isSafeNextPath } from './safe-next';
+
+/**
+ * Per-app configuration of the BFF auth layer (design §10). Each Next app builds one from its
+ * server-only env (`API_INTERNAL_URL`, `API_CLIENT_ID`, ...) and passes it to the factories.
+ * It is validated with zod when created, so a misconfigured app fails at boot, not at the
+ * first login.
+ */
+
+const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+
+const httpUrl = z.url({ protocol: /^https?$/ }).transform(stripTrailingSlash);
+
+/** An app path: starts with exactly one `/` (same rules as the `next` param). */
+const appPath = z
+  .string()
+  .refine(isSafeNextPath, { message: 'Must be a relative path like /login' });
+
+const booleanLike = z.union([
+  z.boolean(),
+  z.enum(['true', 'false']).transform((value) => value === 'true'),
+]);
+
+/** Optional override for how the end-user IP is read from the incoming request. */
+export type ClientIpResolver = (request: Request) => string | undefined;
+
+export const WebAuthConfigSchema = z
+  .object({
+    /** The client app this BFF is (`student`, `instructor`, `admin`): the token `app` claim. */
+    app: ClientAppSchema,
+    /** Cookie base name; cookies are `[__Host-]{cookiePrefix}-rt` / `-at`. Defaults to `udemy-{app}`. */
+    cookiePrefix: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]*$/, 'Lowercase letters, digits and dashes only')
+      .optional(),
+    /** Role a principal needs on protected pages of this app (D6). */
+    requiredRole: RoleSchema,
+    /** `API_CLIENT_ID`, e.g. `student-bff`. */
+    clientId: z.string().min(1),
+    /** `API_CLIENT_SECRET`. */
+    clientSecret: z.string().min(1),
+    /** `API_INTERNAL_URL`, without `/api/v1` (this package adds it). */
+    apiInternalUrl: httpUrl.refine((url) => !/\/api\/v1$/.test(url), {
+      message: 'API_INTERNAL_URL must not end with /api/v1; the BFF adds the prefix',
+    }),
+    /** `APP_ORIGIN`: this app's public origin (scheme://host[:port]); unsafe requests must carry it. */
+    appOrigin: httpUrl.refine((url) => new URL(url).origin === url, {
+      message: 'APP_ORIGIN must be an origin only (scheme://host[:port], no path)',
+    }),
+    /** `JWT_ISSUER` (the API's `API_PUBLIC_URL`). */
+    jwtIssuer: z.string().min(1),
+    /** `JWT_AUDIENCE` (`udemy-api`). */
+    jwtAudience: z.string().min(1),
+    /** `JWKS_URL`. */
+    jwksUrl: httpUrl,
+    /** `COOKIE_SECURE`. `false` drops `__Host-` and `Secure`; refused in production. */
+    cookieSecure: booleanLike,
+    /** `lax` for student/instructor, `strict` for admin (design §9). */
+    sameSite: z.enum(['lax', 'strict']),
+    /**
+     * Pages that render without a session. An entry matches exactly, or, when it ends in
+     * `/*`, the base path and everything below it (`/courses/*`). Every other page matched by
+     * proxy.ts requires a session. Login/signup/forgot-password, /verify-email and
+     * /reset-password are always public and need not be listed.
+     */
+    publicPaths: z.array(z.string().regex(/^\/[^\s]*$/, 'Must start with /')).default([]),
+    /** Login page; protected pages redirect here with `?next=`. */
+    loginPath: appPath.default('/login'),
+    /** Where a signed-in user landing on login/signup/forgot-password is sent. */
+    homePath: appPath.default('/'),
+    /**
+     * Where a signed-in user without `requiredRole` is sent (instructor: `/not-instructor`,
+     * admin: `/login?error=forbidden`). This path itself is never role-gated (no loops).
+     */
+    forbiddenRedirect: appPath,
+    /** Upstream API timeout per request. */
+    apiTimeoutMs: z.number().int().positive().max(120_000).default(10_000),
+    /** Max request body the API proxy forwards (JSON only; uploads go direct to MinIO). */
+    maxProxyBodyBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(1024 * 1024),
+    /** Override the end-user IP resolution (default: `x-real-ip`, else last `x-forwarded-for` hop). */
+    resolveClientIp: z.custom<ClientIpResolver>((value) => typeof value === 'function').optional(),
+  })
+  .transform((config) => ({
+    ...config,
+    cookiePrefix: config.cookiePrefix ?? `udemy-${config.app}`,
+  }))
+  .superRefine((config, ctx) => {
+    if (!config.cookieSecure && process.env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cookieSecure'],
+        message:
+          'COOKIE_SECURE=false is a dev-only setting and is refused when NODE_ENV=production',
+      });
+    }
+  });
+
+export type WebAuthConfigInput = z.input<typeof WebAuthConfigSchema>;
+export type WebAuthConfig = Readonly<z.output<typeof WebAuthConfigSchema>> & {
+  readonly [VALIDATED]: true;
+};
+
+const VALIDATED = Symbol.for('@udemy/web-auth/config');
+
+/** Validates and freezes a config. Throws a readable error when it is invalid. */
+export function defineWebAuthConfig(input: WebAuthConfigInput | WebAuthConfig): WebAuthConfig {
+  if (isValidated(input)) return input;
+  const parsed = WebAuthConfigSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(`Invalid @udemy/web-auth config:\n${z.prettifyError(parsed.error)}`);
+  }
+  return Object.freeze({ ...parsed.data, [VALIDATED]: true as const });
+}
+
+function isValidated(input: unknown): input is WebAuthConfig {
+  return typeof input === 'object' && input !== null && VALIDATED in input;
+}
