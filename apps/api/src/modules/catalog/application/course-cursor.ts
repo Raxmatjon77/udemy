@@ -1,6 +1,7 @@
 import { ErrorCode } from '@udemy/contracts';
 import { ValidationError } from '@udemy/nest-common/errors';
 import { z } from 'zod';
+import type { BrowseCursor } from '@udemy/db';
 import type { MyCoursesKeyset } from './ports/course.repository';
 
 /**
@@ -60,4 +61,32 @@ export function decodeReviewQueueCursor(cursor: string): string {
   const result = ReviewQueueKeysetSchema.safeParse(parsed);
   if (!result.success) throw invalidCursor();
   return result.data.r;
+}
+
+const BrowseKeysetSchema = z.object({
+  p: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/),
+  i: z.uuid(),
+});
+
+/**
+ * Opaque cursor of the public browse: base64url of `{ p: firstPublishedAt, i: id }`, with
+ * `first_published_at` exactly as SQL printed it (`BrowseItem.cursor`, design §14).
+ */
+export function encodeBrowseCursor(keyset: BrowseCursor): string {
+  return Buffer.from(JSON.stringify({ p: keyset.firstPublishedAt, i: keyset.id }), 'utf8').toString(
+    'base64url',
+  );
+}
+
+/** @throws ValidationError (422 `validation_failed`) for anything this api did not produce */
+export function decodeBrowseCursor(cursor: string): BrowseCursor {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+  } catch {
+    throw invalidCursor();
+  }
+  const result = BrowseKeysetSchema.safeParse(parsed);
+  if (!result.success) throw invalidCursor();
+  return { firstPublishedAt: result.data.p, id: result.data.i };
 }

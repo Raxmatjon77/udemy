@@ -88,8 +88,16 @@ export abstract class RevisionRepository {
   /** Lowercase hex `content_hash` of a revision, or null when it does not exist. */
   abstract findContentHashHex(revisionId: string, ex?: Executor): Promise<string | null>;
 
-  /** The whole snapshot, or null. */
-  abstract findById(revisionId: string, ex?: Executor): Promise<RevisionRecord | null>;
+  /**
+   * The whole snapshot, or null. `articleBodies: false` skips the (up to 100 000 character)
+   * article bodies, which are then null in `content` and `lectures`: for outlines such as the
+   * public landing page, never for hashing or diffs.
+   */
+  abstract findById(
+    revisionId: string,
+    ex?: Executor,
+    options?: { readonly articleBodies?: boolean },
+  ): Promise<RevisionRecord | null>;
 
   /** The revision's decision transition (APPROVE/REJECT/WITHDRAW), if decided. */
   abstract findDecisionAction(

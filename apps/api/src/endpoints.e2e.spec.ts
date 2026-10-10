@@ -1440,6 +1440,27 @@ describe('§8 endpoint sweep (real AppModule, guards, Postgres, Redis)', () => {
       [`${V1}/admin/courses`, 'get'],
       [`${V1}/admin/courses/{courseId}/takedown`, 'post'],
       [`${V1}/admin/courses/{courseId}/restore`, 'post'],
+      // Phase 2 catalog C (P2-T11); covered by modules/catalog/catalog-public.e2e.spec.ts.
+      [`${V1}/catalog/categories`, 'get'],
+      [`${V1}/catalog/courses`, 'get'],
+      [`${V1}/catalog/courses/by-slug/{slug}`, 'get'],
+      [`${V1}/catalog/courses/{courseId}/images/thumbnail`, 'get'],
+      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/hls/master.m3u8`, 'get'],
+      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/hls/{rendition}.m3u8`, 'get'],
+      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/article`, 'get'],
+      [`${V1}/catalog/courses/{courseId}/lectures/{lectureId}/download`, 'get'],
+      [`${V1}/courses/{courseId}/thumbnail`, 'get'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/preview/hls/master.m3u8`, 'get'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/preview/hls/{rendition}.m3u8`, 'get'],
+      [`${V1}/courses/{courseId}/lectures/{lectureId}/download`, 'get'],
+      [`${V1}/admin/course-revisions/{revisionId}/thumbnail`, 'get'],
+      [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/hls/master.m3u8`, 'get'],
+      [
+        `${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/hls/{rendition}.m3u8`,
+        'get',
+      ],
+      [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/article`, 'get'],
+      [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/download`, 'get'],
     ];
 
     it('documents exactly the §8 operations (plus health probes)', async (ctx) => {

@@ -219,14 +219,12 @@ describe('media endpoints (e2e: real AppModule, Postgres, Redis, MinIO)', () => 
 
     it('maps policy errors: 422 unsupported_media_type / upload_too_large, 400 shape errors', async (ctx) => {
       skip(ctx);
-      const svg = await instructorA()
-        .post(`${V1}/media/uploads`)
-        .send({
-          purpose: 'COURSE_THUMBNAIL',
-          filename: 'x.svg',
-          contentType: 'image/svg+xml',
-          sizeBytes: 10,
-        });
+      const svg = await instructorA().post(`${V1}/media/uploads`).send({
+        purpose: 'COURSE_THUMBNAIL',
+        filename: 'x.svg',
+        contentType: 'image/svg+xml',
+        sizeBytes: 10,
+      });
       expectProblem(svg, 422, ErrorCode.UnsupportedMediaType);
       const big = await instructorA()
         .post(`${V1}/media/uploads`)
@@ -337,14 +335,12 @@ describe('media endpoints (e2e: real AppModule, Postgres, Redis, MinIO)', () => 
       expect(ofA.body.items.every((i: { ownerId: string }) => i.ownerId === a.userId)).toBe(true);
 
       expectProblem(
-        await admin()
-          .post(`${V1}/media/uploads`)
-          .send({
-            purpose: 'COURSE_THUMBNAIL',
-            filename: 'c.png',
-            contentType: 'image/png',
-            sizeBytes: 10,
-          }),
+        await admin().post(`${V1}/media/uploads`).send({
+          purpose: 'COURSE_THUMBNAIL',
+          filename: 'c.png',
+          contentType: 'image/png',
+          sizeBytes: 10,
+        }),
         403,
         ErrorCode.Forbidden,
       );
@@ -361,14 +357,12 @@ describe('media endpoints (e2e: real AppModule, Postgres, Redis, MinIO)', () => 
       skip(ctx);
       const { assetOfA } = fixtures();
       expectProblem(
-        await student()
-          .post(`${V1}/media/uploads`)
-          .send({
-            purpose: 'COURSE_THUMBNAIL',
-            filename: 'c.png',
-            contentType: 'image/png',
-            sizeBytes: 10,
-          }),
+        await student().post(`${V1}/media/uploads`).send({
+          purpose: 'COURSE_THUMBNAIL',
+          filename: 'c.png',
+          contentType: 'image/png',
+          sizeBytes: 10,
+        }),
         403,
         ErrorCode.Forbidden,
       );

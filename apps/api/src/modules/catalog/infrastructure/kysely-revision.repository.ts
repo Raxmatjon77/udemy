@@ -108,7 +108,11 @@ export class KyselyRevisionRepository extends RevisionRepository {
     return row === undefined ? null : row.contentHash.toString('hex');
   }
 
-  async findById(revisionId: string, ex: Executor = this.db): Promise<RevisionRecord | null> {
+  async findById(
+    revisionId: string,
+    ex: Executor = this.db,
+    options: { readonly articleBodies?: boolean } = {},
+  ): Promise<RevisionRecord | null> {
     const header = await ex
       .selectFrom('catalog.courseRevisions as r')
       .innerJoin('catalog.courseTransitions as t', (join) =>
@@ -148,9 +152,21 @@ export class KyselyRevisionRepository extends RevisionRepository {
       .where('revisionId', '=', revisionId)
       .orderBy('position')
       .execute();
+    const withBodies = options.articleBodies ?? true;
     const lectureRows = await ex
       .selectFrom('catalog.revisionLectures')
-      .selectAll()
+      .select([
+        'lectureId',
+        'sectionId',
+        'position',
+        'type',
+        'title',
+        'descriptionMd',
+        'isPreview',
+        'mediaAssetId',
+        'durationSeconds',
+        withBodies ? 'articleBodyMd' : sql<string | null>`NULL::text`.as('articleBodyMd'),
+      ])
       .where('revisionId', '=', revisionId)
       .orderBy('sectionId')
       .orderBy('position')

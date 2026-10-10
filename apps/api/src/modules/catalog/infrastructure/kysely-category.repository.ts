@@ -23,7 +23,7 @@ function toDepth(value: number): 1 | 2 {
   throw new Error(`Unexpected catalog.categories.depth ${value}`);
 }
 
-interface CategoryRow {
+export interface CategoryRow {
   id: string;
   parentId: string | null;
   depth: number;
@@ -34,7 +34,7 @@ interface CategoryRow {
   parentActive: boolean | null;
 }
 
-function toRecord(row: CategoryRow): CategoryRecord {
+export function toRecord(row: CategoryRow): CategoryRecord {
   return {
     id: row.id,
     parentId: row.parentId,

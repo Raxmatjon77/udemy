@@ -187,6 +187,33 @@ export class RestoreForbidden extends ForbiddenError {
 }
 
 /* ----------------------------------------------------------------------------------------
+ * Public read and playback (P2-T11)
+ * -------------------------------------------------------------------------------------- */
+
+/**
+ * 403 `lecture_locked`: the lecture is part of a live course (its outline is public), but the
+ * viewer is neither the owner, a moderator nor entitled, and it is not a free preview.
+ */
+export class LectureLocked extends ForbiddenError {
+  constructor(options: CauseOption = {}) {
+    super('This lecture is not a free preview. Enroll in the course to watch it.', {
+      code: ErrorCode.LectureLocked,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 404 `course_not_found` (contracts): the course working copy has no thumbnail. */
+export class ThumbnailNotFound extends NotFoundError {
+  constructor(options: CauseOption = {}) {
+    super('The course has no thumbnail.', {
+      code: ErrorCode.CourseNotFound,
+      cause: options.cause,
+    });
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
  * Curriculum
  * -------------------------------------------------------------------------------------- */
 

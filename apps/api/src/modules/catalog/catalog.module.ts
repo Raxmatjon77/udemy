@@ -2,6 +2,22 @@ import { Module } from '@nestjs/common';
 import { AppConfigService } from '../../shared/config';
 import { IdentityModule } from '../identity';
 import { MediaModule } from '../media';
+import { UsersModule } from '../users';
+import { CatalogFacade } from './application/catalog.facade';
+import { LectureAccessAuthorizer } from './application/lecture-access.authorizer';
+import { PlaybackRateLimiter } from './application/ports/playback-rate-limiter';
+import { PublicCatalogRepository } from './application/ports/public-catalog.repository';
+import { BrowseCoursesQuery } from './application/use-cases/browse-courses.query';
+import { GetCourseLandingQuery } from './application/use-cases/get-course-landing.query';
+import { GetCourseThumbnailQuery } from './application/use-cases/get-course-thumbnail.query';
+import { GetLectureArticleQuery } from './application/use-cases/get-lecture-article.query';
+import { GetLectureDownloadQuery } from './application/use-cases/get-lecture-download.query';
+import { GetLecturePlaylistQuery } from './application/use-cases/get-lecture-playlist.query';
+import { KyselyPublicCatalogRepository } from './infrastructure/kysely-public-catalog.repository';
+import { RedisPlaybackRateLimiter } from './infrastructure/redis-playback-rate-limiter';
+import { AdminRevisionMediaController } from './presentation/admin-revision-media.controller';
+import { CoursePreviewController } from './presentation/course-preview.controller';
+import { PublicCatalogController } from './presentation/public-catalog.controller';
 import { CatalogSettings } from './application/catalog-settings';
 import { CourseDetailAssembler } from './application/course-detail.assembler';
 import { CourseLocker } from './application/course-locker';
@@ -83,24 +99,27 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
  * catalog (design §3–§8): categories, the course working copy (details, bullets, slug,
  * thumbnail), curriculum, media attachment and deletion (P2-T9, "catalog A"); the lifecycle
  * (submit/withdraw/approve/reject/archive/restore), immutable revisions, history and the admin
- * review queue / revision review / course list (P2-T10, "catalog B").
+ * review queue / revision review / course list (P2-T10, "catalog B"); the public catalog
+ * (category tree, browse, landing, thumbnails), playback authorization for the live revision,
+ * the working copy and revisions, the HLS playlist / article / download endpoints and the
+ * `CatalogFacade` (P2-T11, "catalog C").
  *
- * Depends on media through `MediaFacade` only, on identity through `IdentityFacade` (names,
- * ban flags) (usages in catalog's own transaction), plus the
- * global DatabaseModule, OutboxModule, AppConfigModule and AuthSupportModule.
- * `CourseOwnership` is discovered by access's OwnershipRegistry for
- * `@CheckPolicy({ resource: 'course' })`.
+ * Depends on media through `MediaFacade` only (usages in catalog's own transaction; playlists
+ * and presigned URLs after catalog authorized the viewer), on identity through
+ * `IdentityFacade` (names, ban flags), on users through `UsersFacade` (public instructor
+ * profiles, null for banned users), on the global `COURSE_ENTITLEMENTS` port (playback of
+ * non-preview lectures), plus the global DatabaseModule, OutboxModule, RedisModule,
+ * AppConfigModule and AuthSupportModule. `CourseOwnership` is discovered by access's
+ * OwnershipRegistry for `@CheckPolicy({ resource: 'course' })`.
  *
- * Extension points for P2-T11 (public read/playback), which adds its providers and
- * controllers HERE: `RevisionRepository.findById` (the live snapshot for the landing page,
- * outline and per-lecture playback lookup via `courses.published_revision_id`),
- * `CourseRepository`, `CurriculumReader`, `CoursePeopleDirectory`, `CatalogEventPublisher`,
- * `TransactionRunner` (maps the §9 constraints incl. deferred ones at COMMIT) and
- * `ListCategoryTreeQuery` (the public `GET /catalog/categories`).
+ * Exports `CatalogFacade` only (Phase 4/5 seams).
  */
 @Module({
-  imports: [MediaModule, IdentityModule],
+  imports: [MediaModule, IdentityModule, UsersModule],
   controllers: [
+    PublicCatalogController,
+    CoursePreviewController,
+    AdminRevisionMediaController,
     InstructorCoursesController,
     CoursesController,
     CurriculumController,
@@ -175,6 +194,19 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
     ListReviewQueueQuery,
     GetRevisionReviewQuery,
     AdminSearchCoursesQuery,
+
+    // Public read and playback (P2-T11)
+    { provide: PublicCatalogRepository, useClass: KyselyPublicCatalogRepository },
+    { provide: PlaybackRateLimiter, useClass: RedisPlaybackRateLimiter },
+    LectureAccessAuthorizer,
+    BrowseCoursesQuery,
+    GetCourseLandingQuery,
+    GetCourseThumbnailQuery,
+    GetLecturePlaylistQuery,
+    GetLectureArticleQuery,
+    GetLectureDownloadQuery,
+    CatalogFacade,
   ],
+  exports: [CatalogFacade],
 })
 export class CatalogModule {}
