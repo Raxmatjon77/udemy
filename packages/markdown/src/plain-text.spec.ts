@@ -8,6 +8,13 @@ import {
   validateMarkdown,
 } from './validate';
 
+/**
+ * Ceiling for one markdownPlainText call on pathological input up to 100 000 chars. Like the
+ * validate budget it catches quadratic blow-ups (unguarded: 14-15 s), with headroom for a loaded
+ * machine (a full parallel turbo run measured 3.75 s). Override with MARKDOWN_PLAIN_TEXT_BUDGET_MS.
+ */
+const PLAIN_TEXT_BUDGET_MS = Number(process.env.MARKDOWN_PLAIN_TEXT_BUDGET_MS ?? 6_000);
+
 describe('markdownPlainText: only visible text counts', () => {
   it.each([
     // emphasis, strong, strikethrough, escapes
@@ -121,7 +128,7 @@ describe('markdownPlainText: the same cost guard as validateMarkdown', () => {
       } catch (error) {
         thrown = error;
       }
-      expect(performance.now() - started).toBeLessThan(2_000);
+      expect(performance.now() - started).toBeLessThan(PLAIN_TEXT_BUDGET_MS);
       if (guardKind === undefined) {
         expect(thrown).toBeUndefined();
       } else {
