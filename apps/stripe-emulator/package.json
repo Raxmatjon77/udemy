@@ -1,0 +1,33 @@
+{
+  "name": "@udemy/stripe-emulator",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Test-only Stripe emulator (Phase 4 D12): the Checkout Session and Refund subset @udemy/payments uses, a hosted pay page and signed webhook delivery with retries. In-memory; never point production at it.",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@udemy/payments": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@udemy/eslint-config": "workspace:*",
+    "@udemy/tsconfig": "workspace:*",
+    "eslint": "10.12.0",
+    "stripe": "23.0.0",
+    "tsx": "4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "5.0.3"
+  }
+}

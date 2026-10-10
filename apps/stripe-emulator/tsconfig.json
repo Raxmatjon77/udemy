@@ -1,0 +1,10 @@
+{
+  "extends": "@udemy/tsconfig/library.json",
+  "compilerOptions": {
+    // nodenext + no "type" in package.json => CommonJS output (dist/main.js), like the other apps.
+    "rootDir": ".",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src", "vitest.config.mts"]
+}
