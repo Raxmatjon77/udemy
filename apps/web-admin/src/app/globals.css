@@ -1,0 +1,9 @@
+/*
+ * This app's stylesheet: the shared @udemy/ui tokens plus the extra source paths Tailwind must
+ * scan. Tailwind only auto-detects classes under this app; workspace packages that render
+ * markup with utility classes are registered here (paths relative to this file).
+ */
+@import '@udemy/ui/globals.css';
+
+/* <MarkdownView> (@udemy/markdown/react): heading, list, code and table classes. */
+@source '../../../../packages/markdown/src';

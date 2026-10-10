@@ -6,8 +6,21 @@ import { serverEnv } from '../env';
 /**
  * Pages anyone may see. Login, signup, forgot-password, /verify-email and /reset-password are
  * always public in @udemy/web-auth and need not be listed. Everything else requires a session.
+ * An entry ending in `/*` covers the base path and everything below it.
+ *
+ * - `/courses`, `/categories/*`, `/course/*`: the public catalog (design §10).
+ * - `/media/*`: the signed-redirect image routes (thumbnails). Route handlers outside `/api/`
+ *   go through proxy.ts too, so without this an anonymous visitor's `<img>` would be
+ *   redirected to the login page (design §14).
  */
-export const PUBLIC_PATHS = ['/', '/verify-email/pending'];
+export const PUBLIC_PATHS = [
+  '/',
+  '/verify-email/pending',
+  '/courses',
+  '/categories/*',
+  '/course/*',
+  '/media/*',
+];
 
 /**
  * The @udemy/web-auth config of the student BFF, from the server env. Passed to the factories

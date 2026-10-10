@@ -39,6 +39,8 @@ export interface ReasonDialogProps {
   confirmLabel: string;
   pendingLabel: string;
   destructive?: boolean;
+  /** `maxLength` of the textarea; match the schema's upper bound (default 1000). */
+  maxLength?: number;
   /** Performs the action; a rejection is shown in the dialog, which stays open. */
   onConfirm: (reason: string | undefined) => Promise<unknown>;
   messages?: MessageOverrides;
@@ -59,6 +61,7 @@ export function ReasonDialog({
   confirmLabel,
   pendingLabel,
   destructive = false,
+  maxLength = 1000,
   onConfirm,
   messages,
 }: ReasonDialogProps) {
@@ -107,7 +110,7 @@ export function ReasonDialog({
               <Textarea
                 {...field}
                 rows={5}
-                maxLength={1000}
+                maxLength={maxLength}
                 autoFocus
                 aria-required={!optional}
                 {...register('reason')}

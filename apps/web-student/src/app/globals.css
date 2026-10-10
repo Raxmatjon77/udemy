@@ -1,0 +1,9 @@
+/*
+ * App stylesheet: the shared @udemy/ui tokens plus the workspace sources Tailwind must scan for
+ * this app. `@source` paths resolve relative to THIS file.
+ * - packages/markdown/src: `<MarkdownView>` (course description, article previews) styles its
+ *   elements with utility classes that appear nowhere else (design §14, P2-T6).
+ */
+@import '@udemy/ui/globals.css';
+
+@source '../../../../packages/markdown/src';

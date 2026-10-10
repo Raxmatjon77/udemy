@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from 'next/font/google';
 import { connection } from 'next/server';
 import type { ReactNode } from 'react';
 
-import '@udemy/ui/globals.css';
+import './globals.css';
 
 import { SiteHeader } from '@/components/site-header';
 

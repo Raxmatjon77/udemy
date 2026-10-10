@@ -53,3 +53,16 @@ export function serverEnv(): ServerEnv {
   cached = parsed.data;
   return cached;
 }
+
+const OriginSchema = z
+  .url({ protocol: /^https?$/ })
+  .refine((url) => new URL(url).origin === url, { message: 'Must be an origin only' });
+
+/**
+ * Public origin of the student site (`STUDENT_APP_ORIGIN`, e.g. `http://localhost:3000`), used
+ * only to link live courses to their public page. Optional: without it, no links are shown.
+ */
+export function studentAppOrigin(): string | null {
+  const parsed = OriginSchema.safeParse(process.env.STUDENT_APP_ORIGIN);
+  return parsed.success ? parsed.data : null;
+}

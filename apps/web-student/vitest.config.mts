@@ -9,8 +9,24 @@ export default defineConfig({
       'server-only': fileURLToPath(new URL('./src/test/empty-module.ts', import.meta.url)),
     },
   },
+  // tsconfig says `jsx: preserve` (Next compiles JSX itself); tests need the automatic runtime.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
+    // Node by default; component specs opt into jsdom with a `@vitest-environment jsdom` docblock.
     environment: 'node',
-    include: ['src/**/*.spec.ts'],
+    include: ['src/**/*.spec.{ts,tsx}'],
+    setupFiles: ['./src/test/setup.ts'],
+    // The server env the BFF config reads (src/lib/env.ts); fake hosts, MSW answers for them.
+    env: {
+      API_INTERNAL_URL: 'http://api.test',
+      API_CLIENT_ID: 'student-bff',
+      API_CLIENT_SECRET: 'test-secret',
+      APP_ORIGIN: 'http://localhost:3000',
+      JWT_ISSUER: 'http://api.test',
+      JWT_AUDIENCE: 'udemy-api',
+      JWKS_URL: 'http://api.test/.well-known/jwks.json',
+      COOKIE_SECURE: 'true',
+      MEDIA_PUBLIC_ORIGIN: 'http://127.0.0.1:9000',
+    },
   },
 });

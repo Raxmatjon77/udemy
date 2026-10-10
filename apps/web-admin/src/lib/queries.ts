@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   MeResponseSchema,
+  type AdminCoursesQuery,
   type AdminUsersQuery,
   type InstructorApplicationStatus,
   type MeResponse,
@@ -19,6 +20,13 @@ export const queryKeys = {
   userSearch: (filters: Pick<AdminUsersQuery, 'q' | 'status' | 'role'>) =>
     ['admin', 'users', 'search', filters] as const,
   user: (id: string) => ['admin', 'users', 'detail', id] as const,
+  courseReviews: ['admin', 'course-reviews'] as const,
+  courseReviewQueue: ['admin', 'course-reviews', 'queue'] as const,
+  courseReview: (revisionId: string) => ['admin', 'course-reviews', 'detail', revisionId] as const,
+  courses: ['admin', 'courses'] as const,
+  courseSearch: (filters: Pick<AdminCoursesQuery, 'q' | 'status' | 'ownerId'>) =>
+    ['admin', 'courses', 'search', filters] as const,
+  categories: ['admin', 'categories'] as const,
 };
 
 /** `GET /me`. `quiet`: a 401 means "signed out" instead of redirecting to login. */

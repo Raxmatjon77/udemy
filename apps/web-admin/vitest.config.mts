@@ -9,8 +9,12 @@ export default defineConfig({
       'server-only': fileURLToPath(new URL('./src/test/empty-module.ts', import.meta.url)),
     },
   },
+  // tsconfig says `jsx: preserve` (Next compiles JSX itself); tests need the React 17+ runtime.
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
+    // Plain Node by default; component tests (`*.spec.tsx`) opt into jsdom with a docblock.
     environment: 'node',
-    include: ['src/**/*.spec.ts'],
+    include: ['src/**/*.spec.{ts,tsx}'],
+    setupFiles: ['./src/test/setup.ts'],
   },
 });

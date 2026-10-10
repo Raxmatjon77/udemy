@@ -5,6 +5,9 @@ import { usePathname } from 'next/navigation';
 import { cn } from '@udemy/ui/lib/utils';
 
 const LINKS = [
+  { href: '/course-reviews', label: 'Course reviews' },
+  { href: '/courses', label: 'Courses' },
+  { href: '/categories', label: 'Categories' },
   { href: '/instructor-applications', label: 'Instructor applications' },
   { href: '/users', label: 'Users' },
 ] as const;
@@ -13,7 +16,7 @@ export function MainNav() {
   const pathname = usePathname();
   return (
     <nav aria-label="Main">
-      <ul className="flex gap-1">
+      <ul className="flex flex-wrap gap-1">
         {LINKS.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
           return (

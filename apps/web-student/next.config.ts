@@ -27,8 +27,8 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   // Trace files from the monorepo root so workspace packages end up in the standalone output.
   outputFileTracingRoot: path.join(import.meta.dirname, '../..'),
-  // @udemy/ui and @udemy/web-auth ship TypeScript source; let Next compile them.
-  transpilePackages: ['@udemy/ui', '@udemy/web-auth'],
+  // @udemy/ui, @udemy/web-auth and @udemy/markdown/react ship TypeScript source; let Next compile them.
+  transpilePackages: ['@udemy/ui', '@udemy/web-auth', '@udemy/markdown'],
   async headers() {
     return [
       { source: '/:path*', headers: securityHeaders },

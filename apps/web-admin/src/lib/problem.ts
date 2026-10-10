@@ -80,6 +80,16 @@ const MESSAGES: Partial<Record<ErrorCode, Message>> = {
   [ErrorCode.VersionConflict]:
     'Someone else changed this in the meantime. Review the latest version and try again.',
   [ErrorCode.SelfDecisionForbidden]: 'You cannot decide on your own application.',
+
+  [ErrorCode.CourseNotFound]: 'This course does not exist or was deleted.',
+  [ErrorCode.CategoryNotFound]: 'This category no longer exists. Refresh the page.',
+  [ErrorCode.SlugTaken]: 'This slug is already used. Choose another one.',
+  [ErrorCode.CategoryDepthExceeded]: 'Categories can only be two levels deep.',
+  [ErrorCode.CategoryInUse]:
+    'This category is still used by courses or has subcategories, so it cannot be deleted. Deactivate it instead.',
+  [ErrorCode.OrderMismatch]:
+    'The list changed in the meantime. The latest order is now shown; try again.',
+  [ErrorCode.MediaNotReady]: 'This media is still being processed.',
 };
 
 function byStatus(error: ProxyFetchError): string {
