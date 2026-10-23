@@ -6,7 +6,11 @@ import { useRouter } from 'next/navigation';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { AdminOrderPageSchema, ORDER_STATUSES } from '@udemy/contracts';
+import {
+  ADMIN_ORDER_BUYER_EMAIL_MIN,
+  AdminOrderPageSchema,
+  ORDER_STATUSES,
+} from '@udemy/contracts';
 import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
 import { Card, CardContent } from '@udemy/ui/components/card';
@@ -47,6 +51,14 @@ const SearchFormSchema = z
       .refine((value) => value === '' || /^[1-9]\d{0,15}$/.test(value), {
         message: 'Enter an order number, e.g. 1042.',
       }),
+    buyerEmail: z
+      .string()
+      .trim()
+      .refine(
+        (value) =>
+          value === '' || (value.length >= ADMIN_ORDER_BUYER_EMAIL_MIN && value.length <= 254),
+        { message: `Enter at least ${ADMIN_ORDER_BUYER_EMAIL_MIN} characters of the email.` },
+      ),
     status: z.enum(['', ...ORDER_STATUSES]),
     from: z.string().refine((value) => value === '' || DATE.test(value), 'Enter a date.'),
     to: z.string().refine((value) => value === '' || DATE.test(value), 'Enter a date.'),
@@ -68,6 +80,7 @@ function SearchForm({ filters }: { filters: OrderFilters }) {
   );
   const defaultValues: z.input<typeof SearchFormSchema> = {
     q: filters.q === undefined ? '' : String(filters.q),
+    buyerEmail: filters.buyerEmail ?? '',
     status: filters.status ?? '',
     from: filters.from ? utcDayOf(filters.from) : '',
     to: filters.to ? utcDayOf(filters.to, true) : '',
@@ -114,7 +127,23 @@ function SearchForm({ filters }: { filters: OrderFilters }) {
           {(field) => <Input {...field} type="date" {...register('to')} />}
         </FormField>
       </div>
-      <div className="grid items-start gap-4 sm:grid-cols-2">
+      <div className="grid items-start gap-4 sm:grid-cols-3">
+        <FormField
+          id="buyerEmail"
+          label="Buyer email contains"
+          description="Part of the email, e.g. jane@ or @example.com."
+          error={formState.errors.buyerEmail?.message}
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="search"
+              autoComplete="off"
+              placeholder="jane@"
+              {...register('buyerEmail')}
+            />
+          )}
+        </FormField>
         <SearchPicker
           id="buyer"
           label="Buyer"

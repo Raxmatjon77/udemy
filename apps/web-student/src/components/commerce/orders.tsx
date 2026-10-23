@@ -48,7 +48,7 @@ import {
   requestRefund,
 } from '@/lib/commerce/client';
 import { discount, money, ORDER_STATUS_LABELS, REFUND_STATUS_LABELS } from '@/lib/commerce/format';
-import { orderHref, receiptHref } from '@/lib/commerce/links';
+import { courseHref, orderHref, receiptHref } from '@/lib/commerce/links';
 import { CHECKOUT_MESSAGES, REFUND_BLOCK_MESSAGES, REFUND_MESSAGES } from '@/lib/commerce/messages';
 import { formatDate, formatDateTime } from '@/lib/format';
 import { hasCode, problemMessage } from '@/lib/problem';
@@ -340,7 +340,16 @@ function OrderLineRow({
     <li data-testid="order-line" className="flex flex-col gap-2 p-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="font-medium">{line.courseTitle}</p>
+          {line.slug ? (
+            <Link
+              href={courseHref(line.slug)}
+              className="font-medium underline-offset-4 hover:underline"
+            >
+              {line.courseTitle}
+            </Link>
+          ) : (
+            <p className="font-medium">{line.courseTitle}</p>
+          )}
           {line.instructor ? (
             <p className="text-xs text-muted-foreground">{line.instructor.displayName}</p>
           ) : null}

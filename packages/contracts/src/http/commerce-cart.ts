@@ -148,6 +148,12 @@ export const PurchaseStateSchema = z.object({
   inCart: z.boolean(),
   /** The viewer is the instructor ("You're the instructor"). */
   isOwner: z.boolean(),
+  /**
+   * The course is PUBLISHED and has a price (free or paid) in the platform currency, i.e. it
+   * is in `GET /commerce/prices` right now. False: "Not available for enrollment yet" (D16).
+   * Additive (P4-T18).
+   */
+  forSale: z.boolean(),
 });
 export type PurchaseState = z.infer<typeof PurchaseStateSchema>;
 

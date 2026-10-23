@@ -1,4 +1,4 @@
-import { UuidSchema } from '@udemy/contracts';
+import { CouponCodeSchema, UuidSchema } from '@udemy/contracts';
 
 /**
  * The order id of `/checkout/success` and `/checkout/cancel`. The API's success and cancel URLs
@@ -15,4 +15,16 @@ export function orderIdFromSearch(
     if (parsed.success) return parsed.data;
   }
   return null;
+}
+
+/**
+ * `/cart?coupon=CODE` (shared promotion links): the code to prefill, normalised like the API
+ * does (trimmed, upper case), or null when absent or not a well-formed code.
+ */
+export function couponCodeFromSearch(
+  search: Record<string, string | string[] | undefined>,
+): string | null {
+  const raw = search.coupon;
+  const parsed = CouponCodeSchema.safeParse(Array.isArray(raw) ? raw[0] : raw);
+  return parsed.success ? parsed.data : null;
 }

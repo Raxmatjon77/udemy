@@ -15,7 +15,8 @@ import { CurriculumOutline } from './curriculum-outline';
 /**
  * The course landing page body (design §10): everything comes from the live revision the API
  * returns. Rendered on the server; the curriculum (preview dialog) and the `PurchaseBox`
- * (Phase 4) are the client islands.
+ * (Phase 4) are the client islands. Until the Phase 5 player, enrolled students (and the
+ * owner) open every lecture from the curriculum here.
  */
 export function CourseLandingView({
   landing,
@@ -123,6 +124,7 @@ export function CourseLandingView({
               courseTitle={landing.title}
               hasThumbnail={landing.hasThumbnail}
               sections={landing.sections}
+              signedIn={signedIn}
             />
           </section>
 

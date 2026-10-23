@@ -29,6 +29,7 @@ export function PreviewDialog({
   courseId,
   courseTitle,
   hasThumbnail,
+  entitled = false,
   lecture,
   open,
   onOpenChange,
@@ -38,6 +39,8 @@ export function PreviewDialog({
   courseTitle: string;
   /** `CourseLanding.hasThumbnail`: the poster is only requested when not false. */
   hasThumbnail?: boolean | undefined;
+  /** The viewer is enrolled or the owner: any lecture opens, not only free previews. */
+  entitled?: boolean;
   /** The lecture to preview (kept while the dialog closes). */
   lecture: LandingLecture | null;
   open: boolean;
@@ -59,7 +62,9 @@ export function PreviewDialog({
           }}
         >
           <DialogHeader>
-            <DialogDescription>Course preview · {courseTitle}</DialogDescription>
+            <DialogDescription>
+              {entitled && !lecture.isPreview ? 'Lecture' : 'Course preview'} · {courseTitle}
+            </DialogDescription>
             <DialogTitle>{lecture.title}</DialogTitle>
           </DialogHeader>
           {lecture.type === 'VIDEO' ? (

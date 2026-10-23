@@ -43,8 +43,21 @@ const box = () => screen.getByTestId('purchase-box');
 const stateOf = async (state: string) => waitFor(() => expect(box().dataset.state).toBe(state));
 
 describe('purchaseBoxState', () => {
-  const price = { courseId: PAID.id, amount: '19.99', currency: 'USD', isFree: false } as const;
-  const state = { courseId: PAID.id, enrolled: false, inCart: false, isOwner: false };
+  const price = {
+    courseId: PAID.id,
+    amount: '19.99',
+    currency: 'USD',
+    isFree: false,
+    slug: PAID.slug,
+    title: PAID.title,
+  } as const;
+  const state = {
+    courseId: PAID.id,
+    enrolled: false,
+    inCart: false,
+    isOwner: false,
+    forSale: true,
+  };
 
   it('puts the owner and enrolled students before the price, then not-for-sale and free', () => {
     expect(
@@ -63,6 +76,19 @@ describe('purchaseBoxState', () => {
         inGuestCart: true,
       }),
     ).toBe('free');
+  });
+
+  it('lets the live purchase state say "not for sale" over a stale server price', () => {
+    expect(
+      purchaseBoxState({ price, purchase: { ...state, forSale: false }, inGuestCart: false }),
+    ).toBe('not_for_sale');
+    expect(
+      purchaseBoxState({
+        price,
+        purchase: { ...state, forSale: false, enrolled: true },
+        inGuestCart: false,
+      }),
+    ).toBe('enrolled');
   });
 
   it('uses the server cart when signed in and the guest cart otherwise', () => {

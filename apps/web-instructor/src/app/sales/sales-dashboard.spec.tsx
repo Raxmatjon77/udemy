@@ -3,8 +3,14 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { RecentSalePageSchema } from '@udemy/contracts';
-import { FIXTURE_IDS, fixtureId, makeRecentSale } from '@udemy/contracts/testing';
+import { RecentSalePageSchema, SalesSummarySchema } from '@udemy/contracts';
+import {
+  FIXTURE_IDS,
+  fixtureId,
+  makeRecentSale,
+  makeSalesSummary,
+  makeSalesTotals,
+} from '@udemy/contracts/testing';
 
 import { builderCourse, installCommerce } from '@/test/commerce';
 import { IDS } from '@/test/fixtures';
@@ -81,6 +87,44 @@ describe('/sales summary', () => {
     await user.click(screen.getByRole('button', { name: 'Show' }));
     await waitFor(() => expect(stat('Sales')).toBe('0'));
     expect(screen.getByText('No sales in this period.')).toBeTruthy();
+  });
+});
+
+describe('/sales negative figures', () => {
+  it('formats a negative net and share (refunds of earlier sales) with a minus sign', async () => {
+    installCommerce();
+    const totals = makeSalesTotals({
+      salesCount: 0,
+      refundCount: 1,
+      gross: '0.00',
+      discounts: '0.00',
+      refunded: '19.99',
+      net: '-19.99',
+      instructorShare: '-13.99',
+    });
+    server.use(
+      http.get(proxy('/instructor/sales/summary'), ({ request }) => {
+        const url = new URL(request.url);
+        return HttpResponse.json(
+          SalesSummarySchema.parse(
+            makeSalesSummary({
+              from: url.searchParams.get('from')!,
+              to: url.searchParams.get('to')!,
+              totals,
+              courses: [{ ...totals, courseId: IDS.course, courseTitle: 'NestJS in practice' }],
+            }),
+          ),
+        );
+      }),
+    );
+    renderWithClient(<SalesDashboard />);
+
+    await waitFor(() => expect(stat('Net')).toBe('\u2212$19.99'));
+    expect(stat('Your share')).toBe('\u2212$13.99');
+    const table = screen.getByRole('table', { name: 'Sales per course, highest net first' });
+    const [, row] = within(table).getAllByRole('row');
+    expect(within(row!).getAllByRole('cell')[4]?.textContent).toBe('\u2212$19.99');
+    expect(within(row!).getAllByRole('cell')[5]?.textContent).toBe('\u2212$13.99');
   });
 });
 

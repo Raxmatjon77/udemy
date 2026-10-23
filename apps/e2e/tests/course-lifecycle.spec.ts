@@ -5,7 +5,7 @@ import { mediaPublicOrigin, urls } from '../src/env';
 import { expect, test } from '../src/fixtures';
 import { becomeInstructor, loadMoreUntilVisible, logIn, SUBJECTS } from '../src/flows';
 import { E2E_COURSE_MARKER } from '../src/mailpit';
-import { MEDIA_FIXTURES } from '../src/media-fixtures';
+import { generateMediaFixtures, MEDIA_FIXTURES } from '../src/media-fixtures';
 
 /*
  * Phase 2 course lifecycle (design P2-T19) across the three apps, the api, the worker, the
@@ -76,6 +76,12 @@ function collectCspViolations(page: Page, into: string[]): Page {
   });
   return page;
 }
+
+test.beforeAll(async () => {
+  // The MP4 and PNG this journey uploads (host ffmpeg, else the transcoder image's).
+  test.setTimeout(5 * 60_000);
+  await generateMediaFixtures();
+});
 
 test('course lifecycle: build → review → reject → resubmit → approve → public preview → update', async ({
   newPage,

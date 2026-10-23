@@ -16,6 +16,11 @@ import { infra } from './env';
  * (with jobs, renditions and usages) go with the user, like `deleteCatalogTestData` of apps/api
  * (src/modules/catalog/testing/catalog-it.ts). Their MinIO objects are removed by
  * `src/cleanup.ts`, which gets the asset ids from here.
+ *
+ * Phase 4: the users' carts, orders (lines, payments, provider events, transitions, refunds
+ * with their transitions, ledger entries and postings), coupon redemptions, enrollments, the
+ * coupons and prices of their courses and their payout accounts go too, like
+ * `deleteCommerceTestData` of apps/api (src/modules/commerce/testing/commerce-it.ts).
  */
 
 export function createPool(): pg.Pool {
@@ -55,6 +60,7 @@ export async function deleteUsers(
   try {
     await client.query('begin');
     await client.query('set local session_replication_role = replica');
+    await deleteCommerceAndEnrollment(client, ids);
     const assets = await deleteCatalogAndMedia(client, ids);
     // users module: applications, their append-only transitions and their outbox events.
     const { rows } = await client.query<{ id: string }>(
@@ -101,6 +107,96 @@ export async function deleteUsers(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Commerce, enrollment and payouts rows of `userIds` as buyers and as course owners (inside
+ * deleteUsers' replica-mode transaction, which also bypasses the append-only guards).
+ */
+async function deleteCommerceAndEnrollment(
+  client: pg.PoolClient,
+  userIds: readonly string[],
+): Promise<void> {
+  const ids = async (query: string, param: readonly string[]) =>
+    param.length === 0
+      ? []
+      : (await client.query<{ id: string }>(query, [param])).rows.map((r) => r.id);
+  const del = (query: string, param: readonly string[]) =>
+    param.length === 0 ? Promise.resolve() : client.query(query, [param]).then(() => undefined);
+
+  const courseIds = await ids(
+    'select id from catalog.courses where owner_id = any($1::uuid[])',
+    userIds,
+  );
+  // Orders bought by the users or containing their courses (whoever bought them).
+  const orderIds = await ids(
+    `select id from commerce.orders where user_id = any($1::uuid[])
+     union select order_id from commerce.order_lines where instructor_id = any($1::uuid[])`,
+    userIds,
+  );
+  const lineIds = await ids(
+    'select id from commerce.order_lines where order_id = any($1::uuid[])',
+    orderIds,
+  );
+  const entryIds = await ids(
+    'select id from payouts.journal_entries where order_line_id = any($1::uuid[])',
+    lineIds,
+  );
+  await del('delete from payouts.postings where entry_id = any($1::uuid[])', entryIds);
+  await del('delete from payouts.journal_entries where id = any($1::uuid[])', entryIds);
+  const refundIds = await ids(
+    'select id from commerce.refunds where order_id = any($1::uuid[])',
+    orderIds,
+  );
+  await del('delete from commerce.refund_transitions where refund_id = any($1::uuid[])', refundIds);
+  await del('delete from outbox.events where aggregate_id = any($1::text[])', refundIds);
+  await del('delete from commerce.refunds where id = any($1::uuid[])', refundIds);
+  await del('delete from commerce.order_transitions where order_id = any($1::uuid[])', orderIds);
+  await del('delete from commerce.provider_events where order_id = any($1::uuid[])', orderIds);
+  await del('delete from commerce.payments where order_id = any($1::uuid[])', orderIds);
+  await del('delete from commerce.coupon_redemptions where order_id = any($1::uuid[])', orderIds);
+  await del('delete from commerce.order_lines where order_id = any($1::uuid[])', orderIds);
+  await del('delete from outbox.events where aggregate_id = any($1::text[])', orderIds);
+  await del('delete from commerce.orders where id = any($1::uuid[])', orderIds);
+
+  const couponIds = await ids(
+    // One id list: course ids (their coupons) and user ids (coupons they created).
+    'select id from commerce.coupons where course_id = any($1::uuid[]) or created_by = any($1::uuid[])',
+    [...courseIds, ...userIds],
+  );
+  await del('delete from commerce.coupon_redemptions where coupon_id = any($1::uuid[])', couponIds);
+  await del('delete from commerce.coupon_redemptions where user_id = any($1::uuid[])', userIds);
+  await del('delete from outbox.events where aggregate_id = any($1::text[])', couponIds);
+  await del('delete from commerce.coupons where id = any($1::uuid[])', couponIds);
+
+  await del('delete from commerce.cart_items where user_id = any($1::uuid[])', userIds);
+  await del('delete from commerce.cart_items where course_id = any($1::uuid[])', courseIds);
+  await del('delete from commerce.carts where user_id = any($1::uuid[])', userIds);
+  await del(
+    'delete from commerce.course_price_changes where course_id = any($1::uuid[])',
+    courseIds,
+  );
+  await del('delete from commerce.course_prices where course_id = any($1::uuid[])', courseIds);
+
+  const enrollmentIds = await ids(
+    `select id from enrollment.enrollments
+      where user_id = any($1::uuid[]) or course_id = any($1::uuid[])`,
+    [...userIds, ...courseIds],
+  );
+  await del('delete from outbox.events where aggregate_id = any($1::text[])', enrollmentIds);
+  await del(
+    'delete from enrollment.enrollment_transitions where enrollment_id = any($1::uuid[])',
+    enrollmentIds,
+  );
+  await del('delete from enrollment.enrollments where id = any($1::uuid[])', enrollmentIds);
+
+  // Payout accounts of the users (instructors); postings into them went with their entries.
+  const accountIds = await ids(
+    'select id from payouts.accounts where owner_id = any($1::uuid[])',
+    userIds,
+  );
+  await del('delete from payouts.postings where account_id = any($1::uuid[])', accountIds);
+  await del('delete from payouts.accounts where id = any($1::uuid[])', accountIds);
 }
 
 /** Courses and media assets owned by `ownerIds` (inside deleteUsers' replica-mode transaction). */

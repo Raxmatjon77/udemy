@@ -101,7 +101,16 @@ describe('<BrowseResults>', () => {
       http.get(`${PROXY}/commerce/prices`, ({ request }) => {
         priceRequests.push(new URL(request.url).searchParams.get('courseIds')!);
         return HttpResponse.json({
-          items: [{ courseId: card(3), amount: '0.00', currency: 'USD', isFree: true }],
+          items: [
+            {
+              courseId: card(3),
+              amount: '0.00',
+              currency: 'USD',
+              isFree: true,
+              slug: 'a-course',
+              title: 'A course',
+            },
+          ],
         });
       }),
     );
@@ -110,7 +119,14 @@ describe('<BrowseResults>', () => {
         filters={{}}
         initialPage={coursePage(1, 2, CURSOR_PAGE_2)}
         initialPrices={{
-          [card(1)]: { courseId: card(1), amount: '19.99', currency: 'USD', isFree: false },
+          [card(1)]: {
+            courseId: card(1),
+            amount: '19.99',
+            currency: 'USD',
+            isFree: false,
+            slug: 'a-course',
+            title: 'A course',
+          },
         }}
         limit={2}
       />,

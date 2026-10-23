@@ -152,6 +152,29 @@ describe('<OrdersSearch>', () => {
     );
   });
 
+  it('searches by a part of the buyer email', async () => {
+    const store = installCommerceStore({ viewerId: ADMIN });
+    const order = store.seedPaidOrder(STUDENT, [FIXTURE_IDS.course]);
+    store.seedPaidOrder(ADMIN, [FIXTURE_IDS.course2]);
+    const { user } = renderWithClient(<OrdersSearch filters={{ buyerEmail: 'JANE@' }} />);
+
+    // the API matches case-insensitively: only the student's order
+    await screen.findByText(`#${order.orderNumber}`);
+    expect(screen.getAllByRole('link', { name: /^#\d+$/ })).toHaveLength(1);
+    const field = screen.getByLabelText('Buyer email contains') as HTMLInputElement;
+    expect(field.value).toBe('JANE@');
+
+    await user.clear(field);
+    await user.type(field, 'ja');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('Enter at least 3 characters of the email.')).toBeTruthy();
+    expect(push).not.toHaveBeenCalled();
+
+    await user.type(field, 'ne@');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    expect(push).toHaveBeenCalledWith('/orders?buyerEmail=jane%40');
+  });
+
   it('rejects a bad order number and an inverted date range', async () => {
     installCommerceStore({ viewerId: ADMIN });
     const { user } = renderWithClient(<OrdersSearch filters={{}} />);

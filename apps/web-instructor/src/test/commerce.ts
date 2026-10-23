@@ -15,8 +15,8 @@ import { server } from './msw';
  * with the signed-in instructor (`IDS.owner`) as the viewer and the builder's course
  * (`IDS.course`) in the store. Every response is parsed with its contracts schema first.
  *
- * Not modelled by the store: 429s and pagination (`nextCursor` is always null); specs override
- * single routes with `server.use(...)` for those.
+ * Specs that need an exact page split or a specific 429 override single routes with
+ * `server.use(...)`.
  */
 
 export const PROXY_BASE = '*/api/proxy';

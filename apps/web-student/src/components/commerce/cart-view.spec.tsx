@@ -80,6 +80,23 @@ describe('guest cart', () => {
     await waitFor(() => expect(total()).toBe('$19.99'));
   });
 
+  it('labels ids without a stored hint from the public prices, and keeps ?coupon= through login', async () => {
+    mockCommerce(server);
+    addToGuestCart(course2);
+    renderWithQuery(<CartView signedIn={false} allowedOrigins={ALLOWED} couponCode="LAUNCH50" />);
+
+    const [line] = await lines();
+    await waitFor(() =>
+      expect(
+        within(line!).getByRole('link', { name: 'PostgreSQL in Depth' }).getAttribute('href'),
+      ).toBe('/course/postgres-in-depth'),
+    );
+    expect(screen.getByText('LAUNCH50')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Log in to check out' }).getAttribute('href')).toBe(
+      `/login?next=${encodeURIComponent('/cart?coupon=LAUNCH50')}`,
+    );
+  });
+
   it('shows an empty cart', () => {
     renderCart(false);
     expect(screen.getByText('Your cart is empty')).toBeTruthy();
@@ -87,6 +104,30 @@ describe('guest cart', () => {
 });
 
 describe('server cart', () => {
+  it('prefills the coupon field from ?coupon= without applying it', async () => {
+    const user = userEvent.setup();
+    const store = mockCommerce(server, {
+      cart: [course],
+      coupons: [
+        makeCoupon({
+          courseId: course,
+          code: 'LAUNCH50',
+          percentOff: 50,
+          startsAt: '2026-10-01T00:00:00.000Z',
+          endsAt: '2026-10-30T00:00:00.000Z',
+        }),
+      ],
+    });
+    renderWithQuery(<CartView signedIn allowedOrigins={ALLOWED} couponCode="LAUNCH50" />);
+
+    expect(await lines()).toHaveLength(1);
+    expect((screen.getByLabelText('Coupon code') as HTMLInputElement).value).toBe('LAUNCH50');
+    expect(store.quote().coupon).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(total()).toBe('$9.99'));
+    expect(screen.getByText(/is applied/)).toBeTruthy();
+  });
+
   it('shows lines, the totals and removes items', async () => {
     const user = userEvent.setup();
     const store = mockCommerce(server, { cart: [course, course2] });

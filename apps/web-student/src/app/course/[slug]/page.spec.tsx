@@ -149,7 +149,16 @@ describe('/course/[slug] page', () => {
       http.get(`${API}/commerce/prices`, ({ request }) => {
         asked = new URL(request.url).searchParams.get('courseIds');
         return HttpResponse.json({
-          items: [{ courseId: COURSE_ID, amount: '24.99', currency: 'USD', isFree: false }],
+          items: [
+            {
+              courseId: COURSE_ID,
+              amount: '24.99',
+              currency: 'USD',
+              isFree: false,
+              slug: 'a-course',
+              title: 'A course',
+            },
+          ],
         });
       }),
     );

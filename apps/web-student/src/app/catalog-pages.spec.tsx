@@ -40,7 +40,16 @@ describe('catalog pages', () => {
       http.get(`${API}/commerce/prices`, ({ request }) => {
         prices = new URL(request.url).searchParams.get('courseIds');
         return HttpResponse.json({
-          items: [{ courseId: first, amount: '19.99', currency: 'USD', isFree: false }],
+          items: [
+            {
+              courseId: first,
+              amount: '19.99',
+              currency: 'USD',
+              isFree: false,
+              slug: 'a-course',
+              title: 'A course',
+            },
+          ],
         });
       }),
       http.get(`${API}/catalog/categories`, () => HttpResponse.json(categoryTree)),

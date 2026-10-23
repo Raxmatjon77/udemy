@@ -146,4 +146,26 @@ describe('<RefundsQueue>', () => {
     expect(refund.status).toBe('APPROVED');
     expect(refund.attempt).toBe(2);
   });
+
+  it('lists refunds of any other status, without actions', async () => {
+    setup(); // three auto-approved refunds, one held for review
+    renderWithClient(<RefundsQueue status="APPROVED" />);
+
+    const table = await screen.findByRole('table', { name: 'Refunds' });
+    expect(within(table).getAllByTestId('refund-row')).toHaveLength(3);
+    expect(within(table).queryByRole('button')).toBeNull();
+    expect(within(table).getAllByText('No action needed')).toHaveLength(3);
+    const tabs = within(screen.getByRole('navigation', { name: 'Refund statuses' }));
+    expect(tabs.getByRole('link', { name: 'Approved' }).getAttribute('aria-current')).toBe('page');
+    expect(tabs.getByRole('link', { name: 'Refunded' }).getAttribute('href')).toBe(
+      '/refunds?status=SUCCEEDED',
+    );
+    expect(tabs.getByRole('link', { name: 'Needs review' }).getAttribute('href')).toBe('/refunds');
+  });
+
+  it('says so when a status has no refunds', async () => {
+    setup();
+    renderWithClient(<RefundsQueue status="SUCCEEDED" />);
+    expect(await screen.findByText('No completed refunds.')).toBeTruthy();
+  });
 });

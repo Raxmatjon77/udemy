@@ -146,8 +146,22 @@ describe('createCommerceHandlers (MSW)', () => {
     expect(response.headers.get('cache-control')).toBe('public, max-age=60');
     expect(await response.json()).toEqual({
       items: [
-        { courseId: FIXTURE_IDS.course, amount: '19.99', currency: 'USD', isFree: false },
-        { courseId: FIXTURE_IDS.freeCourse, amount: '0.00', currency: 'USD', isFree: true },
+        {
+          courseId: FIXTURE_IDS.course,
+          amount: '19.99',
+          currency: 'USD',
+          isFree: false,
+          slug: 'complete-typescript',
+          title: 'Complete TypeScript',
+        },
+        {
+          courseId: FIXTURE_IDS.freeCourse,
+          amount: '0.00',
+          currency: 'USD',
+          isFree: true,
+          slug: 'git-basics',
+          title: 'Git Basics',
+        },
       ],
     });
     expect((await call('GET', '/commerce/prices?courseIds=nope')).status).toBe(400);
@@ -444,5 +458,42 @@ describe('createCommerceHandlers (MSW)', () => {
         })
       ).status,
     ).toBe(409);
+  });
+  it('paginates lists like the api: limit, an opaque nextCursor, 422 for a foreign cursor', async () => {
+    reset({ viewerId: FIXTURE_IDS.admin });
+    for (const courseId of [FIXTURE_IDS.course, FIXTURE_IDS.course2, FIXTURE_IDS.course]) {
+      mock.store.seedPaidOrder(FIXTURE_IDS.student, [courseId]);
+    }
+    const first = (await call('GET', '/admin/orders?limit=2')).json;
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = (await call('GET', `/admin/orders?limit=2&cursor=${first.nextCursor}`)).json;
+    expect(second).toMatchObject({ nextCursor: null });
+    expect(second.items).toHaveLength(1);
+    const ids = [...first.items, ...second.items].map((o: { id: string }) => o.id);
+    expect(new Set(ids).size).toBe(3);
+    expect((await call('GET', '/admin/orders?cursor=bogus')).status).toBe(422);
+    expect((await call('GET', '/admin/orders?limit=101')).status).toBe(400);
+  });
+
+  it('rate-limits like the api: 429 rate_limited with Retry-After', async () => {
+    let now = Date.parse('2026-10-20T10:00:00.000Z');
+    reset({
+      now: () => new Date(now),
+      rateLimits: { couponApply: { limit: 2, windowMs: 60_000 } },
+    });
+    for (let i = 0; i < 2; i++) {
+      expect((await call('PUT', '/me/cart/coupon', { code: 'NOPE1' })).status).toBe(422);
+    }
+    const response = await fetch(`${API}/me/cart/coupon`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: 'NOPE1' }),
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('60');
+    expect(await response.json()).toMatchObject({ code: 'rate_limited', status: 429 });
+    now += 60_000; // a new window
+    expect((await call('PUT', '/me/cart/coupon', { code: 'NOPE1' })).status).toBe(422);
   });
 });

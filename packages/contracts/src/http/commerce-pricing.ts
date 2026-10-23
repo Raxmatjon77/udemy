@@ -55,6 +55,8 @@ export const PRICE_CHANGES_PER_DAY = 10;
 /* ----------------------------------------------------------------------------------------
  * GET /commerce/prices?courseIds=a,b -> 200 { items } (public, student BFF, C + @Public)
  * `Cache-Control: public, max-age=60`. Ids that are not PUBLISHED or have no price are omitted.
+ * Each item also carries the course's live `slug` and `title` (additive, P4-T18), so the
+ * guest cart (course ids in `localStorage`, D4) can label and link its lines.
  * -------------------------------------------------------------------------------------- */
 
 export const PUBLIC_PRICES_MAX_IDS = 48;
@@ -70,6 +72,10 @@ export const PublicPriceSchema = z.object({
   amount: MoneyAmountSchema,
   currency: CurrencySchema,
   isFree: z.boolean(),
+  /** The course's current slug, for links (`/course/{slug}`). Additive (P4-T18). */
+  slug: z.string().min(1),
+  /** The live revision's title (what the landing page shows). Additive (P4-T18). */
+  title: z.string().min(1),
 });
 export type PublicPrice = z.infer<typeof PublicPriceSchema>;
 

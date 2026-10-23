@@ -31,6 +31,7 @@ import {
   CouponIdParamsSchema,
   CouponPageSchema,
   CouponSchema,
+  CouponsQuerySchema,
   CourseCouponParamsSchema,
   CreateCourseCouponRequestSchema,
   CreatePlatformCouponRequestSchema,
@@ -98,11 +99,38 @@ export function problemResponse(
   status: number,
   code: string,
   extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
 ): Response {
   return new Response(JSON.stringify(makeProblem(status, code, extra)), {
     status,
-    headers: { 'content-type': PROBLEM_JSON_CONTENT_TYPE },
+    headers: { ...headers, 'content-type': PROBLEM_JSON_CONTENT_TYPE },
   });
+}
+
+/** The mock's opaque keyset cursor: the offset of the next item (`o20`), like-shaped to the api's. */
+const CURSOR_PATTERN = /^o(\d{1,9})$/;
+
+/**
+ * One page of `items` like the api's keyset pages: `limit` items, and a `nextCursor` only when
+ * more items follow. A cursor the mock did not issue is 422 `validation_failed` (the api
+ * rejects a cursor it cannot decode the same way).
+ */
+function paginate<T>(
+  items: readonly T[],
+  query: { cursor?: string | undefined; limit: number },
+): { items: T[]; nextCursor: string | null } {
+  let start = 0;
+  if (query.cursor !== undefined) {
+    const match = CURSOR_PATTERN.exec(query.cursor);
+    if (!match) {
+      throw new MockApiError(422, ErrorCode.ValidationFailed, {
+        errors: [{ path: 'cursor', message: 'Invalid cursor' }],
+      });
+    }
+    start = Number(match[1]);
+  }
+  const end = start + query.limit;
+  return { items: items.slice(start, end), nextCursor: end < items.length ? `o${end}` : null };
 }
 
 class BadRequest extends Error {
@@ -170,7 +198,7 @@ function guarded(resolve: Resolver): Resolver {
       return await resolve(args);
     } catch (error) {
       if (error instanceof MockApiError) {
-        return problemResponse(error.status, error.code, error.extra);
+        return problemResponse(error.status, error.code, error.extra, error.headers);
       }
       if (error instanceof BadRequest) {
         return problemResponse(400, ErrorCode.ValidationFailed, { errors: error.errors });
@@ -196,7 +224,6 @@ function guarded(resolve: Resolver): Resolver {
 export function createCommerceHandlers(options: CommerceHandlersOptions): CommerceHandlers {
   const store = options.store ?? createCommerceMockStore();
   const url = (path: string) => `${options.baseUrl}${path}`;
-  const page = (items: unknown[]) => ({ items, nextCursor: null });
 
   const route = (
     method: 'get' | 'put' | 'post' | 'delete',
@@ -247,8 +274,8 @@ export function createCommerceHandlers(options: CommerceHandlersOptions): Commer
       return reply(CheckoutResponseSchema, store.checkout(key, expectedTotal), { status: 201 });
     }),
     route('get', '/me/orders', ({ request }) => {
-      check(MyOrdersQuerySchema, queryOf(request));
-      return reply(OrderSummaryPageSchema, page(store.myOrders()));
+      const query = check(MyOrdersQuerySchema, queryOf(request));
+      return reply(OrderSummaryPageSchema, paginate(store.myOrders(), query));
     }),
     route('get', '/me/orders/:orderId', ({ params }) => {
       const { orderId } = check(OrderIdParamsSchema, params);
@@ -277,8 +304,8 @@ export function createCommerceHandlers(options: CommerceHandlersOptions): Commer
       return reply(FreeEnrollmentResponseSchema, enrollment, { status });
     }),
     route('get', '/me/enrollments', ({ request }) => {
-      check(MyLearningQuerySchema, queryOf(request));
-      return reply(LearningCardPageSchema, page(store.myLearning()));
+      const query = check(MyLearningQuerySchema, queryOf(request));
+      return reply(LearningCardPageSchema, paginate(store.myLearning(), query));
     }),
 
     /* ------------------------------------------------------------ instructor */
@@ -291,9 +318,10 @@ export function createCommerceHandlers(options: CommerceHandlersOptions): Commer
       const { amount } = check(SetCoursePriceRequestSchema, await bodyOf(request));
       return reply(CoursePricingSchema, store.setCoursePrice(courseId, amount));
     }),
-    route('get', '/courses/:courseId/coupons', ({ params }) => {
+    route('get', '/courses/:courseId/coupons', ({ request, params }) => {
       const { courseId } = check(CourseIdParamsSchema, params);
-      return reply(CouponPageSchema, page(store.listCoupons(courseId)));
+      const query = check(CouponsQuerySchema, queryOf(request));
+      return reply(CouponPageSchema, paginate(store.listCoupons(courseId), query));
     }),
     route('post', '/courses/:courseId/coupons', async ({ request, params }) => {
       const { courseId } = check(CourseIdParamsSchema, params);
@@ -309,14 +337,14 @@ export function createCommerceHandlers(options: CommerceHandlersOptions): Commer
       return reply(SalesSummarySchema, store.salesSummary(from, to));
     }),
     route('get', '/instructor/sales', ({ request }) => {
-      const { courseId } = check(RecentSalesQuerySchema, queryOf(request));
-      return reply(RecentSalePageSchema, page(store.recentSales(courseId)));
+      const query = check(RecentSalesQuerySchema, queryOf(request));
+      return reply(RecentSalePageSchema, paginate(store.recentSales(query.courseId), query));
     }),
 
     /* ------------------------------------------------------------ admin */
     route('get', '/admin/orders', ({ request }) => {
       const query = check(AdminOrdersQuerySchema, queryOf(request));
-      return reply(AdminOrderPageSchema, page(store.adminOrders(query)));
+      return reply(AdminOrderPageSchema, paginate(store.adminOrders(query), query));
     }),
     route('get', '/admin/orders/:orderId', ({ params }) => {
       const { orderId } = check(OrderIdParamsSchema, params);
@@ -337,8 +365,8 @@ export function createCommerceHandlers(options: CommerceHandlersOptions): Commer
       return reply(AcceptPaymentResponseSchema, store.acceptPayment(orderId, reason));
     }),
     route('get', '/admin/refunds', ({ request }) => {
-      const { status } = check(AdminRefundsQuerySchema, queryOf(request));
-      return reply(AdminRefundQueuePageSchema, page(store.refundQueue(status)));
+      const query = check(AdminRefundsQuerySchema, queryOf(request));
+      return reply(AdminRefundQueuePageSchema, paginate(store.refundQueue(query.status), query));
     }),
     route('post', '/admin/refunds/:refundId/approve', async ({ request, params }) => {
       const { refundId } = check(RefundIdParamsSchema, params);
@@ -355,7 +383,10 @@ export function createCommerceHandlers(options: CommerceHandlersOptions): Commer
       const { reason } = check(RetryRefundRequestSchema, await bodyOf(request));
       return reply(RefundDecisionResponseSchema, store.decideRefund(refundId, 'retry', reason));
     }),
-    route('get', '/admin/coupons', () => reply(CouponPageSchema, page(store.listCoupons(null)))),
+    route('get', '/admin/coupons', ({ request }) => {
+      const query = check(CouponsQuerySchema, queryOf(request));
+      return reply(CouponPageSchema, paginate(store.listCoupons(null), query));
+    }),
     route('post', '/admin/coupons', async ({ request }) => {
       const body = check(CreatePlatformCouponRequestSchema, await bodyOf(request));
       return reply(CouponSchema, store.createCoupon(null, body), { status: 201 });

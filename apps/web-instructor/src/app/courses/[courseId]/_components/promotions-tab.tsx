@@ -310,6 +310,7 @@ function CreateCouponForm({
           [ErrorCode.CouponCodeTaken]: 'This course already has a coupon with this code.',
           [ErrorCode.CouponLimitExceeded]: `A course can have at most ${COUPON_LIMITS.maxActivePerCourse} active coupons. Deactivate one first.`,
           [ErrorCode.CourseIsFree]: 'Free courses cannot have coupons.',
+          [ErrorCode.CourseNotForSale]: 'Set a price on the Pricing tab before creating coupons.',
         },
       });
     },

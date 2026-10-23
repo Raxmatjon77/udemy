@@ -63,13 +63,21 @@ describe('<OrderDetailView>', () => {
 
     const timeline = within(screen.getByRole('list', { name: 'Order timeline' }));
     const items = timeline.getAllByRole('listitem').map((li) => li.textContent ?? '');
-    expect(items).toHaveLength(3);
-    expect(items[0]).toContain('Pending payment');
-    expect(items[0]).toContain('Checkout');
-    expect(items[1]).toContain('Pending payment → Paid');
-    expect(items[1]).toContain(`Event evt_test_${order.orderNumber}`);
-    expect(items[2]).toContain('Webhook checkout.session.completed');
-    expect(items[2]).toContain('Applied');
+    // order transitions and payment milestones, merged by the API (ORDER before PAYMENT on ties)
+    expect(items).toHaveLength(4);
+    // (the mock's timestamps can tie, so the order of the entries is not asserted)
+    expect(items.find((item) => item.includes('Checkout'))).toMatch(/^Pending payment/);
+    expect(items.some((item) => item.includes('Payment: Creating'))).toBe(true);
+    expect(items.some((item) => item.includes('Pending payment → Paid'))).toBe(true);
+    expect(items.find((item) => item.includes('→ Paid'))).toContain(
+      `Event evt_test_${order.orderNumber}`,
+    );
+    expect(items.some((item) => item.includes('Payment: Succeeded'))).toBe(true);
+
+    const events = within(screen.getByRole('list', { name: 'Provider events' }));
+    const [event] = events.getAllByRole('listitem').map((li) => li.textContent ?? '');
+    expect(event).toContain('Webhook checkout.session.completed');
+    expect(event).toContain('Applied');
   });
 
   it('refunds the selected lines with a reason and revokes access', async () => {
@@ -105,7 +113,15 @@ describe('<OrderDetailView>', () => {
       (within(screen.getByTestId('line-2')).getByRole('checkbox') as HTMLInputElement).disabled,
     ).toBe(false);
     // the refunds table shows the admin refund with its reason
-    expect(screen.getByText(REASON)).toBeTruthy();
+    const refunds = within(screen.getByRole('table', { name: 'Refunds of this order' }));
+    expect(refunds.getByText(REASON)).toBeTruthy();
+    // the timeline has the refund transition with the admin's name and reason
+    const timeline = within(screen.getByRole('list', { name: 'Order timeline' }));
+    const refundEntry = timeline
+      .getAllByRole('listitem')
+      .find((li) => li.textContent?.includes('Refund (Complete TypeScript): Approved'));
+    expect(refundEntry?.textContent).toContain('By Root Admin');
+    expect(refundEntry?.textContent).toContain(`Reason: ${REASON}`);
     expect(screen.getByText('Refunded by support')).toBeTruthy();
 
     const enrollment = store

@@ -6,7 +6,7 @@ import {
   type AdminUsersQuery,
   type InstructorApplicationStatus,
   type MeResponse,
-  type RefundQueueStatus,
+  type RefundStatus,
 } from '@udemy/contracts';
 
 import { api } from './api';
@@ -33,7 +33,7 @@ export const queryKeys = {
   orderSearch: (filters: OrderFilters) => ['admin', 'orders', 'search', filters] as const,
   order: (id: string) => ['admin', 'orders', 'detail', id] as const,
   refunds: ['admin', 'refunds'] as const,
-  refundQueue: (status: RefundQueueStatus) => ['admin', 'refunds', 'queue', status] as const,
+  refundQueue: (status: RefundStatus) => ['admin', 'refunds', 'queue', status] as const,
   coupons: ['admin', 'coupons'] as const,
   userEnrollments: (userId: string) => ['admin', 'enrollments', 'user', userId] as const,
   pickerUsers: ['admin', 'picker', 'users'] as const,
@@ -43,7 +43,7 @@ export const queryKeys = {
 /** The `/admin/orders` filters the UI drives (paging is the query's own). */
 export type OrderFilters = Pick<
   AdminOrdersQuery,
-  'q' | 'status' | 'userId' | 'courseId' | 'from' | 'to'
+  'q' | 'buyerEmail' | 'status' | 'userId' | 'courseId' | 'from' | 'to'
 >;
 
 /** `GET /me`. `quiet`: a 401 means "signed out" instead of redirecting to login. */

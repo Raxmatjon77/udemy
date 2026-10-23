@@ -281,8 +281,22 @@ describe('commerce A (integration: real AppModule, Postgres, Redis)', () => {
         paid.courseId,
       ]);
       expect(items).toEqual([
-        { courseId: free.courseId, amount: '0.00', currency: 'USD', isFree: true },
-        { courseId: paid.courseId, amount: '24.99', currency: 'USD', isFree: false },
+        {
+          courseId: free.courseId,
+          amount: '0.00',
+          currency: 'USD',
+          isFree: true,
+          slug: free.slug,
+          title: free.title,
+        },
+        {
+          courseId: paid.courseId,
+          amount: '24.99',
+          currency: 'USD',
+          isFree: false,
+          slug: paid.slug,
+          title: paid.title,
+        },
       ]);
     });
   });
@@ -896,16 +910,31 @@ describe('commerce A (integration: real AppModule, Postgres, Redis)', () => {
     const enrolled = await course({ status: 'ARCHIVED' });
     await add(student, carted.courseId);
     await insertTestEnrollment(pg.db, student, enrolled.courseId);
+    const unpriced = await course({ price: null });
     const unknown = randomUUID();
     const { items } = await get(GetPurchaseStatesQuery).execute({
       userId: student,
-      courseIds: [own.courseId, carted.courseId, enrolled.courseId, unknown],
+      courseIds: [own.courseId, carted.courseId, enrolled.courseId, unpriced.courseId, unknown],
     });
+    // `forSale`: PUBLISHED and priced (the archived course is not, whoever is enrolled).
     expect(items).toEqual([
-      { courseId: own.courseId, enrolled: false, inCart: false, isOwner: true },
-      { courseId: carted.courseId, enrolled: false, inCart: true, isOwner: false },
-      { courseId: enrolled.courseId, enrolled: true, inCart: false, isOwner: false },
-      { courseId: unknown, enrolled: false, inCart: false, isOwner: false },
+      { courseId: own.courseId, enrolled: false, inCart: false, isOwner: true, forSale: true },
+      { courseId: carted.courseId, enrolled: false, inCart: true, isOwner: false, forSale: true },
+      {
+        courseId: enrolled.courseId,
+        enrolled: true,
+        inCart: false,
+        isOwner: false,
+        forSale: false,
+      },
+      {
+        courseId: unpriced.courseId,
+        enrolled: false,
+        inCart: false,
+        isOwner: false,
+        forSale: false,
+      },
+      { courseId: unknown, enrolled: false, inCart: false, isOwner: false, forSale: false },
     ]);
   });
 

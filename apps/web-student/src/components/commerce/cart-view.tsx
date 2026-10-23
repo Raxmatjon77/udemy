@@ -70,11 +70,23 @@ import { hasCode, isApiError, problemMessage } from '@/lib/problem';
 export function CartView({
   signedIn,
   allowedOrigins,
+  couponCode = null,
 }: {
   signedIn: boolean;
   allowedOrigins: readonly string[];
+  /** `?coupon=` of the page: prefills the coupon field (never applied without a click). */
+  couponCode?: string | null;
 }) {
-  return signedIn ? <ServerCart allowedOrigins={allowedOrigins} /> : <GuestCart />;
+  return signedIn ? (
+    <ServerCart allowedOrigins={allowedOrigins} couponCode={couponCode} />
+  ) : (
+    <GuestCart couponCode={couponCode} />
+  );
+}
+
+/** `/cart`, keeping a `?coupon=` code (for the login redirect). */
+function cartPath(couponCode: string | null): string {
+  return couponCode === null ? CART_PATH : `${CART_PATH}?coupon=${encodeURIComponent(couponCode)}`;
 }
 
 function CartLayout({ summary, children }: { summary: ReactNode; children: ReactNode }) {
@@ -136,7 +148,7 @@ function Totals({
 
 /* ---------------------------------------------------------------------- guest cart */
 
-function GuestCart() {
+function GuestCart({ couponCode }: { couponCode: string | null }) {
   const guest = useGuestCart();
   const prices = useQuery({
     queryKey: commerceKeys.prices(guest.ids),
@@ -164,10 +176,17 @@ function GuestCart() {
             <Skeleton className="h-20 w-full" />
           )}
           <p className="text-xs text-muted-foreground">
-            Prices are confirmed at checkout. Coupon codes can be applied after you log in.
+            {couponCode === null ? (
+              'Prices are confirmed at checkout. Coupon codes can be applied after you log in.'
+            ) : (
+              <>
+                Prices are confirmed at checkout. Log in to apply the code{' '}
+                <span className="font-mono font-semibold">{couponCode}</span>.
+              </>
+            )}
           </p>
           <Button asChild size="lg" className="w-full">
-            <Link href={loginHref(CART_PATH)}>Log in to check out</Link>
+            <Link href={loginHref(cartPath(couponCode))}>Log in to check out</Link>
           </Button>
         </>
       }
@@ -182,8 +201,10 @@ function GuestCart() {
       ) : null}
       <ul aria-label="Cart items" className="flex flex-col divide-y rounded-lg border">
         {guest.ids.map((courseId) => {
-          const label = guest.label(courseId);
           const price = priceById.get(courseId);
+          // The live title and slug come with the public price; the label stored when the
+          // course was added covers ids that are no longer for sale (no price item).
+          const label = price ? { title: price.title, slug: price.slug } : guest.label(courseId);
           return (
             <li
               key={courseId}
@@ -233,7 +254,13 @@ function GuestCart() {
 
 type Notice = { variant: 'destructive' | 'warning' | 'info'; title?: string; body: ReactNode };
 
-function ServerCart({ allowedOrigins }: { allowedOrigins: readonly string[] }) {
+function ServerCart({
+  allowedOrigins,
+  couponCode,
+}: {
+  allowedOrigins: readonly string[];
+  couponCode: string | null;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const cart = useServerCart(true);
@@ -437,7 +464,7 @@ function ServerCart({ allowedOrigins }: { allowedOrigins: readonly string[] }) {
               discountAmount={quote.totals.discountAmount}
               total={quote.totals.totalAmount}
             />
-            <CouponForm quote={quote} onQuote={setQuote} />
+            <CouponForm quote={quote} onQuote={setQuote} initialCode={couponCode} />
             <Button
               size="lg"
               className="w-full"
@@ -594,10 +621,19 @@ function NoticeAlert({ notice }: { notice: Notice }) {
 
 /* ---------------------------------------------------------------------- coupon */
 
-function CouponForm({ quote, onQuote }: { quote: CartQuote; onQuote: (quote: CartQuote) => void }) {
+function CouponForm({
+  quote,
+  onQuote,
+  initialCode,
+}: {
+  quote: CartQuote;
+  onQuote: (quote: CartQuote) => void;
+  /** Prefill (`?coupon=`); applying it is still the buyer's click. */
+  initialCode: string | null;
+}) {
   const inputId = useId();
   const errorId = `${inputId}-error`;
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(initialCode ?? '');
   const [error, setError] = useState<string | null>(null);
 
   const apply = useMutation({

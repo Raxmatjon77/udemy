@@ -10,6 +10,8 @@ import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
 import { useRef, useState } from 'react';
 
+import { usePurchaseState } from '@/lib/commerce/hooks';
+
 import {
   describeDuration,
   formatClock,
@@ -24,6 +26,10 @@ import { PreviewDialog } from './preview-dialog';
  * The curriculum accordion of the landing page: sections (native `<details>`, keyboard and
  * screen-reader friendly without any script) → lectures with type, duration and a "Preview"
  * button for free-preview lectures, which opens the preview dialog.
+ *
+ * Entitled viewers (an ACTIVE enrollment, or the owner: `GET /me/purchase-states`) open every
+ * video and article lecture the same way (Phase 4, until the Phase 5 player); the API decides
+ * (a revoked enrollment answers 403 `lecture_locked`), this only offers the button.
  */
 
 export function isPreviewable(lecture: LandingLecture): boolean {
@@ -31,6 +37,12 @@ export function isPreviewable(lecture: LandingLecture): boolean {
     lecture.isPreview &&
     (PREVIEWABLE_LECTURE_TYPES as readonly LectureType[]).includes(lecture.type)
   );
+}
+
+/** A lecture this viewer can open: a free preview, or any playable lecture when entitled. */
+export function isOpenable(lecture: LandingLecture, entitled: boolean): boolean {
+  if (isPreviewable(lecture)) return true;
+  return entitled && (PREVIEWABLE_LECTURE_TYPES as readonly LectureType[]).includes(lecture.type);
 }
 
 export function sectionTotals(section: LandingSection): { lectures: number; seconds: number } {
@@ -45,13 +57,18 @@ export function CurriculumOutline({
   courseTitle,
   hasThumbnail,
   sections,
+  signedIn = false,
 }: {
   courseId: string;
   courseTitle: string;
   /** `CourseLanding.hasThumbnail`: no poster request when false. */
   hasThumbnail?: boolean | undefined;
   sections: readonly LandingSection[];
+  /** Signed-in viewers may be entitled to every lecture (purchase state). */
+  signedIn?: boolean;
 }) {
+  const purchase = usePurchaseState(courseId, signedIn);
+  const entitled = purchase.data ? purchase.data.enrolled || purchase.data.isOwner : false;
   const [allOpen, setAllOpen] = useState<boolean | null>(null);
   // The lecture stays set while the dialog closes, so the content unmounts cleanly; `open` drives it.
   const [preview, setPreview] = useState<{ lecture: LandingLecture; open: boolean } | null>(null);
@@ -109,6 +126,7 @@ export function CurriculumOutline({
                     <LectureRow
                       key={lecture.id}
                       lecture={lecture}
+                      entitled={entitled}
                       onPreview={(trigger) => {
                         triggerRef.current = trigger;
                         setPreview({ lecture, open: true });
@@ -125,6 +143,7 @@ export function CurriculumOutline({
         courseId={courseId}
         courseTitle={courseTitle}
         hasThumbnail={hasThumbnail}
+        entitled={entitled}
         lecture={preview?.lecture ?? null}
         open={preview?.open ?? false}
         onOpenChange={(open) => setPreview((current) => (current ? { ...current, open } : null))}
@@ -136,12 +155,15 @@ export function CurriculumOutline({
 
 function LectureRow({
   lecture,
+  entitled,
   onPreview,
 }: {
   lecture: LandingLecture;
+  entitled: boolean;
   onPreview: (trigger: HTMLElement) => void;
 }) {
   const previewable = isPreviewable(lecture);
+  const openable = isOpenable(lecture, entitled);
   return (
     <li
       data-testid="lecture-row"
@@ -149,7 +171,7 @@ function LectureRow({
     >
       <LectureTypeIcon type={lecture.type} />
       <span className="sr-only">{LECTURE_TYPE_LABELS[lecture.type]}:</span>
-      {previewable ? (
+      {openable ? (
         <button
           type="button"
           onClick={(event) => onPreview(event.currentTarget)}
@@ -157,7 +179,9 @@ function LectureRow({
           aria-haspopup="dialog"
         >
           {lecture.title}
-          <span className="sr-only"> (free preview, opens a player)</span>
+          <span className="sr-only">
+            {previewable ? ' (free preview, opens a player)' : ' (opens the lecture)'}
+          </span>
         </button>
       ) : (
         <span className="min-w-0 flex-1">{lecture.title}</span>

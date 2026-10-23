@@ -27,7 +27,9 @@ export type PurchaseBoxState =
 
 /**
  * The state, in precedence order: the owner and enrolled students first (whatever the price),
- * then "not for sale" (no price, D16), "free" (D14), and for a paid course the cart.
+ * then "not for sale" (no price, D16; for signed-in viewers also the live `forSale` of their
+ * purchase state, which wins over the server-rendered price), "free" (D14), and for a paid
+ * course the cart.
  */
 export function purchaseBoxState(input: {
   price: PublicPrice | null;
@@ -38,7 +40,7 @@ export function purchaseBoxState(input: {
   const { price, purchase } = input;
   if (purchase?.isOwner) return 'owner';
   if (purchase?.enrolled) return 'enrolled';
-  if (price === null) return 'not_for_sale';
+  if (price === null || purchase?.forSale === false) return 'not_for_sale';
   if (price.isFree) return 'free';
   if (purchase ? purchase.inCart : input.inGuestCart) return 'in_cart';
   return 'add_to_cart';

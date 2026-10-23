@@ -11,8 +11,9 @@ import { z } from 'zod';
  * server cart with `POST /me/cart/merge` (best effort: ineligible ids are skipped and reported).
  *
  * Display hints (title, slug) are kept under a separate key, written when a course is added
- * from its landing page, because no public endpoint resolves course ids to titles (see the
- * P4-T9 report). They are labels only and never sent anywhere.
+ * from its landing page. The cart shows the live title and slug from `GET /commerce/prices`
+ * (P4-T18); the stored hint only labels ids that are no longer for sale (the endpoint omits
+ * them). They are labels only and never sent anywhere.
  *
  * Storage can be unavailable (private mode, blocked site data): every access is guarded and the
  * cart then simply behaves as empty.

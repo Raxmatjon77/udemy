@@ -26,7 +26,7 @@ import {
 import { QueryError } from '@/components/query-error';
 import { useRecentSales, useSalesSummary } from '@/lib/commerce-queries';
 import { formatDate, formatDateTime } from '@/lib/format';
-import { money } from '@/lib/money';
+import { money, signedMoney } from '@/lib/money';
 import { formResolver } from '@/lib/zod-messages';
 
 import { lastDays, rangeDays, SalesRangeFormSchema, toSalesQuery } from './sales-range';
@@ -115,8 +115,12 @@ function Totals({ totals, currency }: { totals: SalesTotals; currency: 'USD' }) 
         value={money(totals.refunded, currency)}
         note={`${totals.refundCount} refunded ${totals.refundCount === 1 ? 'sale' : 'sales'}`}
       />
-      <Stat label="Net" value={money(totals.net, currency)} note="Gross − discounts − refunds" />
-      <Stat label="Your share" value={money(totals.instructorShare, currency)} />
+      <Stat
+        label="Net"
+        value={signedMoney(totals.net, currency)}
+        note="Gross − discounts − refunds"
+      />
+      <Stat label="Your share" value={signedMoney(totals.instructorShare, currency)} />
     </dl>
   );
 }
@@ -169,10 +173,10 @@ function Summary({ range }: { range: SalesSummaryQuery }) {
                         {money(row.refunded, summary.data.currency)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {money(row.net, summary.data.currency)}
+                        {signedMoney(row.net, summary.data.currency)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {money(row.instructorShare, summary.data.currency)}
+                        {signedMoney(row.instructorShare, summary.data.currency)}
                       </TableCell>
                     </TableRow>
                   ))}

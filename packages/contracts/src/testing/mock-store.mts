@@ -63,8 +63,10 @@ import {
  * student, instructor (for courses whose `ownerId` is the viewer) and admin. Every response
  * the handlers send is parsed with its contracts schema first.
  *
- * Not modelled: rate limits (429), pagination (every page has `nextCursor: null`), the
- * webhook (call `completePayment` / `expirePayment` / `settleRefund` instead).
+ * Rate limits are modelled like the api's fixed windows (`MOCK_RATE_LIMITS`, override them with
+ * `seed.rateLimits`): a 429 `rate_limited` problem with a `Retry-After` header. The handlers
+ * paginate lists like the api (`?limit=`, an opaque `nextCursor`). Not modelled: the webhook
+ * (call `completePayment` / `expirePayment` / `settleRefund` instead).
  */
 
 export interface MockUser {
@@ -142,6 +144,8 @@ export interface CommerceMockSeed {
   /** Clock; default `() => new Date()`. */
   now?: () => Date;
   refundWindowDays?: number;
+  /** Override some of `MOCK_RATE_LIMITS` (e.g. `{ couponApply: { limit: 1, windowMs: 60_000 } }`). */
+  rateLimits?: Partial<Record<MockRateLimitName, MockRateLimitRule>>;
 }
 
 export class MockApiError extends Error {
@@ -149,12 +153,36 @@ export class MockApiError extends Error {
     readonly status: number,
     readonly code: string,
     readonly extra: Record<string, unknown> = {},
+    /** Response headers, e.g. `retry-after` on a 429. */
+    readonly headers: Record<string, string> = {},
   ) {
     super(code);
   }
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/** A fixed window starting at the first hit, like the api's Redis limiter. */
+export interface MockRateLimitRule {
+  limit: number;
+  windowMs: number;
+}
+
+/**
+ * The api's rules (commerce `COMMERCE_RATE_LIMITS`, enrollment `FREE_ENROLLMENT_RATE_LIMIT`);
+ * the coupon apply per-IP bucket is not modelled (one viewer, one IP).
+ */
+export const MOCK_RATE_LIMITS = Object.freeze({
+  cartWrite: { limit: 120, windowMs: HOUR_MS },
+  couponApply: { limit: 20, windowMs: HOUR_MS },
+  priceChange: { limit: 10, windowMs: DAY_MS },
+  couponCreate: { limit: 50, windowMs: DAY_MS },
+  checkout: { limit: 10, windowMs: 10 * 60 * 1000 },
+  refundRequest: { limit: 5, windowMs: DAY_MS },
+  freeEnrollment: { limit: 30, windowMs: HOUR_MS },
+} satisfies Record<string, MockRateLimitRule>);
+export type MockRateLimitName = keyof typeof MOCK_RATE_LIMITS;
 
 export function defaultMockUsers(): MockUser[] {
   return [
@@ -213,6 +241,8 @@ export class CommerceMockStore {
   /** `couponId:userId` → the order holding the RESERVED or CONSUMED redemption. */
   private readonly redeemed = new Map<string, string>();
   private readonly now: () => Date;
+  private readonly rateLimits: Record<MockRateLimitName, MockRateLimitRule>;
+  private readonly rateWindows = new Map<string, { startedAt: number; count: number }>();
   private seq = 0x100;
   private orderNumber = 1000;
 
@@ -222,6 +252,7 @@ export class CommerceMockStore {
     this.checkoutOrigin = seed.checkoutOrigin ?? 'http://127.0.0.1:12111';
     this.refundWindowDays = seed.refundWindowDays ?? 30;
     this.now = seed.now ?? (() => new Date());
+    this.rateLimits = { ...MOCK_RATE_LIMITS, ...seed.rateLimits };
     for (const user of seed.users ?? defaultMockUsers()) this.users.set(user.id, user);
     for (const course of seed.courses ?? defaultMockCourses()) this.courses.set(course.id, course);
     this.coupons.push(...(seed.coupons ?? []));
@@ -233,6 +264,26 @@ export class CommerceMockStore {
 
   private iso(offsetMs = 0): string {
     return new Date(this.now().getTime() + offsetMs).toISOString();
+  }
+
+  /**
+   * Counts one request against `name` for `key` (the user or course); throws 429 `rate_limited`
+   * with `Retry-After` (seconds until the window ends) once the limit is exceeded.
+   */
+  hitRateLimit(name: MockRateLimitName, key: string = this.viewerId): void {
+    const rule = this.rateLimits[name];
+    const now = this.now().getTime();
+    const bucket = `${name}:${key}`;
+    let window = this.rateWindows.get(bucket);
+    if (!window || now - window.startedAt >= rule.windowMs) {
+      window = { startedAt: now, count: 0 };
+      this.rateWindows.set(bucket, window);
+    }
+    window.count += 1;
+    if (window.count > rule.limit) {
+      const retryAfter = Math.max(1, Math.ceil((window.startedAt + rule.windowMs - now) / 1000));
+      throw new MockApiError(429, ErrorCode.RateLimited, {}, { 'retry-after': String(retryAfter) });
+    }
   }
 
   private nextId(): string {
@@ -414,11 +465,18 @@ export class CommerceMockStore {
   /* ---------------------------------------------------------------- pricing */
 
   publicPrices(courseIds: readonly string[]): PublicPrice[] {
-    return courseIds.flatMap((courseId) => {
+    return [...new Set(courseIds)].flatMap((courseId) => {
       const course = this.courses.get(courseId);
       if (!course || course.status !== 'PUBLISHED' || course.price === null) return [];
       return [
-        { courseId, amount: course.price, currency: 'USD', isFree: isFreeAmount(course.price) },
+        {
+          courseId,
+          amount: course.price,
+          currency: 'USD',
+          isFree: isFreeAmount(course.price),
+          slug: course.slug,
+          title: course.title,
+        },
       ];
     });
   }
@@ -437,6 +495,8 @@ export class CommerceMockStore {
     const course = this.ownCourse(courseId);
     if (!isPriceTier(amount, 'USD')) throw new MockApiError(422, ErrorCode.PriceNotAllowed);
     if (course.price !== amount) {
+      // Like the api: only an actual change counts (10 per course per 24 h).
+      this.hitRateLimit('priceChange', courseId);
       const history = this.priceHistory.get(courseId) ?? [];
       history.push({
         id: this.nextId(),
@@ -524,6 +584,7 @@ export class CommerceMockStore {
   }
 
   addToCart(courseId: string): CartQuote {
+    this.hitRateLimit('cartWrite');
     this.addItem(courseId);
     return this.quote();
   }
@@ -534,6 +595,7 @@ export class CommerceMockStore {
   }
 
   mergeGuestCart(courseIds: readonly string[]) {
+    this.hitRateLimit('cartWrite');
     const added: string[] = [];
     const skipped: { courseId: string; reason: MergeSkipReason }[] = [];
     for (const courseId of courseIds) {
@@ -548,6 +610,8 @@ export class CommerceMockStore {
   }
 
   applyCoupon(code: string): CartQuote {
+    // Every attempt counts, valid or not (20 per hour).
+    this.hitRateLimit('couponApply');
     const courseIds = this.quote().lines.map((l) => l.courseId);
     const problem = this.couponProblem(code, courseIds);
     if (problem !== null) throw new MockApiError(422, problem);
@@ -561,11 +625,13 @@ export class CommerceMockStore {
   }
 
   purchaseStates(courseIds: readonly string[]): PurchaseState[] {
-    return courseIds.map((courseId) => ({
+    const forSale = new Set(this.publicPrices(courseIds).map((price) => price.courseId));
+    return [...new Set(courseIds)].map((courseId) => ({
       courseId,
       enrolled: this.activeEnrollment(this.viewerId, courseId) !== undefined,
       inCart: this.cartItems.some((i) => i.courseId === courseId),
       isOwner: this.courses.get(courseId)?.ownerId === this.viewerId,
+      forSale: forSale.has(courseId),
     }));
   }
 
@@ -573,6 +639,7 @@ export class CommerceMockStore {
 
   checkout(idempotencyKey: string | null, expectedTotal: string) {
     if (idempotencyKey === null) throw new MockApiError(400, ErrorCode.IdempotencyKeyRequired);
+    this.hitRateLimit('checkout');
     if (!this.emailVerified) throw new MockApiError(403, ErrorCode.EmailNotVerified);
     const quote = this.quote();
     const existing = this.orders.find(
@@ -965,6 +1032,7 @@ export class CommerceMockStore {
     orderId: string,
     input: { orderLineId: string; reasonCode: RefundReasonCode; comment?: string },
   ): Refund {
+    this.hitRateLimit('refundRequest');
     const order = this.order(orderId, true);
     const line = order.lines.find((l) => l.id === input.orderLineId);
     if (!line) throw new MockApiError(404, ErrorCode.OrderNotFound);
@@ -1339,6 +1407,8 @@ export class CommerceMockStore {
       maxRedemptions?: number;
     },
   ): Coupon {
+    if (courseId !== null) this.ownCourse(courseId);
+    this.hitRateLimit('couponCreate');
     if (courseId !== null) {
       const course = this.ownCourse(courseId);
       if (course.price !== null && isFreeAmount(course.price)) {
@@ -1476,6 +1546,7 @@ export class CommerceMockStore {
 
   /** `{ status: 201 | 200, enrollment }` like `POST /me/free-enrollments`. */
   enrollFree(courseId: string): { status: 200 | 201; enrollment: Enrollment } {
+    this.hitRateLimit('freeEnrollment');
     const course = this.courses.get(courseId);
     if (!course) throw new MockApiError(404, ErrorCode.CourseNotFound);
     if (course.status !== 'PUBLISHED' || course.price === null) {

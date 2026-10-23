@@ -11,6 +11,7 @@ import {
   ARTICLE_PREVIEW_ID,
   COURSE_ID,
   courseLanding,
+  LOCKED_VIDEO_ID,
   previewArticle,
   VIDEO_PREVIEW_ID,
 } from '@/test/fixtures/catalog';
@@ -272,6 +273,40 @@ describe('preview modal', () => {
     renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
     expect(screen.queryByRole('button', { name: /^Cheat sheet/ })).toBeNull();
     expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
+  });
+
+  it('opens non-preview lectures for an enrolled student, and only then', async () => {
+    const user = userEvent.setup();
+    let enrolled = true;
+    server.use(
+      http.get(`${PROXY}/me/purchase-states`, () =>
+        HttpResponse.json({
+          items: [{ courseId: COURSE_ID, enrolled, inCart: false, isOwner: false, forSale: true }],
+        }),
+      ),
+    );
+    const { unmount } = renderWithQuery(
+      <CourseLandingView landing={courseLanding()} price={null} signedIn />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Expand all sections' }));
+    await user.click(await screen.findByRole('button', { name: /^Generics/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/^Lecture ·/)).toBeTruthy();
+    expect(within(dialog).getByTestId('hls-player').dataset.src).toBe(
+      `/api/proxy/catalog/courses/${COURSE_ID}/lectures/${LOCKED_VIDEO_ID}/hls/master.m3u8`,
+    );
+    // RESOURCE lectures still have no player here.
+    expect(screen.queryByRole('button', { name: /^Cheat sheet/ })).toBeNull();
+    unmount();
+
+    enrolled = false;
+    renderWithQuery(<CourseLandingView landing={courseLanding()} price={null} signedIn />);
+    await user.click(screen.getByRole('button', { name: 'Expand all sections' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('purchase-box').dataset.state).not.toBe('loading'),
+    );
+    expect(screen.queryByRole('button', { name: /^Generics/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Welcome/ })).toBeTruthy();
   });
 
   it('explains a locked article instead of failing', async () => {

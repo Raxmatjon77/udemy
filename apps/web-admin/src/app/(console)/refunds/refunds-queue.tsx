@@ -7,13 +7,13 @@ import { z } from 'zod';
 import {
   ApproveRefundRequestSchema,
   AdminRefundQueuePageSchema,
+  ADMIN_REFUND_FILTER_STATUSES,
   ErrorCode,
-  REFUND_QUEUE_STATUSES,
   REFUND_REASON_LABELS,
   RefundDecisionResponseSchema,
   RejectRefundRequestSchema,
   type AdminRefundQueueItem,
-  type RefundQueueStatus,
+  type RefundStatus,
 } from '@udemy/contracts';
 import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
@@ -33,16 +33,44 @@ import { QueryError } from '@/components/query-error';
 import { ReasonDialog } from '@/components/reason-dialog';
 import { TableSkeleton } from '@/components/table-skeleton';
 import { api, queryString } from '@/lib/api';
-import { money, REFUND_INITIATOR_LABEL, REFUND_REVIEW_THRESHOLD } from '@/lib/commerce';
+import {
+  money,
+  REFUND_INITIATOR_LABEL,
+  REFUND_REVIEW_THRESHOLD,
+  REFUND_STATUS_LABEL,
+} from '@/lib/commerce';
 import { formatDateTime } from '@/lib/format';
 import { hasCode, type MessageOverrides } from '@/lib/problem';
 import { queryKeys } from '@/lib/queries';
 
 const PAGE_SIZE = 20;
 
-const QUEUE_LABEL: Record<RefundQueueStatus, string> = {
-  REQUESTED: 'Needs review',
-  FAILED: 'Failed',
+/** What the list shows when a status has no refunds. */
+const EMPTY_LABEL: Record<RefundStatus, string> = {
+  REQUESTED: 'No refunds waiting for review.',
+  APPROVED: 'No approved refunds waiting to be sent.',
+  SUBMITTED: 'No refunds waiting for the payment provider.',
+  SUCCEEDED: 'No completed refunds.',
+  FAILED: 'No failed refunds.',
+  REJECTED: 'No rejected refunds.',
+};
+
+/** The date column: when the refund reached the listed status (as far as the row says). */
+function statusDate(item: AdminRefundQueueItem): string {
+  if (item.status === 'SUCCEEDED' && item.succeededAt) return item.succeededAt;
+  if ((item.status === 'APPROVED' || item.status === 'SUBMITTED') && item.approvedAt) {
+    return item.approvedAt;
+  }
+  return item.createdAt;
+}
+
+const DATE_HEADING: Record<RefundStatus, string> = {
+  REQUESTED: 'Requested',
+  APPROVED: 'Approved',
+  SUBMITTED: 'Approved',
+  SUCCEEDED: 'Refunded',
+  FAILED: 'Failure',
+  REJECTED: 'Requested',
 };
 
 /** The optional note on approve and retry: an empty textarea sends no reason. */
@@ -57,15 +85,17 @@ const DECISION_MESSAGES: MessageOverrides = {
   [ErrorCode.InvalidStateTransition]:
     'Another admin already handled this refund. The queue was refreshed.',
   [ErrorCode.RefundNotFound]: 'This refund no longer exists. The queue was refreshed.',
+  [ErrorCode.RefundAlreadyRequested]:
+    'The line already has another refund in progress. The queue was refreshed.',
 };
 
 type Decision = 'approve' | 'reject' | 'retry';
 
-function QueueTabs({ status }: { status: RefundQueueStatus }) {
+function QueueTabs({ status }: { status: RefundStatus }) {
   return (
-    <nav aria-label="Refund queues">
-      <ul className="flex gap-1 border-b">
-        {REFUND_QUEUE_STATUSES.map((item) => (
+    <nav aria-label="Refund statuses">
+      <ul className="flex flex-wrap gap-1 border-b">
+        {ADMIN_REFUND_FILTER_STATUSES.map((item) => (
           <li key={item}>
             <Link
               href={`/refunds${queryString({ status: item === 'REQUESTED' ? null : item })}`}
@@ -77,7 +107,7 @@ function QueueTabs({ status }: { status: RefundQueueStatus }) {
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              {QUEUE_LABEL[item]}
+              {REFUND_STATUS_LABEL[item]}
             </Link>
           </li>
         ))}
@@ -108,7 +138,7 @@ function Actions({
   onDone,
 }: {
   item: AdminRefundQueueItem;
-  status: RefundQueueStatus;
+  status: RefundStatus;
   onDone: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
@@ -128,7 +158,8 @@ function Actions({
     onError: (error) => {
       if (
         hasCode(error, ErrorCode.InvalidStateTransition) ||
-        hasCode(error, ErrorCode.RefundNotFound)
+        hasCode(error, ErrorCode.RefundNotFound) ||
+        hasCode(error, ErrorCode.RefundAlreadyRequested)
       ) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.refundQueue(status) });
       }
@@ -137,6 +168,10 @@ function Actions({
   const who = item.buyer?.displayName ?? 'the buyer';
   const amount = money(item.amount, item.currency);
   const name = `${item.courseTitle}, order #${item.orderNumber}`;
+
+  if (item.status !== 'REQUESTED' && item.status !== 'FAILED') {
+    return <span className="text-xs text-muted-foreground">No action needed</span>;
+  }
 
   if (item.status === 'FAILED') {
     return (
@@ -212,7 +247,7 @@ function Actions({
   );
 }
 
-function Queue({ status }: { status: RefundQueueStatus }) {
+function Queue({ status }: { status: RefundStatus }) {
   const [notice, setNotice] = useState('');
   const refunds = useInfiniteQuery({
     queryKey: queryKeys.refundQueue(status),
@@ -241,7 +276,7 @@ function Queue({ status }: { status: RefundQueueStatus }) {
         {live}
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            {status === 'REQUESTED' ? 'No refunds waiting for review.' : 'No failed refunds.'}
+            {EMPTY_LABEL[status]}
           </CardContent>
         </Card>
       </div>
@@ -253,7 +288,7 @@ function Queue({ status }: { status: RefundQueueStatus }) {
       {live}
       <Card className="py-2">
         <CardContent className="px-2">
-          <Table>
+          <Table aria-label="Refunds">
             <TableHeader>
               <TableRow>
                 <TableHead>Refund</TableHead>
@@ -261,7 +296,7 @@ function Queue({ status }: { status: RefundQueueStatus }) {
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Reason</TableHead>
                 <TableHead>Refund history</TableHead>
-                <TableHead>{status === 'FAILED' ? 'Failure' : 'Requested'}</TableHead>
+                <TableHead>{DATE_HEADING[status]}</TableHead>
                 <TableHead>
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -269,7 +304,7 @@ function Queue({ status }: { status: RefundQueueStatus }) {
             </TableHeader>
             <TableBody>
               {items.map((item) => (
-                <TableRow key={item.id} className="align-top">
+                <TableRow key={item.id} data-testid="refund-row" className="align-top">
                   <TableCell>
                     <div className="grid gap-0.5">
                       <span className="font-medium">{item.courseTitle}</span>
@@ -322,7 +357,7 @@ function Queue({ status }: { status: RefundQueueStatus }) {
                         </span>
                       </div>
                     ) : (
-                      <time dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time>
+                      <time dateTime={statusDate(item)}>{formatDateTime(statusDate(item))}</time>
                     )}
                   </TableCell>
                   <TableCell>
@@ -339,7 +374,7 @@ function Queue({ status }: { status: RefundQueueStatus }) {
   );
 }
 
-export function RefundsQueue({ status }: { status: RefundQueueStatus }) {
+export function RefundsQueue({ status }: { status: RefundStatus }) {
   return (
     <div className="grid gap-6">
       <QueueTabs status={status} />

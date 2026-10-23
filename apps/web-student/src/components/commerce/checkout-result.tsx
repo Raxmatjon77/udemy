@@ -8,7 +8,7 @@ import { Spinner } from '@udemy/ui/components/spinner';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { cancelOrder, commerceKeys, fetchMyLearning, fetchOrder } from '@/lib/commerce/client';
+import { cancelOrder, commerceKeys, fetchOrder } from '@/lib/commerce/client';
 import { money } from '@/lib/commerce/format';
 import {
   CART_PATH,
@@ -108,14 +108,6 @@ export function CheckoutSuccess({
     void queryClient.invalidateQueries({ queryKey: commerceKeys.ordersAll, exact: false });
   }, [paid, queryClient]);
 
-  // Order lines carry no slug: resolve the course links from "My learning" (first page).
-  const learning = useQuery({
-    queryKey: [...commerceKeys.myLearning, 'first-page'],
-    queryFn: ({ signal }) => fetchMyLearning(null, signal),
-    enabled: paid,
-  });
-  const slugOf = new Map((learning.data?.items ?? []).map((card) => [card.courseId, card.slug]));
-
   if (order.isError && !order.data) {
     return (
       <ResultCard testId="checkout-error" title="We could not find this order">
@@ -168,19 +160,17 @@ export function CheckoutSuccess({
           {money(detail.totalAmount, detail.currency)}). A receipt is on its way to your inbox.
         </p>
         <ul aria-label="Your new courses" className="flex flex-col divide-y rounded-md border">
-          {detail.lines.map((line) => {
-            const slug = slugOf.get(line.courseId);
-            return (
-              <li key={line.id} className="flex items-center justify-between gap-4 p-3">
-                <span className="font-medium">{line.courseTitle}</span>
-                {slug ? (
-                  <Button asChild size="sm">
-                    <Link href={learnHref(slug)}>Go to course</Link>
-                  </Button>
-                ) : null}
-              </li>
-            );
-          })}
+          {detail.lines.map((line) => (
+            <li key={line.id} className="flex items-center justify-between gap-4 p-3">
+              <span className="font-medium">{line.courseTitle}</span>
+              {/* The course's current slug; null once the course was deleted. */}
+              {line.slug ? (
+                <Button asChild size="sm">
+                  <Link href={learnHref(line.slug)}>Go to course</Link>
+                </Button>
+              ) : null}
+            </li>
+          ))}
         </ul>
         <ResultLinks>
           <Button asChild>

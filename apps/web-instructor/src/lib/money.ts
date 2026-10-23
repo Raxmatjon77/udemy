@@ -20,6 +20,17 @@ export function money(amount: string, currency: Currency = DEFAULT_CURRENCY): st
   return formatMoney(amount, currency, LOCALE);
 }
 
+/**
+ * A signed report figure (`SignedMoneyAmount`, e.g. a sales range's net or share, which go below
+ * zero when refunds in the range belong to earlier sales). `formatMoney` accepts canonical
+ * non-negative amounts only, so the sign is formatted here: `-12.00` → `−$12.00` (U+2212).
+ */
+export function signedMoney(amount: string, currency: Currency = DEFAULT_CURRENCY): string {
+  return amount.startsWith('-')
+    ? `\u2212${money(amount.slice(1), currency)}`
+    : money(amount, currency);
+}
+
 /** "Free" for 0.00, else the formatted amount. */
 export function priceLabel(amount: string, currency: Currency = DEFAULT_CURRENCY): string {
   return isFreeAmount(amount) ? 'Free' : money(amount, currency);

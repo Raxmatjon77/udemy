@@ -126,6 +126,8 @@ export function makePublicPrice(overrides: Partial<PublicPrice> = {}): PublicPri
     amount,
     currency: 'USD',
     isFree: isFreeAmount(amount),
+    slug: 'complete-typescript',
+    title: 'Complete TypeScript',
     ...overrides,
   });
 }
@@ -204,6 +206,7 @@ export function makePurchaseState(overrides: Partial<PurchaseState> = {}): Purch
     enrolled: false,
     inCart: false,
     isOwner: false,
+    forSale: true,
     ...overrides,
   });
 }

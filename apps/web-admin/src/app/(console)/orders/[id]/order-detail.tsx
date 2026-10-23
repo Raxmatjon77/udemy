@@ -16,6 +16,9 @@ import {
   type AdminOrderDetail,
   type AdminOrderLine,
   type AdminRefund,
+  type OrderStatus,
+  type PaymentStatus,
+  type RefundStatus,
 } from '@udemy/contracts';
 import { Alert, AlertDescription } from '@udemy/ui/components/alert';
 import { Badge } from '@udemy/ui/components/badge';
@@ -475,36 +478,52 @@ function Payment({ order }: { order: AdminOrderDetail }) {
   );
 }
 
-type TimelineEntry = { key: string; at: string; title: string; detail: string[] };
+type TimelineItem = { key: string; at: string; title: string; detail: string[] };
 
-/** Transitions and provider events in one chronological list (both arrive oldest first). */
-function timelineOf(order: AdminOrderDetail): TimelineEntry[] {
-  const entries: TimelineEntry[] = [
-    ...order.transitions.map((t) => ({
-      key: `t-${t.id}`,
-      at: t.occurredAt,
-      title: t.fromStatus
-        ? `${ORDER_STATUS_LABEL[t.fromStatus]} → ${ORDER_STATUS_LABEL[t.toStatus]}`
-        : ORDER_STATUS_LABEL[t.toStatus],
+type TimelineEntry = AdminOrderDetail['timeline'][number];
+
+/** The label of a status of the entry's kind (order, payment or refund). */
+function statusLabel(kind: TimelineEntry['kind'], status: TimelineEntry['toStatus']): string {
+  if (kind === 'ORDER') return ORDER_STATUS_LABEL[status as OrderStatus];
+  if (kind === 'PAYMENT') return PAYMENT_STATUS_LABEL[status as PaymentStatus];
+  return REFUND_STATUS_LABEL[status as RefundStatus];
+}
+
+/**
+ * The API's merged history (`AdminOrderDetail.timeline`: order transitions, payment milestones
+ * and every refund transition, oldest first) as display items.
+ */
+function timelineOf(order: AdminOrderDetail): TimelineItem[] {
+  const courseOfRefund = new Map(order.refunds.map((r) => [r.id, r.courseTitle]));
+  return order.timeline.map((entry, index) => {
+    const change = entry.fromStatus
+      ? `${statusLabel(entry.kind, entry.fromStatus)} → ${statusLabel(entry.kind, entry.toStatus)}`
+      : statusLabel(entry.kind, entry.toStatus);
+    const subject =
+      entry.kind === 'ORDER'
+        ? ''
+        : entry.kind === 'PAYMENT'
+          ? 'Payment: '
+          : `Refund${
+              entry.refundId && courseOfRefund.has(entry.refundId)
+                ? ` (${courseOfRefund.get(entry.refundId)})`
+                : ''
+            }: `;
+    const actor = entry.actor?.displayName ?? (entry.actorId ? 'an unknown account' : null);
+    return {
+      key: `${entry.kind}-${entry.refundId ?? ''}-${index}`,
+      at: entry.at,
+      title: `${subject}${change}`,
       detail: [
-        ORDER_TRANSITION_CAUSE_LABEL[t.cause],
-        ...(t.providerEventId ? [`Event ${t.providerEventId}`] : []),
-        ...(t.reason ? [`Reason: ${t.reason}`] : []),
+        ...(entry.cause ? [ORDER_TRANSITION_CAUSE_LABEL[entry.cause]] : []),
+        ...(actor ? [`By ${actor}`] : []),
+        ...(entry.reason ? [`Reason: ${entry.reason}`] : []),
+        ...(entry.providerEventId ? [`Event ${entry.providerEventId}`] : []),
+        ...(entry.providerRefundId ? [`Provider refund ${entry.providerRefundId}`] : []),
+        ...(entry.failureCode ? [`Failure: ${entry.failureCode}`] : []),
       ],
-    })),
-    ...order.providerEvents.map((e) => ({
-      key: `e-${e.provider}-${e.eventId}`,
-      at: e.receivedAt,
-      title: `Webhook ${e.type}`,
-      detail: [
-        e.outcome ? PROVIDER_EVENT_OUTCOME_LABEL[e.outcome] : 'Not processed yet',
-        `${e.eventId} · ${e.objectId}`,
-        ...(e.livemode ? ['Live mode'] : []),
-      ],
-    })),
-  ];
-  // A stable sort keeps a transition before the event recorded at the same instant.
-  return entries.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    };
+  });
 }
 
 function Timeline({ order }: { order: AdminOrderDetail }) {
@@ -515,7 +534,7 @@ function Timeline({ order }: { order: AdminOrderDetail }) {
         <CardTitle asChild>
           <h2>Timeline</h2>
         </CardTitle>
-        <CardDescription>Status changes and provider events, oldest first.</CardDescription>
+        <CardDescription>Order, payment and refund history, oldest first.</CardDescription>
       </CardHeader>
       <CardContent>
         {entries.length === 0 ? (
@@ -528,11 +547,53 @@ function Timeline({ order }: { order: AdminOrderDetail }) {
                 <time dateTime={entry.at} className="text-xs text-muted-foreground">
                   {formatDateTime(entry.at)}
                 </time>
-                {entry.detail.map((line) => (
-                  <span key={line} className="text-xs whitespace-pre-line text-muted-foreground">
+                {entry.detail.map((line, index) => (
+                  <span
+                    key={`${String(index)}-${line}`}
+                    className="text-xs whitespace-pre-line text-muted-foreground"
+                  >
                     {line}
                   </span>
                 ))}
+              </li>
+            ))}
+          </ol>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The webhook (and reconciler) events recorded for the order; no payloads are stored. */
+function ProviderEvents({ order }: { order: AdminOrderDetail }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle asChild>
+          <h2>Provider events</h2>
+        </CardTitle>
+        <CardDescription>Webhook events received for this order, oldest first.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {order.providerEvents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No provider events.</p>
+        ) : (
+          <ol aria-label="Provider events" className="grid gap-4 border-l pl-4">
+            {order.providerEvents.map((e) => (
+              <li key={`${e.provider}-${e.eventId}`} className="grid gap-0.5 text-sm">
+                <span className="font-medium">Webhook {e.type}</span>
+                <time dateTime={e.receivedAt} className="text-xs text-muted-foreground">
+                  {formatDateTime(e.receivedAt)}
+                </time>
+                <span className="text-xs text-muted-foreground">
+                  {e.outcome ? PROVIDER_EVENT_OUTCOME_LABEL[e.outcome] : 'Not processed yet'}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {e.eventId} · {e.objectId}
+                </span>
+                {e.livemode ? (
+                  <span className="text-xs text-muted-foreground">Live mode</span>
+                ) : null}
               </li>
             ))}
           </ol>
@@ -554,7 +615,7 @@ function Refunds({ order }: { order: AdminOrderDetail }) {
         {order.refunds.length === 0 ? (
           <p className="px-4 text-sm text-muted-foreground">No refunds for this order.</p>
         ) : (
-          <Table>
+          <Table aria-label="Refunds of this order">
             <TableHeader>
               <TableRow>
                 <TableHead>Course</TableHead>
@@ -567,7 +628,7 @@ function Refunds({ order }: { order: AdminOrderDetail }) {
             </TableHeader>
             <TableBody>
               {order.refunds.map((refund) => (
-                <TableRow key={refund.id} className="align-top">
+                <TableRow key={refund.id} data-testid="refund-row" className="align-top">
                   <TableCell>
                     <div className="grid gap-0.5">
                       <span>{refund.courseTitle}</span>
@@ -657,6 +718,7 @@ export function OrderDetailView({ id }: { id: string }) {
       <Refunds order={order} />
       <Payment order={order} />
       <Timeline order={order} />
+      <ProviderEvents order={order} />
     </div>
   );
 }
