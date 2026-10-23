@@ -407,6 +407,15 @@ describe('Content-Security-Policy', () => {
     expect(policy).toContain("img-src 'self' data: blob: http://127.0.0.1:9000");
   });
 
+  it('includes the realtime origin as ws(s) in connect-src when configured', async () => {
+    await stubApi({});
+    const withRealtime = createAuthProxy(
+      testConfig({ mediaOrigin: 'http://127.0.0.1:9000', realtimeOrigin: 'http://localhost:4000' }),
+    );
+    const policy = csp(await withRealtime(nav('/login')))!;
+    expect(policy).toContain("connect-src 'self' http://127.0.0.1:9000 ws://localhost:4000;");
+  });
+
   it('redirects carry no CSP (no content)', async () => {
     await stubApi({});
     const res = await proxy(nav('/account'));

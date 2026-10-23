@@ -151,14 +151,15 @@ describe('apiEnvSchema', () => {
       expect(() => validateEnv(apiEnvSchema, production)).not.toThrow();
     });
 
-    it.each(['REFRESH_TOKEN_PEPPER', 'LOGIN_EMAIL_HMAC_KEY'] as const)(
-      'refuses the change-me placeholder in %s',
-      (key) => {
-        expect(() => validateEnv(apiEnvSchema, { ...production, [key]: TEST_ENV[key] })).toThrow(
-          new RegExp(key),
-        );
-      },
-    );
+    it.each([
+      'REFRESH_TOKEN_PEPPER',
+      'LOGIN_EMAIL_HMAC_KEY',
+      'NOTIFICATIONS_UNSUBSCRIBE_SECRET',
+    ] as const)('refuses the change-me placeholder in %s', (key) => {
+      expect(() => validateEnv(apiEnvSchema, { ...production, [key]: TEST_ENV[key] })).toThrow(
+        new RegExp(key),
+      );
+    });
 
     it.each([
       'CLIENT_STUDENT_SECRET_HASH',
@@ -226,6 +227,75 @@ describe('apiEnvSchema', () => {
         );
       }
     });
+  });
+
+  describe('learning, engagement, notifications and realtime (Phase 5 §9, §14)', () => {
+    it('applies the design defaults', () => {
+      expect(validateEnv(apiEnvSchema, validEnv)).toMatchObject({
+        COMMERCE_REFUND_REVIEW_CONSUMED_PCT: 30,
+        LEARNING_PROGRESS_STORE: 'redis',
+        LEARNING_JOBS_ENABLED: true,
+        LEARNING_PROGRESS_FLUSH_INTERVAL_MS: 15_000,
+        LEARNING_PROGRESS_FLUSH_BATCH_SIZE: 500,
+        LEARNING_COVERAGE_BUCKET_S: 5,
+        LEARNING_VIDEO_COMPLETE_PCT: 90,
+        ENGAGEMENT_AUTO_HIDE_REPORTS: 3,
+      });
+    });
+
+    it('parses the realtime origins', () => {
+      const env = validateEnv(apiEnvSchema, {
+        ...validEnv,
+        REALTIME_PUBLIC_URL: 'https://api.udemy.example',
+        REALTIME_ALLOWED_ORIGINS: 'https://udemy.example, https://instructor.udemy.example',
+        LEARNING_PROGRESS_STORE: 'direct',
+      });
+      expect(env.REALTIME_PUBLIC_URL).toBe('https://api.udemy.example');
+      expect(env.REALTIME_ALLOWED_ORIGINS).toEqual([
+        'https://udemy.example',
+        'https://instructor.udemy.example',
+      ]);
+      expect(env.LEARNING_PROGRESS_STORE).toBe('direct');
+    });
+
+    it.each([
+      ['COMMERCE_REFUND_REVIEW_CONSUMED_PCT', '101'],
+      ['COMMERCE_REFUND_REVIEW_CONSUMED_PCT', '-1'],
+      ['LEARNING_PROGRESS_STORE', 'memory'],
+      ['LEARNING_JOBS_ENABLED', 'maybe'],
+      ['LEARNING_PROGRESS_FLUSH_INTERVAL_MS', '999'],
+      ['LEARNING_PROGRESS_FLUSH_BATCH_SIZE', '0'],
+      ['LEARNING_COVERAGE_BUCKET_S', '0'],
+      ['LEARNING_COVERAGE_BUCKET_S', '61'],
+      ['LEARNING_VIDEO_COMPLETE_PCT', '0'],
+      ['LEARNING_VIDEO_COMPLETE_PCT', '101'],
+      ['LEARNING_VIDEO_COMPLETE_PCT', '0.9'],
+      ['ENGAGEMENT_AUTO_HIDE_REPORTS', '0'],
+      ['NOTIFICATIONS_UNSUBSCRIBE_SECRET', 'x'.repeat(31)],
+      ['REALTIME_PUBLIC_URL', 'ws://localhost:4000'],
+      ['REALTIME_PUBLIC_URL', 'http://localhost:4000/realtime/socket.io'],
+      ['REALTIME_PUBLIC_URL', 'http://user:pw@localhost:4000'],
+      ['REALTIME_ALLOWED_ORIGINS', ''],
+      ['REALTIME_ALLOWED_ORIGINS', ' , '],
+      ['REALTIME_ALLOWED_ORIGINS', 'http://localhost:3000,*'],
+      ['REALTIME_ALLOWED_ORIGINS', 'http://localhost:3000/app'],
+    ])('rejects %s=%j', (key, value) => {
+      expect(() => validateEnv(apiEnvSchema, { ...validEnv, [key]: value })).toThrow(
+        new RegExp(key),
+      );
+    });
+
+    it.each(['REFRESH_TOKEN_PEPPER', 'LOGIN_EMAIL_HMAC_KEY'] as const)(
+      'refuses an unsubscribe secret equal to %s',
+      (key) => {
+        expect(() =>
+          validateEnv(apiEnvSchema, {
+            ...validEnv,
+            NOTIFICATIONS_UNSUBSCRIBE_SECRET: validEnv[key],
+          }),
+        ).toThrow(/NOTIFICATIONS_UNSUBSCRIBE_SECRET/);
+      },
+    );
   });
 
   it('never echoes variable values in the error message', () => {

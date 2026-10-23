@@ -24,7 +24,8 @@ rand() { head -c 32 /dev/urandom | base64 | tr -d '\n'; }
 sha256() { printf '%s' "$1" | openssl dgst -sha256 -r | cut -d' ' -f1; }
 
 step "ephemeral secrets"
-for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET; do
+# The api and the worker inherit the same NOTIFICATIONS_UNSUBSCRIBE_SECRET (worker signs, api verifies).
+for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET NOTIFICATIONS_UNSUBSCRIBE_SECRET; do
   value="$(rand)"
   export "$name=$value"
 done

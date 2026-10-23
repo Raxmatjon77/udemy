@@ -69,6 +69,9 @@ jobs:
       JWT_AUDIENCE: udemy-api
       JWT_KEYS_DIR: ${{ github.workspace }}/apps/api/.secrets/jwt
       CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:3002
+      # Phase 5 realtime: REALTIME_PUBLIC_URL (api + BFF CSP) and REALTIME_ALLOWED_ORIGINS are set
+      # per server by apps/e2e/src/env.ts from the E2E_* ports; REDIS_URL above also feeds the
+      # worker's socket.io emitter.
       # ---- The suite's own view of the stack (these equal the env.ts defaults; explicit here).
       E2E_DATABASE_URL: postgres://udemy:udemy@localhost:5432/udemy
       E2E_REDIS_URL: redis://localhost:6379
@@ -140,11 +143,14 @@ jobs:
       # its app via E2E_<APP>_CLIENT_SECRET and the api gets its SHA-256 (CLIENT_<APP>_SECRET_HASH).
       # The Stripe key and webhook secret go to both the api and the emulator (apps/e2e/src/env.ts
       # passes them as STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET); without them the api refuses to boot.
+      # NOTIFICATIONS_UNSUBSCRIBE_SECRET (Phase 5) is read by both the api and the worker from this
+      # job env, so the worker's unsubscribe links verify on the api.
       - name: Ephemeral secrets
         run: |
           set -euo pipefail
           put() { echo "::add-mask::$2"; echo "$1=$2" >> "$GITHUB_ENV"; }
-          for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET; do
+          for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET \
+            NOTIFICATIONS_UNSUBSCRIBE_SECRET; do
             value="$(openssl rand -base64 32)"
             put "$name" "$value"
           done

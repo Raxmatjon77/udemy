@@ -47,8 +47,13 @@ const byteCount = envInt.min(1).max(Number.MAX_SAFE_INTEGER);
  */
 const JWT_KID_FORMAT = /^ed25519-\d{4}-(?:0[1-9]|1[0-2])(?:-[a-z0-9]+)?$/;
 
-/** An http(s) origin (scheme://host[:port]) without path, query, fragment or credentials. */
+/**
+ * An http(s) origin (scheme://host[:port]) without path, query, fragment or credentials. zod
+ * still runs the refinement after a failed URL check, so an unparsable value must not throw
+ * (a raw `TypeError` would hide which variable is wrong).
+ */
 const httpOrigin = z.url({ protocol: /^https?$/ }).refine((value) => {
+  if (!URL.canParse(value)) return false;
   const url = new URL(value);
   return (
     url.pathname === '/' &&
@@ -224,6 +229,51 @@ export const apiEnvSchema = baseEnvSchema
     COMMERCE_REFUND_DISPATCH_INTERVAL_MS: envInt.min(1000).max(86_400_000).default(60_000),
     /** Reconciler: stale CREATING payments and OPEN sessions past expiry. */
     COMMERCE_RECONCILE_INTERVAL_MS: envInt.min(1000).max(86_400_000).default(300_000),
+    /**
+     * Phase 5 D8 / P5-D6: a refund request goes to admin review (NEEDS_REVIEW, never a block) when
+     * more than this percentage of the live video seconds was watched or of the live lectures was
+     * completed (an ACTIVE certificate always does).
+     */
+    COMMERCE_REFUND_REVIEW_CONSUMED_PCT: envInt.max(100).default(30),
+
+    // ---- Phase 5: learning (design D2-D5, §12 Q1)
+    /** `redis`: write-behind buffer drained by ProgressFlushJob (D2). `direct`: DB upsert per heartbeat. */
+    LEARNING_PROGRESS_STORE: z.enum(['redis', 'direct']).default('redis'),
+    /** ProgressFlushJob in this process (advisory lock `0x75646d79_06`: one replica wins per tick). */
+    LEARNING_JOBS_ENABLED: envBoolean.default(true),
+    /** ProgressFlushJob period. Bounds the position lost on a Redis crash (D2: 15 s). */
+    LEARNING_PROGRESS_FLUSH_INTERVAL_MS: envInt.min(1_000).max(300_000).default(15_000),
+    /** Dirty (user, lecture) entries per multi-row upsert (D2: 500). */
+    LEARNING_PROGRESS_FLUSH_BATCH_SIZE: envInt.min(1).max(5_000).default(500),
+    /**
+     * Coverage bucket width, seconds (D3: 5). Stored bitmaps are only meaningful for the width they
+     * were written with: never change it once progress exists.
+     */
+    LEARNING_COVERAGE_BUCKET_S: envInt.min(1).max(60).default(5),
+    /** A VIDEO lecture completes at this percentage of covered buckets (D4, P5-D2: 90). */
+    LEARNING_VIDEO_COMPLETE_PCT: envInt.min(1).max(100).default(90),
+
+    // ---- Phase 5: engagement (design D13)
+    /** Distinct open reports that auto-hide a review, reply, question or answer. */
+    ENGAGEMENT_AUTO_HIDE_REPORTS: envInt.min(1).max(100).default(3),
+
+    // ---- Phase 5: notifications and realtime (design D14-D16, §9, P5-D9)
+    /**
+     * HMAC key of the one-click email unsubscribe tokens, `HMAC(key, v1|userId|category)`. The
+     * worker signs, the API verifies: both must hold the same value. Rotating it voids every
+     * unsubscribe link already sent.
+     */
+    NOTIFICATIONS_UNSUBSCRIBE_SECRET: hmacSecret,
+    /**
+     * Origin the browser opens the socket.io connection on (path `/realtime/socket.io`, WebSocket
+     * transport only), returned with every WS ticket. The web apps add it to their CSP connect-src.
+     */
+    REALTIME_PUBLIC_URL: httpOrigin,
+    /** Origins a socket.io handshake may carry (the three web apps), comma separated. */
+    REALTIME_ALLOWED_ORIGINS: envList(httpOrigin).refine(
+      (list) => list.length > 0,
+      'List at least one origin',
+    ),
   })
   .superRefine((env, ctx) => {
     // Shared secrets would silently couple unrelated security properties.
@@ -233,6 +283,15 @@ export const apiEnvSchema = baseEnvSchema
         path: ['LOGIN_EMAIL_HMAC_KEY'],
         message: 'Must differ from REFRESH_TOKEN_PEPPER',
       });
+    }
+    for (const other of ['REFRESH_TOKEN_PEPPER', 'LOGIN_EMAIL_HMAC_KEY'] as const) {
+      if (env.NOTIFICATIONS_UNSUBSCRIBE_SECRET === env[other]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['NOTIFICATIONS_UNSUBSCRIBE_SECRET'],
+          message: `Must differ from ${other}`,
+        });
+      }
     }
     // "Never presign GET on uploads" is enforced per bucket role; one bucket would defeat it.
     if (env.S3_BUCKET_UPLOADS === env.S3_BUCKET_MEDIA) {

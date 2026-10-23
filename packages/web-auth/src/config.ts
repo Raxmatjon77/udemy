@@ -64,6 +64,16 @@ export const WebAuthConfigSchema = z
       })
       .optional(),
     /**
+     * `REALTIME_PUBLIC_URL`: http(s) origin of the API's socket.io endpoint (Phase 5 D15). Added to
+     * the CSP `connect-src` as its `ws:`/`wss:` origin. Unset: no WebSocket origin is allowed and
+     * the realtime hints fall back to polling.
+     */
+    realtimeOrigin: httpUrl
+      .refine((url) => new URL(url).origin === url, {
+        message: 'REALTIME_PUBLIC_URL must be an origin only (scheme://host[:port], no path)',
+      })
+      .optional(),
+    /**
      * Send a nonce-based Content-Security-Policy on every page `createAuthProxy` handles
      * (see ./csp.ts). On by default; `false` only to debug a CSP problem locally.
      */

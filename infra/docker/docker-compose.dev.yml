@@ -175,9 +175,12 @@ services:
       start_period: 30s
 
   # --------------------------------------------------------------------- Redis
+  # AOF persistence is required, not a nicety: Phase 5 keeps the learning progress write-behind
+  # buffer (lp:*, lpc:*, lp:dirty, design D2) here until ProgressFlushJob drains it, so it must
+  # survive a container restart. everysec (Redis's default, explicit here) bounds the loss to ~1 s.
   redis:
     image: redis:8.10.2-alpine
-    command: ['redis-server', '--appendonly', 'yes']
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec']
     ports:
       - '${REDIS_HOST_PORT:-6379}:6379' # override if a native Redis already uses 6379
     volumes:

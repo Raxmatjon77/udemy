@@ -97,6 +97,51 @@ describe('buildContentSecurityPolicy', () => {
     ).toThrow();
   });
 
+  it('allows the realtime origin as a WebSocket source in connect-src only', () => {
+    const map = directives(
+      buildContentSecurityPolicy({
+        nonce: NONCE,
+        mediaOrigin: MEDIA,
+        realtimeOrigin: 'http://localhost:4000',
+        dev: false,
+        upgradeInsecureRequests: false,
+      }),
+    );
+    expect(map.get('connect-src')).toEqual(["'self'", MEDIA, 'ws://localhost:4000']);
+    for (const name of ['default-src', 'script-src', 'img-src', 'media-src', 'worker-src']) {
+      expect(map.get(name)!.join(' ')).not.toContain('localhost:4000');
+    }
+  });
+
+  it('maps an https realtime origin to wss', () => {
+    const map = directives(
+      buildContentSecurityPolicy({
+        nonce: NONCE,
+        realtimeOrigin: 'https://api.udemy.example',
+        dev: false,
+        upgradeInsecureRequests: true,
+      }),
+    );
+    expect(map.get('connect-src')).toEqual(["'self'", 'wss://api.udemy.example']);
+  });
+
+  it.each([
+    'http://a.test; script-src *',
+    "http://a.test 'unsafe-inline'",
+    'ws://a.test',
+    'http://a.test/realtime/socket.io',
+    '*',
+  ])('refuses a realtime origin that could inject sources or directives: %s', (realtimeOrigin) => {
+    expect(() =>
+      buildContentSecurityPolicy({
+        nonce: NONCE,
+        realtimeOrigin,
+        dev: false,
+        upgradeInsecureRequests: false,
+      }),
+    ).toThrow(/realtime origin/);
+  });
+
   it.each(["abc'; script-src *", 'short', ''])('refuses a malformed nonce %j', (nonce) => {
     expect(() =>
       buildContentSecurityPolicy({ nonce, dev: false, upgradeInsecureRequests: false }),

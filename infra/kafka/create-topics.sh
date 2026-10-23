@@ -38,6 +38,12 @@ SEVEN_DAYS_MS=604800000
 # commerce.coupon and enrollment.enrollment carry no PII (ids, titles, amounts, coupon codes; no
 # emails or names: mailers look recipients up), so they and their DLQs use broker defaults.
 # Refund events share commerce.order (key = orderId), which keeps them ordered after OrderPaid.
+#
+# Phase 5 (docs/phase-5-learning-engagement-design.md §7): payloads carry ids, ratings, scores and
+# enums only (no user-authored text, no names), so these topics and their DLQs use broker defaults
+# and a moderation hide or a deletion is never undercut by the log. Keys: learning.progress =
+# userId, learning.certificate = certificateId, engagement.* = courseId (one course's review
+# events stay ordered on one partition for the rating aggregator).
 # ============================================================================================
 TOPICS="
 identity.user                       3 retention.ms=${SEVEN_DAYS_MS},cleanup.policy=delete
@@ -58,6 +64,16 @@ commerce.coupon                     3 -
 commerce.coupon.dlq                 3 -
 enrollment.enrollment               3 -
 enrollment.enrollment.dlq           3 -
+learning.progress                   3 -
+learning.progress.dlq               3 -
+learning.certificate                3 -
+learning.certificate.dlq            3 -
+engagement.course_review            3 -
+engagement.course_review.dlq        3 -
+engagement.question                 3 -
+engagement.question.dlq             3 -
+engagement.announcement             3 -
+engagement.announcement.dlq         3 -
 system.ping                         3 -
 "
 

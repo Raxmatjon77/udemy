@@ -2,6 +2,21 @@ import 'server-only';
 import { z } from 'zod';
 
 /**
+ * `REALTIME_PUBLIC_URL`: origin of the API's socket.io endpoint (Phase 5 D15), the same value as
+ * the API's. Added to the CSP connect-src as its ws:/wss: origin. Optional: unset (or empty)
+ * means no WebSocket origin in the CSP, and the realtime hints fall back to polling.
+ */
+export const RealtimePublicUrlSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  z
+    .url({ protocol: /^https?$/ })
+    .refine((url) => URL.canParse(url) && new URL(url).origin === url, {
+      message: 'Must be an origin only: scheme://host[:port], no path or trailing slash',
+    })
+    .optional(),
+);
+
+/**
  * Server-only environment of this BFF (design §10). Nothing here is NEXT_PUBLIC_*: the browser
  * never talks to the API directly.
  *
@@ -28,6 +43,8 @@ const EnvSchema = z.object({
     .refine((url) => new URL(url).origin === url, {
       message: 'Must be an origin only: scheme://host[:port], no path or trailing slash',
     }),
+  /** `REALTIME_PUBLIC_URL` (Phase 5 D15): see `RealtimePublicUrlSchema`. */
+  REALTIME_PUBLIC_URL: RealtimePublicUrlSchema,
 });
 
 export type ServerEnv = z.infer<typeof EnvSchema>;
@@ -46,6 +63,7 @@ export function serverEnv(): ServerEnv {
     JWKS_URL: process.env.JWKS_URL,
     COOKIE_SECURE: process.env.COOKIE_SECURE,
     MEDIA_PUBLIC_ORIGIN: process.env.MEDIA_PUBLIC_ORIGIN,
+    REALTIME_PUBLIC_URL: process.env.REALTIME_PUBLIC_URL,
   });
   if (!parsed.success) {
     throw new Error(`Invalid environment variables:\n${z.prettifyError(parsed.error)}`);

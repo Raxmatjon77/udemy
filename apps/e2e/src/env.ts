@@ -174,6 +174,14 @@ function checkoutSessionTtlMin(): string {
   return String(Number.isInteger(configured) && configured >= 35 ? configured : 35);
 }
 
+/**
+ * Phase 5 realtime (design D15, D16): the browser opens socket.io straight on the api (path
+ * `/realtime/socket.io`), so the api returns this run's api origin in every WS ticket, accepts
+ * handshakes from this run's three web origins only, and the BFFs allow it in CSP connect-src.
+ */
+export const realtimePublicUrl = urls.api;
+export const realtimeAllowedOrigins = [urls.student, urls.instructor, urls.admin].join(',');
+
 /** Env overrides for `node dist/main.js` in apps/api (the rest comes from the root .env). */
 export function apiEnv(): Record<string, string> {
   return {
@@ -193,6 +201,10 @@ export function apiEnv(): Record<string, string> {
     STUDENT_APP_ORIGIN: urls.student,
     CHECKOUT_ALLOWED_ORIGINS: stripeEmulatorUrl,
     COMMERCE_CHECKOUT_SESSION_TTL_MIN: checkoutSessionTtlMin(),
+    // Phase 5 realtime. NOTIFICATIONS_UNSUBSCRIBE_SECRET is inherited (CI job env / root .env),
+    // the same value the worker gets.
+    REALTIME_PUBLIC_URL: realtimePublicUrl,
+    REALTIME_ALLOWED_ORIGINS: realtimeAllowedOrigins,
   };
 }
 
@@ -219,6 +231,8 @@ export function workerEnv(): Record<string, string> {
     STUDENT_APP_ORIGIN: urls.student,
     INSTRUCTOR_APP_ORIGIN: urls.instructor,
     ADMIN_APP_ORIGIN: urls.admin,
+    // REDIS_URL (socket.io emitter) and NOTIFICATIONS_UNSUBSCRIBE_SECRET are inherited, like the
+    // api's, so pushes reach the api's adapter and unsubscribe links verify there.
     LOG_LEVEL: process.env.E2E_SERVER_LOG_LEVEL ?? 'info',
   };
 }
@@ -307,6 +321,8 @@ export function webEnv(app: AppName): Record<string, string> {
     COOKIE_SECURE: 'true',
     // CSP connect-src / img-src / media-src: must be the origin the api signs URLs for.
     MEDIA_PUBLIC_ORIGIN: mediaPublicOrigin,
+    // CSP connect-src (as ws://): the socket.io endpoint, the api's REALTIME_PUBLIC_URL.
+    REALTIME_PUBLIC_URL: realtimePublicUrl,
   };
   // Instructor: links to /become-instructor. Admin: links live courses to their public page.
   if (app === 'instructor' || app === 'admin') env.STUDENT_APP_ORIGIN = urls.student;

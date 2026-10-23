@@ -31,6 +31,7 @@ export default defineConfig({
       JWKS_URL: 'http://api.test/.well-known/jwks.json',
       COOKIE_SECURE: 'true',
       MEDIA_PUBLIC_ORIGIN: 'http://127.0.0.1:9000',
+      REALTIME_PUBLIC_URL: 'http://api.test',
     },
   },
 });

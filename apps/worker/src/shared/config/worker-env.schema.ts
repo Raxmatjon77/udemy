@@ -225,6 +225,33 @@ export const workerEnvSchema = baseEnvSchema
       .min(1)
       .max(7 * 24 * 60)
       .default(60),
+
+    // ---- Phase 5: notifications, realtime push and learning maintenance (design D7, D14, D15)
+    /**
+     * Redis for `@socket.io/redis-emitter`: the worker pushes WS invalidation hints to the API's
+     * socket.io Redis adapter after commit. Same instance as the API's REDIS_URL.
+     */
+    REDIS_URL: z.url({ protocol: /^rediss?$/ }),
+    /**
+     * HMAC key of the one-click email unsubscribe tokens. The worker signs them into notification
+     * emails, the API verifies them: both must hold the same value.
+     */
+    NOTIFICATIONS_UNSUBSCRIBE_SECRET: z.string().min(32, 'Must be at least 32 characters'),
+    /** LearningMaintenanceJob abandons IN_PROGRESS quiz attempts older than this (design §4: 24 h). */
+    LEARNING_QUIZ_ATTEMPT_TTL_H: envInt
+      .min(1)
+      .max(24 * 30)
+      .default(24),
+  })
+  // Two purposes, two keys: a leaked unsubscribe key must not forge verify / reset links.
+  .superRefine((env, ctx) => {
+    if (env.NOTIFICATIONS_UNSUBSCRIBE_SECRET === env.EMAIL_TOKEN_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['NOTIFICATIONS_UNSUBSCRIBE_SECRET'],
+        message: 'Must differ from EMAIL_TOKEN_SECRET',
+      });
+    }
   })
   // Refuse the `change-me` dev placeholders from .env.example when NODE_ENV=production.
   .superRefine(refuseDevPlaceholdersInProduction());

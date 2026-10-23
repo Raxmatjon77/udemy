@@ -26,16 +26,22 @@ export const TEST_ENV = {
   STRIPE_SECRET_KEY: 'sk_test_api_unit_tests',
   STRIPE_WEBHOOK_SECRET: 'whsec_api_unit_tests_000000000000',
   STUDENT_APP_ORIGIN: 'http://localhost:3000',
+  // Phase 5 notifications and realtime (the dev values of .env.example).
+  NOTIFICATIONS_UNSUBSCRIBE_SECRET: 'dev-notifications-unsubscribe-secret-change-me-0000',
+  REALTIME_PUBLIC_URL: 'http://localhost:4000',
+  REALTIME_ALLOWED_ORIGINS: 'http://localhost:3000,http://localhost:3001,http://localhost:3002',
 } as const satisfies Record<string, string>;
 
 /**
  * Optional settings every test app gets on top of TEST_ENV: no background CommerceJobs (tests
- * run `CommerceJobs.reconcile()` themselves) and the Stripe adapter pointed at a loopback
+ * run `CommerceJobs.reconcile()` themselves), no background ProgressFlushJob (tests flush
+ * explicitly) and the Stripe adapter pointed at a loopback
  * address, so nothing can ever reach api.stripe.com (tests that need a provider override
  * `PAYMENT_PROVIDER` or start their own emulator).
  */
 export const TEST_APP_EXTRAS = {
   COMMERCE_JOBS_ENABLED: 'false',
+  LEARNING_JOBS_ENABLED: 'false',
   STRIPE_API_BASE_URL: 'http://127.0.0.1:9',
 } as const satisfies Record<string, string>;
 
@@ -46,4 +52,5 @@ export const PRODUCTION_SECRETS = {
   CLIENT_STUDENT_SECRET_HASH: '1'.repeat(64),
   CLIENT_INSTRUCTOR_SECRET_HASH: '2'.repeat(64),
   CLIENT_ADMIN_SECRET_HASH: '3'.repeat(64),
+  NOTIFICATIONS_UNSUBSCRIBE_SECRET: 'u'.repeat(44),
 } as const;

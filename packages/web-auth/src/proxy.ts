@@ -108,6 +108,7 @@ function responseCsp(config: WebAuthConfig): ResponseCsp | null {
   const policy = buildContentSecurityPolicy({
     nonce,
     mediaOrigin: config.mediaOrigin,
+    realtimeOrigin: config.realtimeOrigin,
     dev: process.env.NODE_ENV === 'development',
     upgradeInsecureRequests: production && config.appOrigin.startsWith('https:'),
   });

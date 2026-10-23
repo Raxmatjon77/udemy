@@ -22,6 +22,7 @@ export function webAuthConfig(): WebAuthConfigInput {
     jwksUrl: env.JWKS_URL,
     cookieSecure: env.COOKIE_SECURE,
     mediaOrigin: env.MEDIA_PUBLIC_ORIGIN,
+    realtimeOrigin: env.REALTIME_PUBLIC_URL,
     sameSite: 'strict',
     homePath: '/instructor-applications',
     forbiddenRedirect: '/login?error=forbidden',

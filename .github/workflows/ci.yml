@@ -158,7 +158,8 @@ jobs:
       # command inside `export X="$(cmd)"` would be hidden and export an empty value.
       - name: Ephemeral secrets
         run: |
-          for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET; do
+          for name in REFRESH_TOKEN_PEPPER LOGIN_EMAIL_HMAC_KEY EMAIL_TOKEN_SECRET \
+            NOTIFICATIONS_UNSUBSCRIBE_SECRET; do
             value="$(openssl rand -base64 32)"
             echo "::add-mask::${value}"
             echo "${name}=${value}" >> "$GITHUB_ENV"

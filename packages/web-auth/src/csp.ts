@@ -22,9 +22,12 @@
  * - `img-src 'self' data: blob: <media>`: thumbnails and posters are 302s to presigned MinIO URLs.
  * - `media-src 'self' blob: <media>`: hls.js plays from a MediaSource `blob:` URL; native HLS
  *   (Safari without MSE) and progressive files load from the media origin.
- * - `connect-src 'self' <media>`: hls.js segment GETs and the instructor's upload part PUTs go
- *   straight to MinIO; everything else goes through the same-origin BFF (Next dev's HMR
- *   websocket is same-origin too, covered by `'self'`).
+ * - `connect-src 'self' <media> <realtime ws(s)>`: hls.js segment GETs and the instructor's
+ *   upload part PUTs go straight to MinIO; the socket.io connection (Phase 5 D15, WebSocket
+ *   transport only, path `/realtime/socket.io`) goes straight to the API's `REALTIME_PUBLIC_URL`,
+ *   listed as its `ws:`/`wss:` origin (`http:` → `ws:`, `https:` → `wss:`) because an `http(s):`
+ *   source never matches a WebSocket URL. Everything else goes through the same-origin BFF (Next
+ *   dev's HMR websocket is same-origin too, covered by `'self'`).
  * - `worker-src 'self' blob:`: hls.js runs its transmuxer in a worker built from a `blob:` URL.
  *   Without it the worker would fall back to `script-src`, where `'strict-dynamic'` blocks it.
  * - `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`
@@ -37,6 +40,11 @@ export interface CspInput {
   nonce: string;
   /** `MEDIA_PUBLIC_ORIGIN`, e.g. `http://127.0.0.1:9000`; omitted when not configured. */
   mediaOrigin?: string | undefined;
+  /**
+   * `REALTIME_PUBLIC_URL` (http(s) origin of the socket.io endpoint), e.g. `http://localhost:4000`;
+   * added to `connect-src` as `ws://localhost:4000`. Omitted when not configured.
+   */
+  realtimeOrigin?: string | undefined;
   /** `NODE_ENV === 'development'`: adds `'unsafe-eval'` to `script-src`. */
   dev: boolean;
   /** Adds `upgrade-insecure-requests`. */
@@ -53,7 +61,11 @@ export function buildContentSecurityPolicy(input: CspInput): string {
   if (input.mediaOrigin !== undefined && !ORIGIN_PATTERN.test(input.mediaOrigin)) {
     throw new Error('CSP media origin must be scheme://host[:port]');
   }
+  if (input.realtimeOrigin !== undefined && !ORIGIN_PATTERN.test(input.realtimeOrigin)) {
+    throw new Error('CSP realtime origin must be scheme://host[:port]');
+  }
   const media = input.mediaOrigin ? [input.mediaOrigin] : [];
+  const realtime = input.realtimeOrigin ? [webSocketOrigin(input.realtimeOrigin)] : [];
   const directives: Array<[string, ...string[]]> = [
     ['default-src', "'self'"],
     [
@@ -66,7 +78,7 @@ export function buildContentSecurityPolicy(input: CspInput): string {
     ['style-src', "'self'", "'unsafe-inline'"],
     ['img-src', "'self'", 'data:', 'blob:', ...media],
     ['media-src', "'self'", 'blob:', ...media],
-    ['connect-src', "'self'", ...media],
+    ['connect-src', "'self'", ...media, ...realtime],
     ['worker-src', "'self'", 'blob:'],
     ['object-src', "'none'"],
     ['base-uri', "'none'"],
@@ -75,6 +87,11 @@ export function buildContentSecurityPolicy(input: CspInput): string {
   ];
   if (input.upgradeInsecureRequests) directives.push(['upgrade-insecure-requests']);
   return directives.map((parts) => parts.join(' ')).join('; ');
+}
+
+/** `http://h[:p]` → `ws://h[:p]`, `https://h[:p]` → `wss://h[:p]` (ORIGIN_PATTERN already checked). */
+function webSocketOrigin(origin: string): string {
+  return origin.replace(/^http/, 'ws');
 }
 
 /** 128 random bits, base64: unguessable and unique per response. */

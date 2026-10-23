@@ -171,12 +171,13 @@ docker compose --env-file .env -f infra/docker/docker-compose.dev.yml exec postg
 
 `kafka-init` runs `infra/kafka/create-topics.sh`, which holds **the topic list** (one place, commented).
 
-| Topic                                                                                                            | Partitions | Config                                            |
-| ---------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------- |
-| `identity.user`, `users.instructor_application`, `access.user_role` and their `.dlq`                             | 3          | `retention.ms=604800000` (7 days: PII, design §7) |
-| `catalog.course`, `media.asset` and their `.dlq` (Phase 2)                                                       | 3          | broker defaults (no PII, design §7)               |
-| `commerce.order`, `commerce.course_price`, `commerce.coupon`, `enrollment.enrollment` and their `.dlq` (Phase 4) | 3          | broker defaults (no PII, design §7)               |
-| `system.ping`                                                                                                    | 3          | broker defaults                                   |
+| Topic                                                                                                                                                | Partitions | Config                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------- |
+| `identity.user`, `users.instructor_application`, `access.user_role` and their `.dlq`                                                                 | 3          | `retention.ms=604800000` (7 days: PII, design §7) |
+| `catalog.course`, `media.asset` and their `.dlq` (Phase 2)                                                                                           | 3          | broker defaults (no PII, design §7)               |
+| `commerce.order`, `commerce.course_price`, `commerce.coupon`, `enrollment.enrollment` and their `.dlq` (Phase 4)                                     | 3          | broker defaults (no PII, design §7)               |
+| `learning.progress`, `learning.certificate`, `engagement.course_review`, `engagement.question`, `engagement.announcement` and their `.dlq` (Phase 5) | 3          | broker defaults (no text or PII, design §7)       |
+| `system.ping`                                                                                                                                        | 3          | broker defaults                                   |
 
 - Idempotent: `kafka-topics.sh --create --if-not-exists`, then `kafka-configs.sh --alter --add-config`.
   If the worker (which creates its handler topics and `.dlq` at startup with broker defaults) or Debezium

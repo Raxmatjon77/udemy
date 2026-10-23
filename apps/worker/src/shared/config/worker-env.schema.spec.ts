@@ -18,6 +18,14 @@ const validEnv = {
   S3_SECRET_KEY: 'minio12345',
   S3_BUCKET_UPLOADS: 'udemy-uploads',
   S3_BUCKET_MEDIA: 'udemy-media',
+  REDIS_URL: 'redis://localhost:6379',
+  NOTIFICATIONS_UNSUBSCRIBE_SECRET: 'dev-notifications-unsubscribe-secret-change-me-0000',
+};
+
+/** Production-safe replacements for the dev placeholders above. */
+const productionSecrets = {
+  EMAIL_TOKEN_SECRET: 'a'.repeat(44),
+  NOTIFICATIONS_UNSUBSCRIBE_SECRET: 'b'.repeat(44),
 };
 
 describe('workerEnvSchema (Phase 1 variables)', () => {
@@ -62,8 +70,8 @@ describe('workerEnvSchema (Phase 1 variables)', () => {
     expect(() =>
       validateEnv(workerEnvSchema, {
         ...validEnv,
+        ...productionSecrets,
         NODE_ENV: 'production',
-        EMAIL_TOKEN_SECRET: 'a'.repeat(44),
       }),
     ).not.toThrow();
   });
@@ -208,5 +216,53 @@ describe('workerEnvSchema (Phase 4 enrollment mail and ledger reconciliation)', 
     expect(() => validateEnv(workerEnvSchema, { ...validEnv, [key]: value })).toThrow(
       new RegExp(key),
     );
+  });
+});
+
+describe('workerEnvSchema (Phase 5 notifications and realtime push)', () => {
+  it('applies the defaults', () => {
+    expect(validateEnv(workerEnvSchema, validEnv)).toMatchObject({
+      REDIS_URL: 'redis://localhost:6379',
+      LEARNING_QUIZ_ATTEMPT_TTL_H: 24,
+    });
+  });
+
+  it.each(['REDIS_URL', 'NOTIFICATIONS_UNSUBSCRIBE_SECRET', 'STUDENT_APP_ORIGIN'])(
+    'requires %s',
+    (key) => {
+      const env: Record<string, string> = { ...validEnv };
+      delete env[key];
+      expect(() => validateEnv(workerEnvSchema, env)).toThrow(new RegExp(key));
+    },
+  );
+
+  it.each([
+    ['REDIS_URL', 'http://localhost:6379'],
+    ['NOTIFICATIONS_UNSUBSCRIBE_SECRET', 'x'.repeat(31)],
+    ['LEARNING_QUIZ_ATTEMPT_TTL_H', '0'],
+  ])('rejects %s=%j', (key, value) => {
+    expect(() => validateEnv(workerEnvSchema, { ...validEnv, [key]: value })).toThrow(
+      new RegExp(key),
+    );
+  });
+
+  it('refuses an unsubscribe secret equal to EMAIL_TOKEN_SECRET', () => {
+    expect(() =>
+      validateEnv(workerEnvSchema, {
+        ...validEnv,
+        NOTIFICATIONS_UNSUBSCRIBE_SECRET: validEnv.EMAIL_TOKEN_SECRET,
+      }),
+    ).toThrow(/NOTIFICATIONS_UNSUBSCRIBE_SECRET/);
+  });
+
+  it('refuses the change-me unsubscribe secret in production', () => {
+    expect(() =>
+      validateEnv(workerEnvSchema, {
+        ...validEnv,
+        ...productionSecrets,
+        NODE_ENV: 'production',
+        NOTIFICATIONS_UNSUBSCRIBE_SECRET: validEnv.NOTIFICATIONS_UNSUBSCRIBE_SECRET,
+      }),
+    ).toThrow(/NOTIFICATIONS_UNSUBSCRIBE_SECRET/);
   });
 });
