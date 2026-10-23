@@ -222,9 +222,9 @@ export class PublicCatalogController {
       lectureId: params.lectureId,
       viewer,
     });
-    // Set on success only (a 403 must not stick in the browser after signing in). Preview
-    // articles are public, others depend on the viewer: never in shared caches.
-    res.setHeader('Cache-Control', 'private, max-age=60');
+    // The body IS the gated content and access can end at any moment (refund, revocation): a
+    // cached copy would keep serving it, so the browser must ask every time (never a shared cache).
+    res.setHeader('Cache-Control', 'private, no-store');
     return article;
   }
 
