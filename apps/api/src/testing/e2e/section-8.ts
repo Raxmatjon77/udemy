@@ -179,3 +179,11 @@ export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_4_COMMERCE_B,
   ...SECTION_8_PHASE_4_COMMERCE_C,
 ];
+
+/** Every Phase 4 operation (P4-T17: phase4.e2e.spec.ts checks it against Swagger and Express). */
+export const SECTION_8_PHASE_4: readonly Operation[] = [
+  ...SECTION_8_PHASE_4_COMMERCE_A,
+  ...SECTION_8_PHASE_4_ENROLLMENT,
+  ...SECTION_8_PHASE_4_COMMERCE_B,
+  ...SECTION_8_PHASE_4_COMMERCE_C,
+];
