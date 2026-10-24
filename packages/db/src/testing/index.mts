@@ -7,20 +7,26 @@
  *   locally / fail with CI=true, rollback-per-test, `deleteTestData` needs a superuser).
  * - `scriptedDb`: a Kysely<DB> over a fake driver for unit tests of SQL branching.
  * - fixtures: raw-SQL row builders for catalog/media (they bypass the domain rules on purpose),
- *   and commerce-fixtures for commerce/enrollment/payouts (legal shapes; break one invariant per test).
+ *   commerce-fixtures for commerce/enrollment/payouts and phase5-fixtures for learning /
+ *   engagement / catalog QUIZ (legal shapes; break one invariant per test).
+ * - `skipUnlessMigrated`: gate tests on a migration newer than the 0004 probe (skip locally, fail in CI).
  */
 export type { IntegrationDb, PgErrorShape, SkippableContext } from './it-db.mjs';
 export {
   backendPid,
   checkDeferredNow,
+  deferredFailure,
+  deferredOk,
   deleteTestData,
   expectFailure,
   IT_DEFAULT_DATABASE_URL,
   isCi,
   itDatabaseUrl,
+  PHASE5_MIGRATION,
   PROBE_TIMEOUT_MS,
   rollback,
   signal,
+  skipUnlessMigrated,
   useIntegrationDb,
   waitUntilBlocked,
 } from './it-db.mjs';
@@ -60,3 +66,15 @@ export {
   submit,
   uniqueSuffix,
 } from './fixtures.js';
+export type { QuizQuestionSpec } from './phase5-fixtures.js';
+export {
+  certificateCode,
+  createActiveEnrollment,
+  createAnswer,
+  createCourseCompletion,
+  createQuestion,
+  createReviewRow,
+  insertQuizRevisionLecture,
+  startQuizAttempt,
+  submitQuizAttempt,
+} from './phase5-fixtures.js';

@@ -181,4 +181,145 @@ export {
   reconcileLedger,
   getLedgerTotals,
 } from './payouts/ledger';
+export { listActiveEnrolleesAfter } from './enrollment/enrollees';
+// Phase 5 operational SQL (docs/phase-5-schema-design.md §8, §10). All at READ COMMITTED.
+export {
+  LEARNING_PROGRESS_FLUSH_LOCK_KEY,
+  LEARNING_MAINTENANCE_LOCK_KEY,
+  LEARNING_COMPLETION_LOCK_CLASS,
+  NOTES_CAP_LOCK_CLASS,
+  lockLearningCompletion,
+  lockNotesCap,
+} from './learning/locks';
+export {
+  COVERAGE_BUCKET_SECONDS,
+  MAX_PROGRESS_DURATION_SECONDS,
+  coverageBucketCount,
+  coverageHexLiteral,
+  coverageTextToBytes,
+  countCoveredBuckets,
+} from './learning/coverage';
+export {
+  MAX_PROGRESS_BATCH,
+  type LectureProgressInput,
+  type LectureProgressState,
+  type CourseActivityInput,
+  type StoredLectureProgress,
+  type LectureCoverage,
+  upsertLectureProgress,
+  upsertCourseActivity,
+  listCourseLectureProgress,
+  getLectureCoverage,
+  getCourseActivity,
+} from './learning/progress';
+export {
+  LECTURE_TYPES,
+  type LectureType,
+  LECTURE_COMPLETION_CAUSES,
+  type LectureCompletionCause,
+  COMPLETION_CAUSES_BY_TYPE,
+  MAX_LIVE_LECTURES,
+  type LectureCompletionInput,
+  type LiveLectureSet,
+  type CourseCompletionState,
+  type RecordCompletionResult,
+  type CourseProgressCount,
+  insertLectureCompletion,
+  evaluateCourseCompletion,
+  recordLectureCompletion,
+  clearLectureCompletion,
+  listCompletedLectureIds,
+  getCourseProgressCounts,
+} from './learning/completion';
+export {
+  type LiveLecture,
+  type LearningConsumption,
+  getLearningConsumption,
+  consumptionReviewReason,
+} from './learning/consumption';
+export {
+  CERTIFICATE_PUBLIC_CODE_PATTERN,
+  type IssueCertificateInput,
+  type IssueCertificateResult,
+  type CertificateTransitionInput,
+  type CertificateTransitionResult,
+  certificatePdfObjectKey,
+  issueCertificate,
+  recordCertificatePdf,
+  transitionCertificate,
+  findCertificateId,
+} from './learning/certificates';
+export { abandonStaleQuizAttempts, findCertificatesPendingPdf } from './learning/maintenance';
+export { findCertificateEnrollmentDrift, findMalformedCoverage } from './learning/consistency';
+export {
+  ANNOUNCEMENT_QUOTA_LOCK_CLASS,
+  WISHLIST_CAP_LOCK_CLASS,
+  lockAnnouncementQuota,
+  lockWishlistCap,
+} from './engagement/locks';
+export {
+  type ReviewUpsertOutcome,
+  type UpsertReviewResult,
+  type CourseRating,
+  upsertReview,
+  upsertReviewReply,
+  recomputeCourseRating,
+  getCourseRatings,
+} from './engagement/reviews';
+export {
+  QA_SORTS,
+  type QaSort,
+  QA_SEARCH_MIN_CHARS,
+  type QuestionCursor,
+  type QuestionListItem,
+  type ListQuestionsOptions,
+  VOTE_SUBJECTS,
+  type VoteSubject,
+  listQuestions,
+  castVote,
+  retractVote,
+  findMyVotes,
+} from './engagement/qa';
+export {
+  MODERATED_SUBJECT_TYPES,
+  type ModeratedSubjectType,
+  REPORT_REASONS,
+  type ReportReason,
+  type ReportContentInput,
+  type ReportContentResult,
+  type ModerateSubjectInput,
+  type ModerateSubjectResult,
+  reportContent,
+  moderateSubject,
+} from './engagement/moderation';
+export {
+  findRatingStatsDrift,
+  findQuestionCounterDrift,
+  findAnswerCounterDrift,
+  findReviewSuspensionDrift,
+} from './engagement/consistency';
+export {
+  FANOUT_LEASE_MS,
+  FANOUT_BATCH_SIZE,
+  MAX_FANOUT_ATTEMPTS_LIMIT,
+  type FanoutFence,
+  type EnqueueAnnouncementFanoutInput,
+  type LeasedFanoutJob,
+  type AnnouncementNotificationsInput,
+  type ReapedFanoutLease,
+  enqueueAnnouncementFanout,
+  leaseFanoutJob,
+  lockFanoutBatch,
+  insertAnnouncementNotifications,
+  advanceFanoutJob,
+  failFanoutAttempt,
+  reapExpiredFanoutLeases,
+} from './notifications/fanout';
+export {
+  NOTIFICATION_RETENTION_LOCK_KEY,
+  NOTIFICATION_RETENTION_DAYS,
+  FANOUT_JOB_RETENTION_DAYS,
+  deleteExpiredNotifications,
+  deleteFinishedFanoutJobs,
+} from './notifications/retention';
 export { sql, Kysely, Transaction } from 'kysely';

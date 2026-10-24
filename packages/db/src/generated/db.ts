@@ -201,6 +201,14 @@ export interface CatalogLectureArticles {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface CatalogLectureQuizzes {
+  createdAt: Generated<Timestamp>;
+  lectureId: string;
+  lectureType: Generated<string>;
+  passPct: Generated<number>;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface CatalogLectures {
   /**
    * Functionally determined by section_id (documented 3NF exception): kept for the composite FK that pins a lecture to its course and for cheap course-scoped child loads. Cannot drift (composite FK + immutable).
@@ -224,6 +232,24 @@ export interface CatalogLectures {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface CatalogQuizOptions {
+  isCorrect: Generated<boolean>;
+  position: number;
+  questionId: string;
+  text: string;
+}
+
+export interface CatalogQuizQuestions {
+  createdAt: Generated<Timestamp>;
+  explanationMd: string | null;
+  id: Generated<string>;
+  kind: string;
+  lectureId: string;
+  position: number;
+  promptMd: string;
+  updatedAt: Generated<Timestamp>;
+}
+
 export interface CatalogRevisionBullets {
   kind: string;
   position: number;
@@ -242,10 +268,33 @@ export interface CatalogRevisionLectures {
   lectureId: string;
   mediaAssetId: string | null;
   position: number;
+  /**
+   * QUIZ only: snapshot of lecture_quizzes.pass_pct at submit. Learning copies it into quiz_attempts.pass_pct at START.
+   */
+  quizPassPct: number | null;
   revisionId: string;
   sectionId: string;
   title: string;
   type: string;
+}
+
+export interface CatalogRevisionQuizOptions {
+  isCorrect: boolean;
+  position: number;
+  questionId: string;
+  revisionId: string;
+  text: string;
+}
+
+export interface CatalogRevisionQuizQuestions {
+  explanationMd: string | null;
+  kind: string;
+  lectureId: string;
+  lectureType: Generated<string>;
+  position: number;
+  promptMd: string;
+  questionId: string;
+  revisionId: string;
 }
 
 export interface CatalogRevisionSections {
@@ -451,6 +500,178 @@ export interface CommerceRefundTransitions {
   toStatus: string;
 }
 
+export interface EngagementAnnouncements {
+  authorId: string;
+  bodyMd: string;
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  deletedAt: Timestamp | null;
+  deletedBy: string | null;
+  id: Generated<string>;
+  sendEmail: boolean;
+  title: string;
+}
+
+export interface EngagementAnswerReports {
+  comment: string | null;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  reason: string;
+  reporterId: string;
+  resolvedAt: Timestamp | null;
+  resolvedBy: string | null;
+  status: Generated<string>;
+  subjectId: string;
+}
+
+export interface EngagementAnswers {
+  authorId: string;
+  bodyMd: string;
+  createdAt: Generated<Timestamp>;
+  deletedAt: Timestamp | null;
+  editedAt: Timestamp | null;
+  id: Generated<string>;
+  moderationStatus: Generated<string>;
+  questionId: string;
+  updatedAt: Generated<Timestamp>;
+  upvoteCount: ColumnType<number, never, never>;
+}
+
+export interface EngagementAnswerVotes {
+  createdAt: Generated<Timestamp>;
+  subjectId: string;
+  userId: string;
+}
+
+export interface EngagementContentReports {
+  comment: string | null;
+  createdAt: Timestamp | null;
+  id: string | null;
+  reason: string | null;
+  reporterId: string | null;
+  resolvedAt: Timestamp | null;
+  resolvedBy: string | null;
+  status: string | null;
+  subjectId: string | null;
+  subjectType: string | null;
+}
+
+export interface EngagementCourseRatingStats {
+  averageRating: ColumnType<string | null, never, never>;
+  count1: Generated<number>;
+  count2: Generated<number>;
+  count3: Generated<number>;
+  count4: Generated<number>;
+  count5: Generated<number>;
+  courseId: string;
+  ratingSum: ColumnType<string, never, never>;
+  recomputedAt: Generated<Timestamp>;
+  reviewCount: ColumnType<number, never, never>;
+}
+
+export interface EngagementModerationActions {
+  action: string;
+  actorId: string | null;
+  id: Generated<string>;
+  occurredAt: Generated<Timestamp>;
+  reason: string | null;
+  subjectId: string;
+  subjectType: string;
+}
+
+export interface EngagementQuestionReports {
+  comment: string | null;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  reason: string;
+  reporterId: string;
+  resolvedAt: Timestamp | null;
+  resolvedBy: string | null;
+  status: Generated<string>;
+  subjectId: string;
+}
+
+export interface EngagementQuestions {
+  acceptedAnswerId: string | null;
+  answerCount: ColumnType<number, never, never>;
+  authorId: string;
+  bodyMd: string;
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  deletedAt: Timestamp | null;
+  editedAt: Timestamp | null;
+  id: Generated<string>;
+  lastActivityAt: ColumnType<Date, never, never>;
+  lectureId: string | null;
+  moderationStatus: Generated<string>;
+  title: string;
+  updatedAt: Generated<Timestamp>;
+  upvoteCount: ColumnType<number, never, never>;
+}
+
+export interface EngagementQuestionVotes {
+  createdAt: Generated<Timestamp>;
+  subjectId: string;
+  userId: string;
+}
+
+export interface EngagementReviewReplies {
+  authorId: string;
+  body: string;
+  createdAt: Generated<Timestamp>;
+  deletedAt: Timestamp | null;
+  editedAt: Timestamp | null;
+  id: Generated<string>;
+  moderationStatus: Generated<string>;
+  reviewId: string;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface EngagementReviewReplyReports {
+  comment: string | null;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  reason: string;
+  reporterId: string;
+  resolvedAt: Timestamp | null;
+  resolvedBy: string | null;
+  status: Generated<string>;
+  subjectId: string;
+}
+
+export interface EngagementReviewReports {
+  comment: string | null;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  reason: string;
+  reporterId: string;
+  resolvedAt: Timestamp | null;
+  resolvedBy: string | null;
+  status: Generated<string>;
+  subjectId: string;
+}
+
+export interface EngagementReviews {
+  body: string | null;
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  deletedAt: Timestamp | null;
+  deletedBy: string | null;
+  editedAt: Timestamp | null;
+  id: Generated<string>;
+  moderationStatus: Generated<string>;
+  rating: number;
+  suspendedAt: Timestamp | null;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface EngagementWishlistItems {
+  addedAt: Generated<Timestamp>;
+  courseId: string;
+  userId: string;
+}
+
 export interface EnrollmentEnrollments {
   courseId: string;
   createdAt: Generated<Timestamp>;
@@ -607,6 +828,118 @@ export interface IdentityUsers {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface LearningCertificates {
+  courseId: string;
+  courseTitle: string;
+  id: Generated<string>;
+  instructorName: string;
+  issuedAt: Generated<Timestamp>;
+  pdfObjectKey: string | null;
+  pdfRenderedAt: Timestamp | null;
+  publicCode: string;
+  recipientName: string;
+  revisionId: string;
+  revokedAt: Timestamp | null;
+  sourceEventId: string;
+  status: Generated<string>;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface LearningCertificateTransitions {
+  action: string;
+  actorId: string | null;
+  cause: string;
+  certificateId: string;
+  fromStatus: string | null;
+  occurredAt: Generated<Timestamp>;
+  prevSeq: ColumnType<number | null, never, never>;
+  reason: string | null;
+  seq: number;
+  sourceEventId: string | null;
+  toStatus: string;
+}
+
+export interface LearningCourseActivity {
+  courseId: string;
+  lastAccessedAt: Timestamp;
+  lastLectureId: string;
+  userId: string;
+}
+
+export interface LearningCourseCompletions {
+  completedAt: Generated<Timestamp>;
+  courseId: string;
+  lectureCount: number;
+  revisionId: string;
+  userId: string;
+}
+
+export interface LearningLectureCompletions {
+  cause: string;
+  completedAt: Generated<Timestamp>;
+  courseId: string;
+  lectureId: string;
+  lectureType: string;
+  quizAttemptId: string | null;
+  revisionId: string;
+  userId: string;
+}
+
+export interface LearningLectureProgress {
+  courseId: string;
+  coverage: string;
+  durationSeconds: number;
+  firstWatchedAt: Timestamp;
+  lastWatchedAt: Timestamp;
+  lectureId: string;
+  mediaAssetId: string;
+  positionSeconds: Generated<number>;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface LearningNotes {
+  bodyMd: string;
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  lectureId: string;
+  positionSeconds: number | null;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface LearningQuizAttemptQuestions {
+  attemptId: string;
+  isCorrect: boolean | null;
+  position: number;
+  questionId: string;
+}
+
+export interface LearningQuizAttempts {
+  abandonedAt: Timestamp | null;
+  correctCount: number | null;
+  courseId: string;
+  id: Generated<string>;
+  lectureId: string;
+  passed: ColumnType<boolean | null, never, never>;
+  passPct: number;
+  questionCount: number;
+  revisionId: string;
+  scorePct: ColumnType<number | null, never, never>;
+  startedAt: Generated<Timestamp>;
+  status: Generated<string>;
+  submittedAt: Timestamp | null;
+  userId: string;
+}
+
+export interface LearningQuizAttemptSelections {
+  attemptId: string;
+  optionPosition: number;
+  questionId: string;
+}
+
 export interface MediaAssetRenditions {
   assetId: string;
   bandwidthBps: number | null;
@@ -747,6 +1080,49 @@ export interface MediaTranscodeJobs {
   updatedAt: Generated<Timestamp>;
 }
 
+export interface NotificationsFanoutJobs {
+  afterUserId: string | null;
+  attempts: Generated<number>;
+  courseId: string;
+  createdAt: Generated<Timestamp>;
+  finishedAt: Timestamp | null;
+  id: Generated<string>;
+  kind: string;
+  lastErrorCode: string | null;
+  leaseExpiresAt: Timestamp | null;
+  leaseOwner: string | null;
+  maxAttempts: Generated<number>;
+  processedCount: Generated<number>;
+  runAfter: Generated<Timestamp>;
+  sendEmail: boolean;
+  sourceEventId: string;
+  status: Generated<string>;
+  subjectId: string;
+  updatedAt: Generated<Timestamp>;
+}
+
+export interface NotificationsNotificationPreferences {
+  category: string;
+  channel: string;
+  enabled: boolean;
+  updatedAt: Generated<Timestamp>;
+  userId: string;
+}
+
+export interface NotificationsNotifications {
+  app: string;
+  createdAt: Generated<Timestamp>;
+  id: Generated<string>;
+  kind: string;
+  payload: Json;
+  readAt: Timestamp | null;
+  redactedAt: Timestamp | null;
+  sourceEventId: string;
+  subjectId: string | null;
+  subjectType: string | null;
+  userId: string;
+}
+
 export interface OutboxEvents {
   aggregateId: string;
   aggregateType: string;
@@ -858,9 +1234,14 @@ export interface DB {
   'catalog.courses': CatalogCourses;
   'catalog.courseTransitions': CatalogCourseTransitions;
   'catalog.lectureArticles': CatalogLectureArticles;
+  'catalog.lectureQuizzes': CatalogLectureQuizzes;
   'catalog.lectures': CatalogLectures;
+  'catalog.quizOptions': CatalogQuizOptions;
+  'catalog.quizQuestions': CatalogQuizQuestions;
   'catalog.revisionBullets': CatalogRevisionBullets;
   'catalog.revisionLectures': CatalogRevisionLectures;
+  'catalog.revisionQuizOptions': CatalogRevisionQuizOptions;
+  'catalog.revisionQuizQuestions': CatalogRevisionQuizQuestions;
   'catalog.revisionSections': CatalogRevisionSections;
   'catalog.sections': CatalogSections;
   'commerce.cartItems': CommerceCartItems;
@@ -876,6 +1257,21 @@ export interface DB {
   'commerce.providerEvents': CommerceProviderEvents;
   'commerce.refunds': CommerceRefunds;
   'commerce.refundTransitions': CommerceRefundTransitions;
+  'engagement.announcements': EngagementAnnouncements;
+  'engagement.answerReports': EngagementAnswerReports;
+  'engagement.answers': EngagementAnswers;
+  'engagement.answerVotes': EngagementAnswerVotes;
+  'engagement.contentReports': EngagementContentReports;
+  'engagement.courseRatingStats': EngagementCourseRatingStats;
+  'engagement.moderationActions': EngagementModerationActions;
+  'engagement.questionReports': EngagementQuestionReports;
+  'engagement.questions': EngagementQuestions;
+  'engagement.questionVotes': EngagementQuestionVotes;
+  'engagement.reviewReplies': EngagementReviewReplies;
+  'engagement.reviewReplyReports': EngagementReviewReplyReports;
+  'engagement.reviewReports': EngagementReviewReports;
+  'engagement.reviews': EngagementReviews;
+  'engagement.wishlistItems': EngagementWishlistItems;
   'enrollment.enrollments': EnrollmentEnrollments;
   'enrollment.enrollmentTransitions': EnrollmentEnrollmentTransitions;
   'identity.oneTimeTokens': IdentityOneTimeTokens;
@@ -884,11 +1280,24 @@ export interface DB {
   'identity.sessions': IdentitySessions;
   'identity.userBans': IdentityUserBans;
   'identity.users': IdentityUsers;
+  'learning.certificates': LearningCertificates;
+  'learning.certificateTransitions': LearningCertificateTransitions;
+  'learning.courseActivity': LearningCourseActivity;
+  'learning.courseCompletions': LearningCourseCompletions;
+  'learning.lectureCompletions': LearningLectureCompletions;
+  'learning.lectureProgress': LearningLectureProgress;
+  'learning.notes': LearningNotes;
+  'learning.quizAttemptQuestions': LearningQuizAttemptQuestions;
+  'learning.quizAttempts': LearningQuizAttempts;
+  'learning.quizAttemptSelections': LearningQuizAttemptSelections;
   'media.assetRenditions': MediaAssetRenditions;
   'media.assets': MediaAssets;
   'media.assetUsages': MediaAssetUsages;
   'media.transcodeAttempts': MediaTranscodeAttempts;
   'media.transcodeJobs': MediaTranscodeJobs;
+  'notifications.fanoutJobs': NotificationsFanoutJobs;
+  'notifications.notificationPreferences': NotificationsNotificationPreferences;
+  'notifications.notifications': NotificationsNotifications;
   'outbox.events': OutboxEvents;
   'outbox.processedEvents': OutboxProcessedEvents;
   'payouts.accountBalances': PayoutsAccountBalances;

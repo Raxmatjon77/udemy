@@ -139,6 +139,26 @@ export async function rollback<T>(
   return result as T;
 }
 
+/** Name of the Phase 5 migration (learning / engagement / notifications + catalog QUIZ). */
+export const PHASE5_MIGRATION = '2026_10_24_0005_learning_engagement_notifications';
+
+/**
+ * Skips the test locally, or FAILS it with CI=true, unless migration `name` is applied (the
+ * harness only probes the 0004 tables). Call right after `skipIfUnavailable`.
+ */
+export async function skipUnlessMigrated(
+  pg: IntegrationDb,
+  ctx: SkippableContext,
+  name: string = PHASE5_MIGRATION,
+): Promise<void> {
+  const { rows } = await sql<{ n: number }>`
+    SELECT count(*)::int AS n FROM public.kysely_migration WHERE name = ${name}
+  `.execute(pg.db);
+  const applied = rows[0]!.n === 1;
+  if (!applied && isCi()) throw new Error(`migration ${name} is not applied`);
+  ctx.skip(!applied, `${name} not applied (run pnpm --filter @udemy/db migrate:latest)`);
+}
+
 export interface PgErrorShape {
   code?: string;
   constraint?: string;
@@ -167,6 +187,37 @@ export async function expectFailure(
 export async function checkDeferredNow(trx: Transaction<DB>): Promise<void> {
   await sql`SET CONSTRAINTS ALL IMMEDIATE`.execute(trx);
   await sql`SET CONSTRAINTS ALL DEFERRED`.execute(trx);
+}
+
+/**
+ * Runs `fn` plus every deferred check (as COMMIT would) in a rolled-back transaction and returns
+ * the error. One failing invariant per call: a failed SET CONSTRAINTS leaves its events queued.
+ */
+export async function deferredFailure(
+  db: Kysely<DB>,
+  fn: (trx: Transaction<DB>) => Promise<unknown>,
+): Promise<PgErrorShape & Error> {
+  try {
+    await rollback(db, async (trx) => {
+      await fn(trx);
+      await checkDeferredNow(trx);
+    });
+  } catch (error) {
+    return error as PgErrorShape & Error;
+  }
+  throw new Error('expected a deferred constraint to fail, but every check passed');
+}
+
+/** Same, but `fn` must pass every deferred check (still rolled back). Returns fn's result. */
+export async function deferredOk<T>(
+  db: Kysely<DB>,
+  fn: (trx: Transaction<DB>) => Promise<T>,
+): Promise<T> {
+  return rollback(db, async (trx) => {
+    const result = await fn(trx);
+    await checkDeferredNow(trx);
+    return result;
+  });
 }
 
 /** Backend pid of the connection running `executor` (a transaction pins one connection). */
@@ -261,9 +312,80 @@ async function deleteCommerceRows(
 }
 
 /**
- * Deletes everything the tests committed for these users (their commerce / enrollment / payouts
- * rows and `providerEventIds`; their assets with jobs, attempts, renditions and usages; their
- * courses with all catalog children and history; categories by id; then the users).
+ * Phase 5 rows (0005) of these users: learning progress/completions/attempts/notes/certificates,
+ * their engagement content (with the votes, reports and moderation rows on it), notifications,
+ * and the catalog quiz tables of their courses. A no-op on a database without 0005. Runs inside
+ * deleteTestData's replica-role transaction (FK checks and guards are off). Fan-out jobs and
+ * course_rating_stats rows are not user-linked: tests delete their own.
+ */
+async function deletePhase5Rows(trx: Transaction<DB>, ids: readonly string[]): Promise<void> {
+  const { rows } = await sql<{ present: boolean }>`
+    SELECT to_regclass('learning.lecture_progress') IS NOT NULL AS present
+  `.execute(trx);
+  if (rows[0]?.present !== true) return;
+  const u = sql`${[...ids]}::uuid[]`;
+  await sql`
+    WITH att AS (SELECT id FROM learning.quiz_attempts WHERE user_id = ANY(${u}))
+    , cert AS (SELECT id FROM learning.certificates WHERE user_id = ANY(${u}))
+    , d1 AS (DELETE FROM learning.quiz_attempt_selections WHERE attempt_id IN (SELECT id FROM att))
+    , d2 AS (DELETE FROM learning.quiz_attempt_questions WHERE attempt_id IN (SELECT id FROM att))
+    , d3 AS (DELETE FROM learning.lecture_completions WHERE user_id = ANY(${u}))
+    , d4 AS (DELETE FROM learning.quiz_attempts WHERE id IN (SELECT id FROM att))
+    , d5 AS (DELETE FROM learning.certificate_transitions
+              WHERE certificate_id IN (SELECT id FROM cert) OR actor_id = ANY(${u}))
+    , d6 AS (DELETE FROM learning.certificates WHERE id IN (SELECT id FROM cert))
+    , d7 AS (DELETE FROM learning.course_completions WHERE user_id = ANY(${u}))
+    , d8 AS (DELETE FROM learning.notes WHERE user_id = ANY(${u}))
+    , d9 AS (DELETE FROM learning.course_activity WHERE user_id = ANY(${u}))
+    DELETE FROM learning.lecture_progress WHERE user_id = ANY(${u})
+  `.execute(trx);
+  await sql`
+    WITH q AS (SELECT id FROM engagement.questions WHERE author_id = ANY(${u}))
+    , a AS (SELECT id FROM engagement.answers WHERE author_id = ANY(${u}) OR question_id IN (SELECT id FROM q))
+    , r AS (SELECT id FROM engagement.reviews WHERE user_id = ANY(${u}) OR deleted_by = ANY(${u}))
+    , rr AS (SELECT id FROM engagement.review_replies WHERE author_id = ANY(${u}) OR review_id IN (SELECT id FROM r))
+    , subj AS (SELECT id FROM q UNION ALL SELECT id FROM a UNION ALL SELECT id FROM r UNION ALL SELECT id FROM rr)
+    , d1 AS (DELETE FROM engagement.question_votes WHERE user_id = ANY(${u}) OR subject_id IN (SELECT id FROM q))
+    , d2 AS (DELETE FROM engagement.answer_votes WHERE user_id = ANY(${u}) OR subject_id IN (SELECT id FROM a))
+    , d3 AS (DELETE FROM engagement.question_reports
+              WHERE reporter_id = ANY(${u}) OR resolved_by = ANY(${u}) OR subject_id IN (SELECT id FROM q))
+    , d4 AS (DELETE FROM engagement.answer_reports
+              WHERE reporter_id = ANY(${u}) OR resolved_by = ANY(${u}) OR subject_id IN (SELECT id FROM a))
+    , d5 AS (DELETE FROM engagement.review_reports
+              WHERE reporter_id = ANY(${u}) OR resolved_by = ANY(${u}) OR subject_id IN (SELECT id FROM r))
+    , d6 AS (DELETE FROM engagement.review_reply_reports
+              WHERE reporter_id = ANY(${u}) OR resolved_by = ANY(${u}) OR subject_id IN (SELECT id FROM rr))
+    , d7 AS (DELETE FROM engagement.moderation_actions
+              WHERE actor_id = ANY(${u}) OR subject_id IN (SELECT id FROM subj))
+    , d8 AS (DELETE FROM engagement.answers WHERE id IN (SELECT id FROM a))
+    , d9 AS (DELETE FROM engagement.review_replies WHERE id IN (SELECT id FROM rr))
+    , d10 AS (DELETE FROM engagement.reviews WHERE id IN (SELECT id FROM r))
+    , d11 AS (DELETE FROM engagement.announcements WHERE author_id = ANY(${u}) OR deleted_by = ANY(${u}))
+    , d12 AS (DELETE FROM engagement.wishlist_items WHERE user_id = ANY(${u}))
+    DELETE FROM engagement.questions WHERE id IN (SELECT id FROM q)
+  `.execute(trx);
+  await sql`
+    WITH d1 AS (DELETE FROM notifications.notification_preferences WHERE user_id = ANY(${u}))
+    DELETE FROM notifications.notifications WHERE user_id = ANY(${u})
+  `.execute(trx);
+  await sql`
+    WITH c AS (SELECT id FROM catalog.courses WHERE owner_id = ANY(${u}))
+    , r AS (SELECT id FROM catalog.course_revisions WHERE course_id IN (SELECT id FROM c))
+    , l AS (SELECT id FROM catalog.lectures WHERE course_id IN (SELECT id FROM c))
+    , qq AS (SELECT id FROM catalog.quiz_questions WHERE lecture_id IN (SELECT id FROM l))
+    , d1 AS (DELETE FROM catalog.revision_quiz_options WHERE revision_id IN (SELECT id FROM r))
+    , d2 AS (DELETE FROM catalog.revision_quiz_questions WHERE revision_id IN (SELECT id FROM r))
+    , d3 AS (DELETE FROM catalog.quiz_options WHERE question_id IN (SELECT id FROM qq))
+    , d4 AS (DELETE FROM catalog.quiz_questions WHERE id IN (SELECT id FROM qq))
+    DELETE FROM catalog.lecture_quizzes WHERE lecture_id IN (SELECT id FROM l)
+  `.execute(trx);
+}
+
+/**
+ * Deletes everything the tests committed for these users (their Phase 5 learning / engagement /
+ * notifications rows; their commerce / enrollment / payouts rows and `providerEventIds`; their
+ * assets with jobs, attempts, renditions and usages; their courses with all catalog children,
+ * quiz tables and history; categories by id; then the users).
  * `session_replication_role = replica` disables the append-only triggers and FK checks for this
  * transaction only; it needs a superuser (dev compose and CI connect as one).
  */
@@ -278,6 +400,7 @@ export async function deleteTestData(
   if (ids.length === 0 && categoryIds.length === 0 && eventIds.length === 0) return;
   await db.transaction().execute(async (trx) => {
     await sql`set local session_replication_role = replica`.execute(trx);
+    if (ids.length > 0) await deletePhase5Rows(trx, ids);
     if (ids.length > 0 || eventIds.length > 0) await deleteCommerceRows(trx, ids, eventIds);
     if (ids.length > 0) {
       await sql`
