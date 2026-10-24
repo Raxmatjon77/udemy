@@ -29,6 +29,9 @@
       "@swc/core",
       "esbuild",
       "msw"
-    ]
+    ],
+    "overrides": {
+      "handlebars@<4.7.10": "4.7.10"
+    }
   }
 }
