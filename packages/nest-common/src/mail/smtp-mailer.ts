@@ -1,6 +1,6 @@
 import { createTransport, type SentMessageInfo, type Transporter } from 'nodemailer';
 import { DependencyUnavailableError } from '../errors/dependency-unavailable.error';
-import { Mailer, type MailMessage, type MailSendResult } from './mailer';
+import { assertMailHeaders, Mailer, type MailMessage, type MailSendResult } from './mailer';
 import { isValidMessageId } from './message-id';
 
 export interface SmtpMailerOptions {
@@ -68,6 +68,7 @@ export class SmtpMailer extends Mailer {
     if (message.messageId !== undefined && !isValidMessageId(message.messageId)) {
       throw new TypeError('MailMessage.messageId must look like <id@domain>');
     }
+    assertMailHeaders(message.headers);
     try {
       const info = await this.transport.sendMail({
         from: this.options.from,
@@ -76,6 +77,7 @@ export class SmtpMailer extends Mailer {
         text: message.text,
         html: message.html,
         messageId: message.messageId,
+        ...(message.headers === undefined ? {} : { headers: { ...message.headers } }),
       });
       return {
         messageId: info.messageId,

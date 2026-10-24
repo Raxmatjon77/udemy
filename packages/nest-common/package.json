@@ -2,7 +2,7 @@
   "name": "@udemy/nest-common",
   "version": "0.0.0",
   "private": true,
-  "description": "Nest infrastructure shared by @udemy/api and @udemy/worker: config, logging, database, domain errors, health, mail.",
+  "description": "Nest infrastructure shared by @udemy/api and @udemy/worker: config, logging, database, domain errors, health, mail, unsubscribe tokens.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -17,6 +17,10 @@
     "./mail": {
       "types": "./dist/mail/index.d.ts",
       "default": "./dist/mail/index.js"
+    },
+    "./unsubscribe": {
+      "types": "./dist/unsubscribe/index.d.ts",
+      "default": "./dist/unsubscribe/index.js"
     }
   },
   "files": [
@@ -30,6 +34,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@udemy/contracts": "workspace:*",
     "@udemy/db": "workspace:*",
     "nestjs-pino": "5.3.1",
     "nodemailer": "10.0.16",

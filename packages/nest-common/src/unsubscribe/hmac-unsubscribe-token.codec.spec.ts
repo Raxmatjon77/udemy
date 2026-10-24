@@ -1,13 +1,13 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import type { AppConfigService } from '../../../shared/config';
 import { HmacUnsubscribeTokenCodec } from './hmac-unsubscribe-token.codec';
+import { isUnsubscribable, parseUnsubscribeToken } from './unsubscribe-token';
 
 const USER = '01900000-0000-7000-8000-0000000000a1';
 const SECRET = 'dev-notifications-unsubscribe-secret-change-me-0000';
 
 function codec(secret = SECRET): HmacUnsubscribeTokenCodec {
-  return new HmacUnsubscribeTokenCodec({ get: () => secret } as unknown as AppConfigService);
+  return new HmacUnsubscribeTokenCodec(secret);
 }
 
 describe('HmacUnsubscribeTokenCodec', () => {
@@ -26,6 +26,11 @@ describe('HmacUnsubscribeTokenCodec', () => {
       userId: USER,
       category: 'QA',
     });
+  });
+
+  it('two instances with the same secret agree (worker signs, api verifies)', () => {
+    const token = codec().sign({ userId: USER, category: 'LEARNING' });
+    expect(codec().verify(token)).toEqual({ userId: USER, category: 'LEARNING' });
   });
 
   it('rejects forgeries, tampering and malformed tokens', () => {
@@ -66,5 +71,19 @@ describe('HmacUnsubscribeTokenCodec', () => {
     expect(() => c.sign({ userId: USER, category: 'MODERATION' })).toThrow(TypeError);
     const mac = createHmac('sha256', SECRET).update(`v1|${USER}|MODERATION`).digest('base64url');
     expect(c.verify(`v1.${USER}.MODERATION.${mac}`)).toBeNull();
+    expect(isUnsubscribable('MODERATION')).toBe(false);
+    expect(isUnsubscribable('ANNOUNCEMENTS')).toBe(true);
+  });
+
+  it('refuses a short secret', () => {
+    expect(() => new HmacUnsubscribeTokenCodec('too-short')).toThrow(TypeError);
+  });
+
+  it('parseUnsubscribeToken is a syntax check only', () => {
+    expect(parseUnsubscribeToken(`v1.${USER}.QA.${'A'.repeat(43)}`)).toEqual({
+      claims: { userId: USER, category: 'QA' },
+      mac: 'A'.repeat(43),
+    });
+    expect(parseUnsubscribeToken(`v1.${USER}.NOPE.${'A'.repeat(43)}`)).toBeNull();
   });
 });

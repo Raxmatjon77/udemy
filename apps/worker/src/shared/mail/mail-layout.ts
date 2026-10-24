@@ -16,6 +16,16 @@ export interface MailLayout {
   readonly paragraphs: readonly string[];
   readonly action?: { readonly label: string; readonly url: string };
   readonly footnote?: string;
+  /**
+   * Notification e-mails of an unlockable category (design §14): a visible one-click
+   * unsubscribe link (`{STUDENT_APP_ORIGIN}/unsubscribe#token=…`) and the preferences page.
+   */
+  readonly unsubscribe?: {
+    readonly url: string;
+    readonly preferencesUrl: string;
+    /** e.g. "course announcements" (NOTIFICATION_CATEGORY_META label, lowercased). */
+    readonly categoryLabel: string;
+  };
 }
 
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
@@ -54,6 +64,14 @@ export function renderMail(layout: MailLayout): RenderedMail {
   const name = oneLine(layout.greetingName);
   const action =
     layout.action === undefined ? undefined : { ...layout.action, url: safeUrl(layout.action.url) };
+  const unsubscribe =
+    layout.unsubscribe === undefined
+      ? undefined
+      : {
+          url: safeUrl(layout.unsubscribe.url),
+          preferencesUrl: safeUrl(layout.unsubscribe.preferencesUrl),
+          categoryLabel: oneLine(layout.unsubscribe.categoryLabel),
+        };
 
   const text = [
     `Hi ${name},`,
@@ -62,6 +80,13 @@ export function renderMail(layout: MailLayout): RenderedMail {
     ...(action === undefined ? [] : [`${action.label}: ${action.url}`, '']),
     ...(layout.footnote === undefined ? [] : [layout.footnote, '']),
     '— Udemy Clone',
+    ...(unsubscribe === undefined
+      ? []
+      : [
+          '',
+          `Unsubscribe from ${unsubscribe.categoryLabel} emails: ${unsubscribe.url}`,
+          `Notification settings: ${unsubscribe.preferencesUrl}`,
+        ]),
   ].join('\n');
 
   const html = [
@@ -79,6 +104,11 @@ export function renderMail(layout: MailLayout): RenderedMail {
       ? []
       : [`<p style="font-size:12px;color:#6a6f73">${escapeHtml(layout.footnote)}</p>`]),
     '<p>— Udemy Clone</p>',
+    ...(unsubscribe === undefined
+      ? []
+      : [
+          `<p style="font-size:12px;color:#6a6f73"><a href="${escapeHtml(unsubscribe.url)}">Unsubscribe</a> from ${escapeHtml(unsubscribe.categoryLabel)} emails · <a href="${escapeHtml(unsubscribe.preferencesUrl)}">Notification settings</a></p>`,
+        ]),
     '</body></html>',
   ].join('\n');
 

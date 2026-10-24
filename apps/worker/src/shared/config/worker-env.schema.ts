@@ -242,6 +242,22 @@ export const workerEnvSchema = baseEnvSchema
       .min(1)
       .max(24 * 30)
       .default(24),
+
+    // ---- Phase 5 (P5-T15): scheduled jobs. Each one can be switched off per replica; an
+    // advisory lock (retention `_07`, learning maintenance `_08`) or the fan-out lease still
+    // makes the work exclusive across replicas.
+    /** Run the announcement FanoutJob in this replica (leased jobs, `SKIP LOCKED`). */
+    NOTIFICATION_FANOUT_ENABLED: envBoolean.default(true),
+    /** Poll interval of the FanoutJob (reaper + lease). */
+    NOTIFICATION_FANOUT_INTERVAL_MS: envInt.min(1_000).default(5_000),
+    /** Run the daily NotificationRetentionJob (`_07`) in this replica. */
+    NOTIFICATION_RETENTION_ENABLED: envBoolean.default(true),
+    NOTIFICATION_RETENTION_INTERVAL_MS: envInt.min(60_000).default(24 * 60 * 60 * 1000),
+    NOTIFICATION_RETENTION_INITIAL_DELAY_MS: envInt.default(300_000),
+    /** Run the hourly LearningMaintenanceJob (`_08`) in this replica. */
+    LEARNING_MAINTENANCE_ENABLED: envBoolean.default(true),
+    LEARNING_MAINTENANCE_INTERVAL_MS: envInt.min(60_000).default(60 * 60 * 1000),
+    LEARNING_MAINTENANCE_INITIAL_DELAY_MS: envInt.default(150_000),
   })
   // Two purposes, two keys: a leaked unsubscribe key must not forge verify / reset links.
   .superRefine((env, ctx) => {

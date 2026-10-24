@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { HmacUnsubscribeTokenCodec } from '@udemy/nest-common/unsubscribe';
+import { AppConfigService } from '../../shared/config';
 import { CatalogModule } from '../catalog';
 import { EnrollmentModule } from '../enrollment';
 import { NotificationPreferenceRepository } from './application/ports/notification-preference.repository';
@@ -13,7 +15,6 @@ import { MarkAllNotificationsReadCommand } from './application/use-cases/mark-al
 import { MarkNotificationReadCommand } from './application/use-cases/mark-notification-read.command';
 import { UnsubscribeCommand } from './application/use-cases/unsubscribe.command';
 import { UpdateNotificationPreferencesCommand } from './application/use-cases/update-notification-preferences.command';
-import { HmacUnsubscribeTokenCodec } from './infrastructure/hmac-unsubscribe-token.codec';
 import { KyselyNotificationPreferenceRepository } from './infrastructure/kysely-notification-preference.repository';
 import { KyselyNotificationRepository } from './infrastructure/kysely-notification.repository';
 import { MyNotificationsController } from './presentation/my-notifications.controller';
@@ -48,7 +49,13 @@ import { UnsubscribeErrorsInterceptor } from './presentation/unsubscribe-errors.
     // Persistence and secrets
     { provide: NotificationRepository, useClass: KyselyNotificationRepository },
     { provide: NotificationPreferenceRepository, useClass: KyselyNotificationPreferenceRepository },
-    { provide: UnsubscribeTokenCodec, useClass: HmacUnsubscribeTokenCodec },
+    // The reference HMAC codec, shared with the worker that signs the e-mail links (P5-T15).
+    {
+      provide: UnsubscribeTokenCodec,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService): UnsubscribeTokenCodec =>
+        new HmacUnsubscribeTokenCodec(config.get('NOTIFICATIONS_UNSUBSCRIBE_SECRET')),
+    },
 
     // Application services and use cases
     UnreadCountPublisher,

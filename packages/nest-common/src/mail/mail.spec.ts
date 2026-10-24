@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DependencyUnavailableError } from '../errors/dependency-unavailable.error';
 import { mailEnvSchema } from './mail-env.schema';
+import { assertMailHeaders } from './mailer';
 import { eventMessageId, isValidMessageId } from './message-id';
 import { SmtpMailer } from './smtp-mailer';
 
@@ -38,12 +39,37 @@ describe('mailEnvSchema', () => {
   });
 });
 
+describe('assertMailHeaders', () => {
+  it('accepts the RFC 8058 pair', () => {
+    expect(() =>
+      assertMailHeaders({
+        'List-Unsubscribe': '<https://app.test/api/notifications/unsubscribe?token=v1.x>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      }),
+    ).not.toThrow();
+    expect(() => assertMailHeaders(undefined)).not.toThrow();
+  });
+
+  it('refuses other names and multi-line values (header injection)', () => {
+    expect(() => assertMailHeaders({ Bcc: 'x@y.z' })).toThrow(TypeError);
+    expect(() => assertMailHeaders({ 'List-Unsubscribe': '<a>\r\nBcc: x@y.z' })).toThrow(TypeError);
+    expect(() => assertMailHeaders({ 'List-Unsubscribe': '' })).toThrow(TypeError);
+  });
+});
+
 describe('SmtpMailer', () => {
   it('rejects a malformed messageId before talking to the server', async () => {
     const mailer = new SmtpMailer({ host: '127.0.0.1', port: 1, from: 'a@b.c', pool: false });
 
     await expect(
       mailer.send({ to: 'x@y.z', subject: 's', text: 't', messageId: 'not-an-id' }),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('rejects a disallowed header before talking to the server', async () => {
+    const mailer = new SmtpMailer({ host: '127.0.0.1', port: 1, from: 'a@b.c', pool: false });
+    await expect(
+      mailer.send({ to: 'x@y.z', subject: 's', text: 't', headers: { Bcc: 'q@r.s' } }),
     ).rejects.toThrow(TypeError);
   });
 
