@@ -11,6 +11,8 @@ import {
   makeAdminOrderDetail,
   makeAdminOrderLine,
   makeAdminRefundQueueItem,
+  makeCourseConsumption,
+  mockCourseConsumption,
   makeCartLine,
   makeCartQuote,
   makeCheckoutInProgressProblem,
@@ -82,6 +84,19 @@ describe('fixtures', () => {
     expect(makeReceipt().totalAmount).toBe('19.99');
     expect(makeRefund({ status: 'REJECTED' }).rejectionReason).not.toBeNull();
     expect(makeAdminRefundQueueItem({ status: 'FAILED' }).failureCode).toBe('charge_disputed');
+    expect(makeAdminRefundQueueItem().consumption.reviewReason).toBeNull();
+    expect(makeAdminRefundQueueItem().reviewReason).toBeNull();
+    expect(makeOrderLine().consumption).toMatchObject({ lecturesPct: 25, videoPct: 20 });
+    expect(makeCourseConsumption({ reviewReason: 'certificate_issued' }).reviewReason).toBe(
+      'certificate_issued',
+    );
+    expect(
+      mockCourseConsumption({ ...makeCourseConsumption(), videoSecondsWatched: 91 }),
+    ).toMatchObject({
+      videoPct: 30,
+      reviewReason: 'consumed_video_30',
+    });
+    expect(() => makeCourseConsumption({ reviewReason: 'consumed_video_101' })).toThrow();
     expect(makeEnrollment({ source: 'FREE' }).orderLineId).toBeNull();
     expect(makeLearningCard().progress).toBe(0);
     expect(makeLearningCard({ progress: null }).progress).toBeNull();

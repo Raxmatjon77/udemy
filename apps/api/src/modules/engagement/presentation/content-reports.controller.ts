@@ -30,9 +30,10 @@ const REPORT_DESCRIPTION =
   'existing report) for a repeat. Enough distinct reports hide it automatically. 30 per 24 h.';
 
 /**
- * `POST /api/v1/engagement/{reviews|review-replies}/:subjectId/reports` (design §8, D13):
- * `content:report` exists in the student AND the instructor app. P5-T13 adds the `questions`
- * and `answers` routes here (one handler each; `ReportContentCommand` dispatches on the type).
+ * `POST /api/v1/engagement/{reviews|review-replies|questions|answers}/:subjectId/reports`
+ * (design §8, D13): `content:report` exists in the student AND the instructor app. One handler
+ * per subject type; `ReportContentCommand` dispatches on the type. Reviews are public; Q&A is
+ * reportable by whoever can read the course's Q&A (an active learner or the owner).
  */
 @ApiTags('engagement')
 @ApiBearerAuth()
@@ -96,5 +97,39 @@ export class ContentReportsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<Report> {
     return this.file('REVIEW_REPLY', params, body, principal, res);
+  }
+
+  @Post('questions/:subjectId/reports')
+  @ApiOperation({ summary: 'Report a question', description: REPORT_DESCRIPTION })
+  @ApiCreatedResponse({ standardSchema: ReportSchema })
+  @ApiOkResponse({ standardSchema: ReportSchema, description: 'Already reported' })
+  @ApiBadRequestResponse({ description: 'validation_failed' })
+  @ApiNotFoundResponse({ description: 'question_not_found' })
+  @ApiUnprocessableEntityResponse({ description: 'cannot_report_own_content' })
+  @ApiTooManyRequestsResponse({ description: 'rate_limited' })
+  reportQuestion(
+    @Param({ schema: ReportSubjectParamsSchema }) params: ReportSubjectParams,
+    @Body({ schema: ReportContentRequestSchema }) body: ReportContentRequest,
+    @CurrentPrincipal() principal: Principal,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Report> {
+    return this.file('QUESTION', params, body, principal, res);
+  }
+
+  @Post('answers/:subjectId/reports')
+  @ApiOperation({ summary: 'Report an answer', description: REPORT_DESCRIPTION })
+  @ApiCreatedResponse({ standardSchema: ReportSchema })
+  @ApiOkResponse({ standardSchema: ReportSchema, description: 'Already reported' })
+  @ApiBadRequestResponse({ description: 'validation_failed' })
+  @ApiNotFoundResponse({ description: 'answer_not_found' })
+  @ApiUnprocessableEntityResponse({ description: 'cannot_report_own_content' })
+  @ApiTooManyRequestsResponse({ description: 'rate_limited' })
+  reportAnswer(
+    @Param({ schema: ReportSubjectParamsSchema }) params: ReportSubjectParams,
+    @Body({ schema: ReportContentRequestSchema }) body: ReportContentRequest,
+    @CurrentPrincipal() principal: Principal,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Report> {
+    return this.file('ANSWER', params, body, principal, res);
   }
 }

@@ -6,6 +6,7 @@ import type {
 } from '@udemy/contracts';
 import type { DB, Executor, Transaction } from '@udemy/db';
 import { RateLimitedError } from '../../../../shared/errors';
+import type { CourseProgressReader } from '../../../../shared/learning-progress';
 import type { CatalogFacade, CourseSummary, PublishedCourseSummary } from '../../../catalog';
 import type { IdentityFacade, UserSummary } from '../../../identity';
 import type { UsersFacade } from '../../../users';
@@ -371,6 +372,29 @@ export class FakePeople {
   }
 }
 
+/**
+ * `COURSE_PROGRESS` (Phase 5 D21): percents set per user and course; everything else is
+ * absent, like `NoCourseProgress`. Records the calls (one batch per page).
+ */
+export class FakeCourseProgress implements CourseProgressReader {
+  readonly percents = new Map<string, number>();
+  readonly calls: { userId: string; courseIds: string[] }[] = [];
+
+  set(userId: string, courseId: string, pct: number): void {
+    this.percents.set(`${userId}:${courseId}`, pct);
+  }
+
+  getPercents(userId: string, courseIds: readonly string[]): Promise<ReadonlyMap<string, number>> {
+    this.calls.push({ userId, courseIds: [...courseIds] });
+    const result = new Map<string, number>();
+    for (const courseId of courseIds) {
+      const pct = this.percents.get(`${userId}:${courseId}`);
+      if (pct !== undefined) result.set(courseId, pct);
+    }
+    return Promise.resolve(result);
+  }
+}
+
 /** Every enrollment use case wired to in-memory fakes (no Nest, no DB). */
 export function createEnrollmentHarness() {
   const repo = new InMemoryEnrollmentRepository();
@@ -383,6 +407,8 @@ export function createEnrollmentHarness() {
   const catalogFacade = catalog as unknown as CatalogFacade;
   const identity = people as unknown as IdentityFacade;
   const users = people as unknown as UsersFacade;
+
+  const progress = new FakeCourseProgress();
 
   const writer = new EnrollmentWriter(repo, events);
   const assembler = new AdminEnrollmentAssembler(repo, catalogFacade);
@@ -398,7 +424,8 @@ export function createEnrollmentHarness() {
     facade: new EnrollmentFacade(writer, repo),
     entitlements: new EnrollmentEntitlements(repo),
     enrollFree: new EnrollFreeCommand(rateLimiter, catalogFacade, prices, writer, tx),
-    myLearning: new ListMyLearningQuery(repo, catalogFacade, users),
+    progress,
+    myLearning: new ListMyLearningQuery(repo, catalogFacade, users, progress),
     adminList: new AdminListUserEnrollmentsQuery(identity, repo, assembler),
     adminGrant: new AdminGrantEnrollmentCommand(identity, catalogFacade, writer, assembler, tx),
     adminRevoke: new AdminRevokeEnrollmentCommand(repo, writer, assembler, tx),

@@ -13,6 +13,7 @@ import {
   JwtAuthGuard,
   SessionRevocationStore,
 } from './modules/identity';
+import { LearningFacade, LearningModule, LearningProgressReader } from './modules/learning';
 import { MediaModule } from './modules/media';
 import { NotificationsModule } from './modules/notifications';
 import { UsersModule } from './modules/users';
@@ -21,12 +22,7 @@ import { apiEnvSchema, AppConfigModule, ObjectStorageModule } from './shared/con
 import { CourseEntitlementsModule } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
-import {
-  CourseProgressModule,
-  LectureCompletionsModule,
-  NoCourseProgress,
-  NoLectureCompletions,
-} from './shared/learning-progress';
+import { CourseProgressModule, LectureCompletionsModule } from './shared/learning-progress';
 import { createApiLoggerModule } from './shared/logging';
 import { OutboxModule } from './shared/outbox';
 import { RealtimeModule } from './shared/realtime';
@@ -51,7 +47,8 @@ import { ValidationModule } from './shared/validation';
     ThrottlingModule,
     OutboxModule,
     // Timers for in-process jobs (Phase 4: the CommerceJobs refund dispatcher and reconciler,
-    // which call Stripe and therefore live in the API, design D9). Jobs guard themselves with
+    // which call Stripe and therefore live in the API, design D9; Phase 5: the learning
+    // ProgressFlushJob, which drains the API's Redis buffer). Jobs guard themselves with
     // advisory locks, so running on every replica is safe.
     ScheduleModule.forRoot(),
     AuthSupportModule,
@@ -64,12 +61,15 @@ import { ValidationModule } from './shared/validation';
       useExisting: EnrollmentEntitlements,
     }),
     // COURSE_PROGRESS (enrollment asks "how far is this user?" for the my-learning cards, Phase 5
-    // D21): unknown (null) until learning binds LearningProgressReader (P5-T10).
-    CourseProgressModule.forRoot({ useClass: NoCourseProgress }),
+    // D21): learning's LearningProgressReader (P5-T10). It depends only on its repository and
+    // CatalogFacade, so EnrollmentModule may inject the global token without a cycle.
+    CourseProgressModule.forRoot({
+      imports: [LearningModule],
+      useExisting: LearningProgressReader,
+    }),
     // LECTURE_COMPLETIONS (engagement's review gate asks "how many live lectures has this user
-    // completed?", D10): 0 for everyone until learning binds LearningFacade (P5-T10), so the
-    // gate fails closed (review_not_eligible) instead of skipping the progress requirement.
-    LectureCompletionsModule.forRoot({ useClass: NoLectureCompletions }),
+    // completed?", D10): LearningFacade.completedLectureCount (P5-T10).
+    LectureCompletionsModule.forRoot({ imports: [LearningModule], useExisting: LearningFacade }),
     // WS tickets, handshake authentication, the socket.io Redis adapter and emitter (Phase 5
     // D15-D17). The handshake checks session revocation through identity's store.
     RealtimeModule.forRoot({
@@ -83,6 +83,7 @@ import { ValidationModule } from './shared/validation';
     MediaModule,
     CatalogModule,
     EnrollmentModule,
+    LearningModule,
     CommerceModule,
     EngagementModule,
     NotificationsModule,

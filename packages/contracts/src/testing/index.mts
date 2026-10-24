@@ -13,6 +13,8 @@ export type { LearningHandlers, LearningHandlersOptions } from './learning-handl
 export { createLearningHandlers } from './learning-handlers.mjs';
 export type {
   CommerceMockSeed,
+  MockConsumptionFigures,
+  MockConsumptionReader,
   MockCourse,
   MockCourseProgressReader,
   MockEnrollmentChange,
@@ -26,6 +28,7 @@ export {
   defaultMockUsers,
   MOCK_RATE_LIMITS,
   MockApiError,
+  mockCourseConsumption,
 } from './mock-store.mjs';
 export type {
   LearningMockRateLimitName,

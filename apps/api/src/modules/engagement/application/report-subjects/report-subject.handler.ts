@@ -1,11 +1,15 @@
 import type { ReportSubjectType } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
-import type { ReportableSubject } from '../../domain/report';
+import {
+  NO_FILING_CONTEXT,
+  type ReportableSubject,
+  type ReportFilingContext,
+} from '../../domain/report';
 
 /**
  * One reportable subject type (design D13): how the reporter's view of it is resolved and which
- * event announces an automatic hide. ReportContent dispatches on `type`; P5-T13 adds the
- * QUESTION and ANSWER handlers (Q&A visibility = learner or owner access) to
+ * event announces an automatic hide. ReportContent dispatches on `type`; every subject type
+ * (REVIEW, REVIEW_REPLY: P5-T12; QUESTION, ANSWER: P5-T13) is registered in
  * `REPORT_SUBJECT_HANDLERS` without touching the command.
  */
 export abstract class ReportSubjectHandler {
@@ -21,12 +25,30 @@ export abstract class ReportSubjectHandler {
   /** The subject's `*_not_found` (the subject vanished between `resolve` and the lock). */
   abstract notFound(): Error;
 
-  /** The `…Hidden` event of an automatic hide (actor null), in the report transaction. */
+  /**
+   * Runs in the report transaction BEFORE the report is filed (and the subject possibly hidden),
+   * to lock and capture what `publishAutoHidden` needs. Locks must follow the subject -> parent
+   * order of `@udemy/db` (the report locks the subject row first). Default: nothing.
+   */
+  beforeFile(_trx: Transaction<DB>, _subject: ReportableSubject): Promise<ReportFilingContext> {
+    return Promise.resolve(NO_FILING_CONTEXT);
+  }
+
+  /** The `…Hidden` event(s) of an automatic hide (actor null), in the report transaction. */
   abstract publishAutoHidden(
     trx: Transaction<DB>,
     subject: ReportableSubject,
     hiddenAt: Date,
+    context: ReportFilingContext,
   ): Promise<void>;
+
+  /**
+   * After the auto-hide committed (best effort, never throws): e.g. the `qa.changed` hint of a
+   * hidden question or answer. Default: nothing.
+   */
+  afterAutoHideCommitted(_subject: ReportableSubject): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
 /** Multi-provider token: every `ReportSubjectHandler` of the module (see engagement.module.ts). */

@@ -31,7 +31,7 @@ export interface ReportContentResult {
  * the report (ON CONFLICT DO NOTHING: a repeat returns the existing report) and counts the OPEN
  * reports in a new statement. Reaching `ENGAGEMENT_AUTO_HIDE_REPORTS` hides the subject (a
  * `moderation_actions` row without an actor, the open reports ACTIONED) and the `…Hidden` event
- * is written in the same transaction.
+ * is written in the same transaction; after the commit the handler may push a realtime hint.
  *
  * Errors: 404 (the subject's `*_not_found`), 422 `cannot_report_own_content`, 429 (30 per 24 h).
  */
@@ -58,7 +58,8 @@ export class ReportContentCommand {
     const subject = await handler.resolve(input.routeId, input.reporterId);
     if (subject.authorId === input.reporterId) throw new CannotReportOwnContent();
 
-    return this.tx.run(async (trx) => {
+    const result = await this.tx.run(async (trx) => {
+      const context = await handler.beforeFile(trx, subject);
       const filed = await this.reports.file(trx, {
         subjectType: subject.type,
         subjectId: subject.subjectId,
@@ -78,9 +79,15 @@ export class ReportContentCommand {
         throw new Error(`report on ${subject.type} ${subject.subjectId} vanished`);
       if (filed.autoHidden) {
         // The auto-hide resolved this very report (ACTIONED) at the transaction's now().
-        await handler.publishAutoHidden(trx, subject, report.resolvedAt ?? report.createdAt);
+        await handler.publishAutoHidden(
+          trx,
+          subject,
+          report.resolvedAt ?? report.createdAt,
+          context,
+        );
       }
       return {
+        autoHidden: filed.autoHidden,
         created: filed.outcome === 'REPORTED',
         report: {
           id: report.id,
@@ -93,5 +100,7 @@ export class ReportContentCommand {
         },
       };
     });
+    if (result.autoHidden) await handler.afterAutoHideCommitted(subject);
+    return { report: result.report, created: result.created };
   }
 }

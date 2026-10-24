@@ -124,6 +124,7 @@ import {
   type CommerceMockSeed,
   type CommerceMockStore,
   createCommerceMockStore,
+  type MockConsumptionFigures,
   type MockCourse,
   MockApiError,
   type MockEnrollmentChange,
@@ -450,6 +451,7 @@ export class LearningMockStore {
     this.commerce.setCourseProgressReader((userId, courseId) =>
       this.curricula.has(courseId) ? this.courseProgress(userId, courseId).pct : null,
     );
+    this.commerce.setConsumptionReader((userId, courseId) => this.consumption(userId, courseId));
     this.commerce.onEnrollmentChange((change) => this.onEnrollmentChange(change));
   }
 
@@ -608,6 +610,41 @@ export class LearningMockStore {
     const lectures = curriculum ? this.liveLectures(curriculum) : [];
     const completed = lectures.filter((l) => this.completions.has(this.key(userId, l.id))).length;
     return { completed, total: lectures.length, pct: progressPct(completed, lectures.length) };
+  }
+
+  /**
+   * `LearningFacade.getConsumption` (D8): covered buckets of the live videos, clamped per
+   * lecture; completed ∩ live lectures; the course completion and certificate.
+   */
+  consumption(userId: string, courseId: string): MockConsumptionFigures {
+    const curriculum = this.curricula.get(courseId);
+    const lectures = curriculum ? this.liveLectures(curriculum) : [];
+    let videoSecondsWatched = 0;
+    let videoSecondsTotal = 0;
+    for (const lecture of lectures) {
+      if (lecture.type !== 'VIDEO' || lecture.durationSeconds === null) continue;
+      videoSecondsTotal += lecture.durationSeconds;
+      const p = this.progress.get(this.key(userId, lecture.id));
+      if (p) {
+        videoSecondsWatched += Math.min(
+          p.buckets.size * LEARNING_PROGRESS_RULES.bucketSeconds,
+          lecture.durationSeconds,
+        );
+      }
+    }
+    const certificate = this.certificates.find(
+      (c) => c.userId === userId && c.courseId === courseId,
+    );
+    return {
+      videoSecondsWatched,
+      videoSecondsTotal,
+      completedLectures: lectures.filter((l) => this.completions.has(this.key(userId, l.id)))
+        .length,
+      totalLectures: lectures.length,
+      courseCompletedAt:
+        this.courseCompletions.get(this.key(userId, courseId))?.completedAt ?? null,
+      certificateStatus: certificate?.status ?? null,
+    };
   }
 
   private coverage(p: MockProgress | undefined): number {

@@ -110,7 +110,7 @@ describe('EnrollFree', () => {
 });
 
 describe('ListMyLearning', () => {
-  it('pages ACTIVE enrollments newest first with live course cards; progress is null', async () => {
+  it('pages ACTIVE enrollments newest first with live course cards; no progress value is null', async () => {
     const h = createEnrollmentHarness();
     const student = h.people.add('Student');
     const instructor = h.people.add('Ada Instructor');
@@ -169,6 +169,40 @@ describe('ListMyLearning', () => {
     await h.facade.grant(FAKE_TRX, { userId: student, courseId: randomUUID(), source: 'FREE' });
     const page = await h.myLearning.execute({ userId: student, limit: 24 });
     expect(page).toEqual({ items: [], nextCursor: null });
+    expect(h.progress.calls).toEqual([]);
+  });
+
+  it('progress comes from COURSE_PROGRESS: one batch per page, 0 kept, absent is null', async () => {
+    const h = createEnrollmentHarness();
+    const student = h.people.add('Student');
+    const instructor = h.people.add('Ada Instructor');
+    const started = h.catalog.add({ ownerId: instructor, title: 'Started' });
+    const fresh = h.catalog.add({ ownerId: instructor, title: 'Fresh' });
+    const done = h.catalog.add({ ownerId: instructor, title: 'Done' });
+    const unknown = h.catalog.add({ ownerId: instructor, title: 'Unknown' });
+    for (const c of [started, fresh, done, unknown]) {
+      await h.facade.grant(FAKE_TRX, { userId: student, courseId: c.id, source: 'FREE' });
+    }
+    h.progress.set(student, started.id, 29);
+    h.progress.set(student, fresh.id, 0);
+    h.progress.set(student, done.id, 100);
+    // another user's progress never leaks into this user's cards
+    h.progress.set(randomUUID(), unknown.id, 50);
+
+    const page = LearningCardPageSchema.parse(
+      await h.myLearning.execute({ userId: student, limit: 24 }),
+    );
+    expect(Object.fromEntries(page.items.map((c) => [c.title, c.progress]))).toEqual({
+      Started: 29,
+      Fresh: 0,
+      Done: 100,
+      Unknown: null,
+    });
+    expect(h.progress.calls).toHaveLength(1);
+    expect(h.progress.calls[0]?.userId).toBe(student);
+    expect([...(h.progress.calls[0]?.courseIds ?? [])].sort()).toEqual(
+      [started.id, fresh.id, done.id, unknown.id].sort(),
+    );
   });
 
   it('rejects a cursor it did not produce (422)', async () => {

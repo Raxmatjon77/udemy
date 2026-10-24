@@ -18,6 +18,7 @@ import {
   StudentRefundReasonCodeSchema,
 } from './commerce-common';
 import { IsoDateTimeSchema, UuidSchema } from './fields';
+import { CertificateStatusSchema } from './learning';
 import { pageSchema, PaginationQuerySchema } from './pagination';
 import { ProblemDetailsSchema } from './problem-details';
 
@@ -135,6 +136,55 @@ export const OrderLineRefundStateSchema = z.object({
 });
 export type OrderLineRefundState = z.infer<typeof OrderLineRefundStateSchema>;
 
+/**
+ * Phase 5 refund review (design D8, P5-D6): the default `COMMERCE_REFUND_REVIEW_CONSUMED_PCT`.
+ * A student refund request goes to admin review (REQUESTED) instead of being auto-approved when
+ * the course has an ACTIVE certificate, or more than this percent of the live video seconds was
+ * watched, or more than this percent of the live lectures was completed. It never blocks one.
+ */
+export const REFUND_REVIEW_CONSUMED_PCT = 30;
+
+/**
+ * Why the consumption rule sends a student refund request to review, checked in this order
+ * with a strict `>` and integer arithmetic:
+ *
+ * - `certificate_issued`: the buyer holds an ACTIVE certificate for the course;
+ * - `consumed_video_{pct}`: ⌊watched × 100 / live video seconds⌋ is over the threshold;
+ * - `consumed_lectures_{pct}`: ⌊completed × 100 / live lectures⌋ is over the threshold.
+ */
+export const RefundReviewReasonSchema = z
+  .string()
+  .regex(/^(certificate_issued|consumed_(video|lectures)_(\d|[1-9]\d|100))$/);
+export type RefundReviewReason = z.infer<typeof RefundReviewReasonSchema>;
+
+/**
+ * How much of the course the buyer has consumed (Phase 5 design D8, read live from learning,
+ * at most one progress flush, ≤ 15 s, behind). Only the LIVE revision counts: watched seconds are
+ * covered 5 s buckets of the live video assets, clamped per lecture; a re-uploaded video starts
+ * from zero. Progress is kept after a refund, so the figures stay readable.
+ */
+export const CourseConsumptionSchema = z.object({
+  videoSecondsWatched: z.number().int().min(0),
+  /** Σ live VIDEO durations; 0 when the course has no video. */
+  videoSecondsTotal: z.number().int().min(0),
+  /** ⌊videoSecondsWatched × 100 / videoSecondsTotal⌋; 0 when there is no video. */
+  videoPct: z.number().int().min(0).max(100),
+  /** Completed lectures ∩ live lecture ids. */
+  completedLectures: z.number().int().min(0),
+  totalLectures: z.number().int().min(0),
+  /** ⌊completedLectures × 100 / totalLectures⌋; 0 for an empty curriculum. */
+  lecturesPct: z.number().int().min(0).max(100),
+  /** The permanent course completion (kept when later revisions add lectures). */
+  courseCompletedAt: IsoDateTimeSchema.nullable(),
+  certificateStatus: CertificateStatusSchema.nullable(),
+  /**
+   * What the consumption rule says about a student refund request made NOW; null = no
+   * objection. The D11 abuse count (3 refunds in 90 days) is separate and not reflected here.
+   */
+  reviewReason: RefundReviewReasonSchema.nullable(),
+});
+export type CourseConsumption = z.infer<typeof CourseConsumptionSchema>;
+
 export const OrderLineSchema = z.object({
   id: UuidSchema,
   lineNo: z.number().int().min(1),
@@ -153,6 +203,12 @@ export const OrderLineSchema = z.object({
   finalAmount: MoneyAmountSchema,
   couponCode: z.string().nullable(),
   refund: OrderLineRefundStateSchema,
+  /**
+   * Additive (Phase 5, P5-T16): the buyer's consumption of the course, for the refund dialog
+   * hint ("You've watched N% of this course; your request will be reviewed" when
+   * `consumption.reviewReason` is set). Null unless `refund.eligible`.
+   */
+  consumption: CourseConsumptionSchema.nullable(),
 });
 export type OrderLine = z.infer<typeof OrderLineSchema>;
 
@@ -221,7 +277,8 @@ export type Receipt = z.infer<typeof ReceiptSchema>;
  *   (Pol order:refund; 404 order/line, 409 refund_already_requested,
  *    422 refund_window_closed | refund_not_applicable, 429; 5 per 24 h)
  * Full line only (D11). AUTO_APPROVE answers APPROVED (access is revoked at once);
- * NEEDS_REVIEW answers REQUESTED ("under review").
+ * NEEDS_REVIEW answers REQUESTED ("under review"): 3+ counted refunds in 90 days, or (Phase 5)
+ * a consumption objection (`RefundReviewReason`, see `CourseConsumption`).
  * -------------------------------------------------------------------------------------- */
 
 export const RequestRefundRequestSchema = z.object({

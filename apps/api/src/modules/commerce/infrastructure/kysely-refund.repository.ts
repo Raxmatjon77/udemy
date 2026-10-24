@@ -56,6 +56,7 @@ interface RefundRow {
   failureCode: string | null;
   requestedBy: string | null;
   rejectionReason: string | null;
+  reviewReason: string | null;
   createdAt: Date;
   approvedAt: Date | null;
   succeededAt: Date | null;
@@ -72,7 +73,10 @@ const REFUND_COLUMNS = sql`
   (SELECT t.actor_id FROM commerce.refund_transitions t
     WHERE t.refund_id = r.id AND t.seq = 1) AS requested_by,
   (SELECT t.reason FROM commerce.refund_transitions t
-    WHERE t.refund_id = r.id AND t.to_status = 'REJECTED' ORDER BY t.seq DESC LIMIT 1) AS rejection_reason`;
+    WHERE t.refund_id = r.id AND t.to_status = 'REJECTED' ORDER BY t.seq DESC LIMIT 1) AS rejection_reason,
+  CASE WHEN r.initiated_by = 'STUDENT' THEN
+    (SELECT t.reason FROM commerce.refund_transitions t
+      WHERE t.refund_id = r.id AND t.seq = 1) END AS review_reason`;
 
 const REFUND_FROM = sql`
   commerce.refunds r

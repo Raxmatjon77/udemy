@@ -18,7 +18,10 @@ import {
   type SignedUpUser,
   useE2eApp,
 } from '../../testing/e2e/e2e-harness';
+import { CatalogFacade } from '../catalog';
 import { deleteCatalogTestData } from '../catalog/testing/catalog-it';
+import { CompletionRecorder } from '../learning/application/completion-recorder';
+import { deleteLearningTestData } from '../learning/testing/learning-it';
 import { deleteMediaTestData, useIntegrationS3 } from '../media/testing/media-it';
 import { freeEnrollmentRateLimitKey } from './infrastructure/redis-free-enrollment-rate-limiter';
 import {
@@ -141,6 +144,7 @@ describe('enrollment endpoints (e2e: AppModule, Postgres, Redis, MinIO)', () => 
   afterAll(async () => {
     if (fx === undefined || !available()) return;
     const ids = allUserIds();
+    await deleteLearningTestData(e2e.pg.db, ids);
     await deleteEnrollmentTestData(e2e.pg.db, { userIds: ids, courseIds: allCourseIds() });
     await e2e.redis.redis.del(...ids.map(freeEnrollmentRateLimitKey));
     await deleteMediaTestData(e2e.pg.db, ids, { storage: s3.storage });
@@ -257,7 +261,8 @@ describe('enrollment endpoints (e2e: AppModule, Postgres, Redis, MinIO)', () => 
         hasThumbnail: true,
         archived: false,
         source: 'FREE',
-        progress: null,
+        // Phase 5 (D21): COURSE_PROGRESS is bound to learning; nothing completed yet is 0
+        progress: 0,
       }),
     ]);
     expect(page1.nextCursor).not.toBeNull();
@@ -278,6 +283,27 @@ describe('enrollment endpoints (e2e: AppModule, Postgres, Redis, MinIO)', () => 
       (await student.get(`${V1}/me/enrollments?cursor=`).expect(200)).body,
     );
     expect(all.items).toHaveLength(2);
+
+    // completing one of the two live lectures moves the card to 50% (P5-T16, COURSE_PROGRESS)
+    const live = await get(CatalogFacade).getLiveCurriculum(freeTwo.courseId);
+    const lecture = live?.sections.flatMap((section) => section.lectures)[0];
+    if (live == null || lecture === undefined) throw new Error('freeTwo has no live lecture');
+    await e2e.pg.db.transaction().execute((trx) =>
+      get(CompletionRecorder).complete(trx, {
+        userId: users.student.userId,
+        curriculum: live,
+        lecture,
+        cause: 'VIDEO_WATCHED',
+      }),
+    );
+    const progressed = LearningCardPageSchema.parse(
+      (await student.get(`${V1}/me/enrollments`).expect(200)).body,
+    );
+    expect(Object.fromEntries(progressed.items.map((c) => [c.courseId, c.progress]))).toEqual({
+      [freeTwo.courseId]: 50,
+      [free.courseId]: 0,
+    });
+
     const other = LearningCardPageSchema.parse(
       (await e2e.as('student', tokens.other.accessToken).get(`${V1}/me/enrollments`).expect(200))
         .body,

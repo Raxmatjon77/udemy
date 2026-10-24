@@ -21,7 +21,21 @@ export interface ReportableSubject {
   readonly authorId: string;
   /** For replies: the review the reply belongs to (events carry it). */
   readonly reviewId: string | null;
+  /** For questions: the question itself; for answers: their question (events, hints). */
+  readonly questionId: string | null;
+  /** For Q&A: the lecture of the question (null = general; the `qa.changed` hint). */
+  readonly lectureId: string | null;
 }
+
+/**
+ * What a handler captured inside the report transaction, before the subject could be hidden:
+ * whether the answer was the accepted one (an automatic hide clears it, `QuestionReopened`).
+ */
+export interface ReportFilingContext {
+  readonly wasAcceptedAnswer: boolean;
+}
+
+export const NO_FILING_CONTEXT: ReportFilingContext = Object.freeze({ wasAcceptedAnswer: false });
 
 /** The caller's report as stored. */
 export interface ReportRecord {

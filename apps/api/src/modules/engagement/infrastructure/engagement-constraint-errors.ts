@@ -1,6 +1,11 @@
 import {
+  AnnouncementNotFound,
+  AnswerNotFound,
   CannotReportOwnContent,
+  CannotVoteOwnContent,
   InvalidEngagementInput,
+  InvalidModerationTransition,
+  QuestionNotFound,
   ReplyNotFound,
   ReviewNotFound,
 } from '../domain/engagement.errors';
@@ -22,14 +27,19 @@ type ToDomainError = (cause: unknown) => Error;
 
 const invalid: ToDomainError = (cause) => new InvalidEngagementInput({ cause });
 const ownContent: ToDomainError = (cause) => new CannotReportOwnContent({ cause });
+const ownVote: ToDomainError = (cause) => new CannotVoteOwnContent({ cause });
+const question404: ToDomainError = (cause) => new QuestionNotFound({ cause });
+const answer404: ToDomainError = (cause) => new AnswerNotFound({ cause });
+const transition: ToDomainError = (cause) => new InvalidModerationTransition({ cause });
 
 /**
- * Constraint name -> domain error for the review, reply, wishlist and report tables (schema doc
- * §9 "Engagement"). P5-T13 adds the Q&A and announcement rows. Not listed, so a 500 (programming
- * errors, logged by the global filter): `moderation_status_log_ck` / `moderation_actions_subject_ck`
- * (deferred, at COMMIT), the user FKs, `*_reports_transition_ck` (the db ops only move OPEN
- * reports) and 42501 from the append-only guards. The live uniques and the wishlist / report
- * uniques never surface: the upserts and `ON CONFLICT DO NOTHING` handle them.
+ * Constraint name -> domain error for the review, reply, Q&A, vote, announcement, wishlist and
+ * report tables (schema doc §9 "Engagement"). Not listed, so a 500 (programming errors, logged
+ * by the global filter): `moderation_status_log_ck` / `moderation_actions_subject_ck`
+ * (deferred, at COMMIT), the counter guards (`questions_counters_ck`, `answers_counters_ck`:
+ * the app never writes counters), the user FKs and 42501 from the append-only guards. The live
+ * uniques and the vote / wishlist / report uniques never surface: the upserts and
+ * `ON CONFLICT DO NOTHING` handle them.
  */
 export const ENGAGEMENT_CONSTRAINT_ERRORS: Readonly<Record<string, ToDomainError>> = {
   // Shapes the request schemas already enforce (rating 1-5, trimmed plain text, lengths)
@@ -51,6 +61,40 @@ export const ENGAGEMENT_CONSTRAINT_ERRORS: Readonly<Record<string, ToDomainError
   // The subject row vanished (reports reference it with a real FK)
   review_reports_subject_id_fk: (cause) => new ReviewNotFound({ cause }),
   review_reply_reports_subject_id_fk: (cause) => new ReplyNotFound({ cause }),
+
+  // Q&A content and announcements (the request schemas check the shapes first)
+  questions_title_ck: invalid,
+  questions_body_md_ck: invalid,
+  answers_body_md_ck: invalid,
+  announcements_title_ck: invalid,
+  announcements_body_md_ck: invalid,
+  question_reports_reason_ck: invalid,
+  question_reports_comment_ck: invalid,
+  answer_reports_reason_ck: invalid,
+  answer_reports_comment_ck: invalid,
+  // A write on a question/answer/announcement deleted meanwhile (deleted content is frozen)
+  questions_immutable_ck: question404,
+  answers_immutable_ck: answer404,
+  announcements_immutable_ck: (cause) => new AnnouncementNotFound({ cause }),
+  // The accepted answer must be a visible answer of the question (composite FK + guard)
+  questions_id_accepted_answer_id_fk: answer404,
+  questions_accepted_answer_visible_ck: answer404,
+  answers_question_id_fk: question404,
+  // Votes: not your own (the use case checks first); the subject vanished
+  question_votes_own_content_ck: ownVote,
+  answer_votes_own_content_ck: ownVote,
+  question_votes_subject_id_fk: question404,
+  answer_votes_subject_id_fk: answer404,
+  // Reports on Q&A
+  question_reports_own_content_ck: ownContent,
+  answer_reports_own_content_ck: ownContent,
+  question_reports_subject_id_fk: question404,
+  answer_reports_subject_id_fk: answer404,
+  // A report resolved twice (two admins racing; the db ops only move OPEN reports)
+  review_reports_transition_ck: transition,
+  review_reply_reports_transition_ck: transition,
+  question_reports_transition_ck: transition,
+  answer_reports_transition_ck: transition,
 };
 
 /** Re-throws a known constraint violation as its domain error; anything else unchanged. */

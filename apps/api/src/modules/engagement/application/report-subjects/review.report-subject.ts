@@ -30,6 +30,8 @@ export class ReviewReportSubject extends ReportSubjectHandler {
       courseId: review.courseId,
       authorId: review.userId,
       reviewId: review.id,
+      questionId: null,
+      lectureId: null,
     };
   }
 

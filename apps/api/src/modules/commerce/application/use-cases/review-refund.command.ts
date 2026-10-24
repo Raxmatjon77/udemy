@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { AdminRefundQueueItem, RefundStatus } from '@udemy/contracts';
 import type { DB, Transaction } from '@udemy/db';
 import { CommerceInvalidTransition, RefundNotFound } from '../../domain/commerce.errors';
+import { CourseConsumptionViews } from '../learning-consumption.policy';
 import { CartRepository } from '../ports/cart.repository';
 import { CommerceAdminDirectory } from '../ports/context-gateways';
 import { OrderRepository } from '../ports/order.repository';
@@ -50,6 +51,7 @@ export class ReviewRefundCommand {
     private readonly lifecycle: RefundLifecycle,
     private readonly directory: CommerceAdminDirectory,
     private readonly dispatch: RefundDispatchTrigger,
+    private readonly consumption: CourseConsumptionViews,
   ) {}
 
   /**
@@ -78,7 +80,12 @@ export class ReviewRefundCommand {
     });
     if (refund.status === 'APPROVED') this.dispatch.kick([refund.id]);
     const accounts = await this.directory.findAccounts([refund.userId]);
-    return toQueueItem(refund, await this.refunds.recentRefundCountOf(refund.id), accounts);
+    return toQueueItem(
+      refund,
+      await this.refunds.recentRefundCountOf(refund.id),
+      accounts,
+      await this.consumption.of(refund.userId, refund.courseId),
+    );
   }
 
   private async approve(

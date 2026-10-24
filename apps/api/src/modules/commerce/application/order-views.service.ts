@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import type { OrderDetail, OrderSummary, Receipt } from '@udemy/contracts';
+import type { CourseConsumption, OrderDetail, OrderSummary, Receipt } from '@udemy/contracts';
 import type { Executor } from '@udemy/db';
 import { OrderNotFound, OrderNotPaid } from '../domain/commerce.errors';
 import { Money } from '../domain/money';
 import { lineRefundState } from '../domain/order-line-refund-state';
 import { CommerceSettings } from './commerce-settings';
+import { CourseConsumptionViews } from './learning-consumption.policy';
 import { CommerceClock } from './ports/commerce-clock';
 import { CommerceBuyers, CommerceCatalog, CommercePeople } from './ports/context-gateways';
 import {
@@ -26,6 +27,9 @@ function sum(amounts: readonly string[], currency: string): string {
  * viewer, so a foreign order is 404 even for a principal whose policy passed through
  * `order:read:any` (§9 IDOR; `/me` routes are the buyer's own). Each view is read in one
  * transaction (one snapshot, the database clock for the refund window).
+ *
+ * Phase 5 (D8): every line a refund could be requested for now (`refund.eligible`) carries the
+ * buyer's consumption of the course, for the refund dialog hint; other lines carry null.
  */
 @Injectable()
 export class OrderViews {
@@ -37,6 +41,7 @@ export class OrderViews {
     private readonly clock: CommerceClock,
     private readonly settings: CommerceSettings,
     private readonly tx: TransactionRunner,
+    private readonly consumption: CourseConsumptionViews,
   ) {}
 
   /** @throws OrderNotFound (404) for an unknown or foreign order */
@@ -119,6 +124,24 @@ export class OrderViews {
     );
     const slugs = new Map(courses.map((c) => [c.id, c.slug]));
     const open = order.status === 'PENDING_PAYMENT' && order.payment?.status === 'OPEN';
+    const lines = order.lines.map((line) => ({
+      line,
+      refund: lineRefundState({
+        orderStatus: order.status,
+        paidAt: order.paidAt,
+        finalMinor: Money.fromDecimal(line.finalAmount, currency).minor,
+        latestRefund: line.latestRefund,
+        now,
+        refundWindowDays: this.settings.refundWindowDays,
+      }),
+    }));
+    // Sequential, eligible lines only (one learning read each).
+    const consumption = new Map<string, CourseConsumption>();
+    for (const { line, refund } of lines) {
+      if (refund.eligible) {
+        consumption.set(line.id, await this.consumption.of(order.userId, line.courseId, ex));
+      }
+    }
     return {
       id: order.orderId,
       orderNumber: order.orderNumber,
@@ -137,16 +160,8 @@ export class OrderViews {
       placedAt: order.placedAt.toISOString(),
       paidAt: order.paidAt?.toISOString() ?? null,
       closedAt: order.closedAt?.toISOString() ?? null,
-      lines: order.lines.map((line) => {
+      lines: lines.map(({ line, refund }) => {
         const person = people.get(line.instructorId);
-        const refund = lineRefundState({
-          orderStatus: order.status,
-          paidAt: order.paidAt,
-          finalMinor: Money.fromDecimal(line.finalAmount, currency).minor,
-          latestRefund: line.latestRefund,
-          now,
-          refundWindowDays: this.settings.refundWindowDays,
-        });
         return {
           id: line.id,
           lineNo: line.lineNo,
@@ -168,6 +183,7 @@ export class OrderViews {
             eligible: refund.eligible,
             reason: refund.reason,
           },
+          consumption: consumption.get(line.id) ?? null,
         };
       }),
       payment: {

@@ -342,6 +342,72 @@ describe('createLearningHandlers (MSW)', () => {
     );
   });
 
+  it('refunds (P5-D6): > 30% consumed or a certificate sends the request to review, recorded and shown', async () => {
+    reset();
+    const order = store.commerce.seedPaidOrder(FIXTURE_IDS.student, [course]);
+    const lineId = order.lines[0]!.id;
+    const lineOf = async () => (await call('GET', `/me/orders/${order.id}`)).json.lines[0];
+    expect((await lineOf()).consumption).toMatchObject({
+      completedLectures: 0,
+      totalLectures: 4,
+      lecturesPct: 0,
+      reviewReason: null,
+    });
+
+    store.seedCompletion(FIXTURE_IDS.student, course, [L.lectureVideo, L.lectureArticle]);
+    expect((await lineOf()).consumption).toMatchObject({
+      completedLectures: 2,
+      lecturesPct: 50,
+      reviewReason: 'consumed_lectures_50',
+    });
+    const refund = await call('POST', `/me/orders/${order.id}/refunds`, {
+      orderLineId: lineId,
+      reasonCode: 'QUALITY',
+    });
+    expect(refund).toMatchObject({ status: 201, json: { status: 'REQUESTED' } });
+    expect(store.commerce.hasActiveEnrollment(FIXTURE_IDS.student, course)).toBe(true);
+    // a line with a live refund is not refundable: no consumption on it
+    expect((await lineOf()).consumption).toBeNull();
+
+    as(FIXTURE_IDS.admin, 'admin');
+    const queue = (await call('GET', '/admin/refunds')).json.items;
+    expect(queue[0]).toMatchObject({
+      id: refund.json.id,
+      reviewReason: 'consumed_lectures_50',
+      recentRefundCount: 0,
+      consumption: { lecturesPct: 50, reviewReason: 'consumed_lectures_50' },
+    });
+    const admin = (await call('GET', `/admin/orders/${order.id}`)).json;
+    expect(admin.refunds[0].reviewReason).toBe('consumed_lectures_50');
+    expect(admin.refunds[0].transitions[0]).toMatchObject({
+      toStatus: 'REQUESTED',
+      reason: 'consumed_lectures_50',
+    });
+
+    // a certificate is checked first
+    reset();
+    const certified = store.commerce.seedPaidOrder(FIXTURE_IDS.student, [course]);
+    store.seedCompletion(FIXTURE_IDS.student, course);
+    const second = await call('POST', `/me/orders/${certified.id}/refunds`, {
+      orderLineId: certified.lines[0]!.id,
+      reasonCode: 'QUALITY',
+    });
+    expect(second.json.status).toBe('REQUESTED');
+    expect(store.commerce.courseConsumption(FIXTURE_IDS.student, course)).toMatchObject({
+      certificateStatus: 'ACTIVE',
+      reviewReason: 'certificate_issued',
+    });
+
+    // nothing consumed: auto-approved as in Phase 4
+    reset();
+    const fresh = store.commerce.seedPaidOrder(FIXTURE_IDS.student, [course]);
+    const third = await call('POST', `/me/orders/${fresh.id}/refunds`, {
+      orderLineId: fresh.lines[0]!.id,
+      reasonCode: 'QUALITY',
+    });
+    expect(third.json.status).toBe('APPROVED');
+  });
+
   it('pages notes with an opaque cursor and enforces the note rules', async () => {
     reset();
     store.commerce.seedEnrollment(FIXTURE_IDS.student, course);

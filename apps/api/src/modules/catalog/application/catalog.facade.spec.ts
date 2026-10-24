@@ -317,6 +317,15 @@ describe('CatalogFacade: Phase 5 live curriculum and quiz reads', () => {
       expect(await facade.getQuizForAttempt(courseId, draftQuiz.id)).toBeNull();
     });
 
+    it('getQuizForRevision: the key-free view of a given revision (P5-T11), null otherwise', async () => {
+      await facade.getQuizAnswerKey(revisionId, quizId); // the shared cache holds the key
+      const view = await facade.getQuizForRevision(revisionId, quizId);
+      expect(view).toEqual(await facade.getQuizForAttempt(courseId, quizId));
+      expect(JSON.stringify(view)).not.toMatch(/isCorrect|"correct"|explanation/i);
+      expect(await facade.getQuizForRevision(revisionId, videoId)).toBeNull();
+      expect(await facade.getQuizForRevision('not-a-uuid', quizId)).toBeNull();
+    });
+
     it('getQuizAnswerKey: the key of THAT revision, even after a newer revision went live', async () => {
       const key = await facade.getQuizAnswerKey(revisionId, quizId);
       expect(key).toEqual({

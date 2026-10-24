@@ -1,4 +1,9 @@
-import { CART_LIMITS, type Currency, DEFAULT_CURRENCY } from '@udemy/contracts';
+import {
+  CART_LIMITS,
+  type Currency,
+  DEFAULT_CURRENCY,
+  REFUND_REVIEW_CONSUMED_PCT,
+} from '@udemy/contracts';
 
 /** Stripe requires `expires_at` >= 30 min ahead on a fresh create (schema doc §6 item 6). */
 export const PROVIDER_MIN_SESSION_LIFETIME_MIN = 30;
@@ -14,6 +19,11 @@ export interface CommerceSettingsProps {
   readonly checkoutSessionTtlMinutes: number;
   /** `COMMERCE_REFUND_WINDOW_DAYS` (Q3: 30). */
   readonly refundWindowDays: number;
+  /**
+   * `COMMERCE_REFUND_REVIEW_CONSUMED_PCT` (Phase 5 D8, P5-D6: 30): consumption above this
+   * percent sends a student refund request to admin review.
+   */
+  readonly refundReviewConsumedPct: number;
   /** `STUDENT_APP_ORIGIN`: where Checkout sends the buyer back. */
   readonly studentAppOrigin: string;
   /** Origins a provider Checkout URL may have (`CHECKOUT_ALLOWED_ORIGINS`). */
@@ -37,6 +47,7 @@ export interface CommerceEnv {
   readonly COMMERCE_INSTRUCTOR_SHARE_BPS: number;
   readonly COMMERCE_CHECKOUT_SESSION_TTL_MIN: number;
   readonly COMMERCE_REFUND_WINDOW_DAYS: number;
+  readonly COMMERCE_REFUND_REVIEW_CONSUMED_PCT: number;
   readonly COMMERCE_JOBS_ENABLED: boolean;
   readonly COMMERCE_RECONCILE_INTERVAL_MS: number;
   readonly COMMERCE_REFUND_DISPATCH_INTERVAL_MS: number;
@@ -64,6 +75,7 @@ export class CommerceSettings {
   readonly instructorShareBps: number;
   readonly checkoutSessionTtlMinutes: number;
   readonly refundWindowDays: number;
+  readonly refundReviewConsumedPct: number;
   readonly studentAppOrigin: string;
   readonly allowedCheckoutOrigins: readonly string[];
   readonly webhookSecret: string;
@@ -97,6 +109,13 @@ export class CommerceSettings {
     if (!Number.isSafeInteger(props.refundWindowDays) || props.refundWindowDays < 1) {
       throw new RangeError('refundWindowDays must be a positive integer');
     }
+    if (
+      !Number.isSafeInteger(props.refundReviewConsumedPct) ||
+      props.refundReviewConsumedPct < 0 ||
+      props.refundReviewConsumedPct > 100
+    ) {
+      throw new RangeError('refundReviewConsumedPct must be an integer in 0..100');
+    }
     if (props.allowedCheckoutOrigins.length === 0) {
       throw new RangeError('allowedCheckoutOrigins must not be empty');
     }
@@ -105,6 +124,7 @@ export class CommerceSettings {
     this.instructorShareBps = props.instructorShareBps;
     this.checkoutSessionTtlMinutes = props.checkoutSessionTtlMinutes;
     this.refundWindowDays = props.refundWindowDays;
+    this.refundReviewConsumedPct = props.refundReviewConsumedPct;
     this.studentAppOrigin = originOf(props.studentAppOrigin);
     this.allowedCheckoutOrigins = Object.freeze(props.allowedCheckoutOrigins.map(originOf));
     this.webhookSecret = props.webhookSecret;
@@ -125,6 +145,7 @@ export class CommerceSettings {
       instructorShareBps: env.COMMERCE_INSTRUCTOR_SHARE_BPS,
       checkoutSessionTtlMinutes: env.COMMERCE_CHECKOUT_SESSION_TTL_MIN,
       refundWindowDays: env.COMMERCE_REFUND_WINDOW_DAYS,
+      refundReviewConsumedPct: env.COMMERCE_REFUND_REVIEW_CONSUMED_PCT,
       studentAppOrigin: env.STUDENT_APP_ORIGIN,
       allowedCheckoutOrigins: allowed,
       webhookSecret: env.STRIPE_WEBHOOK_SECRET,
@@ -143,6 +164,7 @@ export class CommerceSettings {
       instructorShareBps: 7000,
       checkoutSessionTtlMinutes: 35,
       refundWindowDays: 30,
+      refundReviewConsumedPct: REFUND_REVIEW_CONSUMED_PCT,
       studentAppOrigin: 'http://localhost:3000',
       allowedCheckoutOrigins: [STRIPE_CHECKOUT_ORIGIN],
       webhookSecret: 'whsec_unit_tests_only_000000',

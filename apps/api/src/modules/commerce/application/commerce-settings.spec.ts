@@ -7,6 +7,7 @@ const env: CommerceEnv = {
   COMMERCE_INSTRUCTOR_SHARE_BPS: 7000,
   COMMERCE_CHECKOUT_SESSION_TTL_MIN: 35,
   COMMERCE_REFUND_WINDOW_DAYS: 30,
+  COMMERCE_REFUND_REVIEW_CONSUMED_PCT: 30,
   COMMERCE_JOBS_ENABLED: true,
   COMMERCE_RECONCILE_INTERVAL_MS: 300_000,
   COMMERCE_REFUND_DISPATCH_INTERVAL_MS: 60_000,
@@ -16,6 +17,15 @@ const env: CommerceEnv = {
 };
 
 describe('CommerceSettings', () => {
+  it('binds COMMERCE_REFUND_REVIEW_CONSUMED_PCT (Phase 5 D8; default 30)', () => {
+    expect(CommerceSettings.fromEnv(env).refundReviewConsumedPct).toBe(30);
+    expect(
+      CommerceSettings.fromEnv({ ...env, COMMERCE_REFUND_REVIEW_CONSUMED_PCT: 0 })
+        .refundReviewConsumedPct,
+    ).toBe(0);
+    expect(CommerceSettings.defaults().refundReviewConsumedPct).toBe(30);
+  });
+
   it('builds the success/cancel urls from STUDENT_APP_ORIGIN', () => {
     const settings = CommerceSettings.fromEnv(env);
     expect(settings.checkoutSuccessUrl('o-1')).toBe(
@@ -59,5 +69,7 @@ describe('CommerceSettings', () => {
     expect(() => CommerceSettings.defaults({ instructorShareBps: 10_001 })).toThrow(RangeError);
     expect(() => CommerceSettings.defaults({ cartMaxItems: 21 })).toThrow(RangeError);
     expect(() => CommerceSettings.defaults({ allowedCheckoutOrigins: [] })).toThrow(RangeError);
+    expect(() => CommerceSettings.defaults({ refundReviewConsumedPct: 101 })).toThrow(RangeError);
+    expect(() => CommerceSettings.defaults({ refundReviewConsumedPct: 2.5 })).toThrow(RangeError);
   });
 });

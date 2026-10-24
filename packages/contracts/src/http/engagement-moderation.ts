@@ -16,7 +16,10 @@ import { CompactPaginationQuerySchema, emptyToUndefined, pageSchema } from './pa
  *   POST /admin/moderation/{reviews|review-replies|questions|answers}/:subjectId/dismiss-reports {reason}
  *        -> 200 ModerationSubject (404, 409 invalid_state_transition)
  *
- * A review reply is addressed by its review id (`review_replies` is keyed by `review_id`).
+ * A review reply is addressed by its REVIEW id in every route and response (a review has at
+ * most one live reply), although `review_replies` rows have their own id, which is what the
+ * report tables, `engagement.content_reports` and `moderation_actions` store: the api maps
+ * between the two (the live reply of the review, else its most recent deleted one).
  * `ENGAGEMENT_AUTO_HIDE_REPORTS` (default 3) distinct OPEN reports hide the subject
  * automatically (a `moderation_actions` row with no actor). A restore dismisses the open reports.
  */

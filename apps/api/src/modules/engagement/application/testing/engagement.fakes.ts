@@ -10,7 +10,13 @@ import type {
 import type { DB, Executor, Transaction } from '@udemy/db';
 import { RateLimitedError } from '../../../../shared/errors';
 import type { LectureCompletionCounter } from '../../../../shared/learning-progress';
-import type { CatalogFacade, CourseSummary, PublishedCourseSummary } from '../../../catalog';
+import type {
+  CatalogFacade,
+  CourseSummary,
+  LiveCurriculum,
+  LiveLectureRef,
+  PublishedCourseSummary,
+} from '../../../catalog';
 import type { EnrollmentFacade } from '../../../enrollment';
 import type { UsersFacade } from '../../../users';
 import type { ReportOutcome, ReportRecord } from '../../domain/report';
@@ -64,6 +70,14 @@ export class Clock {
   next(): Date {
     this.t += 1000;
     return new Date(this.t);
+  }
+  /** The current time, without advancing. */
+  now(): Date {
+    return new Date(this.t);
+  }
+  /** Jumps forward (quota windows). */
+  advance(ms: number): void {
+    this.t += ms;
   }
 }
 
@@ -314,9 +328,17 @@ interface StoredReport extends Mutable<ReportRecord> {
 }
 
 /** In-memory twin of `@udemy/db` `reportContent` (insert-or-keep, count, auto-hide). */
+/** Resolves a reportable subject row of another fake store (Q&A): its status and a hide. */
+export type FakeSubjectLookup = (
+  type: ReportSubjectType,
+  id: string,
+) => { status: ModerationStatus; hide(): void } | null;
+
 export class InMemoryReportRepository extends ReportRepository {
   readonly reports: StoredReport[] = [];
   readonly hidden: { subjectType: ReportSubjectType; subjectId: string }[] = [];
+  /** Extra subject stores (the Q&A fake registers QUESTION / ANSWER here). */
+  readonly subjectLookups: FakeSubjectLookup[] = [];
 
   constructor(
     private readonly reviews: InMemoryReviewRepository,
@@ -340,6 +362,10 @@ export class InMemoryReportRepository extends ReportRepository {
       return r === undefined
         ? null
         : { status: r.moderationStatus, hide: () => (r.moderationStatus = 'HIDDEN') };
+    }
+    for (const lookup of this.subjectLookups) {
+      const found = lookup(type, id);
+      if (found !== null) return found;
     }
     return null;
   }
@@ -518,6 +544,68 @@ export class FakeRateLimiter extends EngagementRateLimiter {
 /** Courses with a live revision (catalog's `getPublishedCourse` / `getCourseSummaries`). */
 export class FakeCatalog {
   readonly courses = new Map<string, CourseSummary>();
+  /** Live lectures per course: id -> title. */
+  readonly lectures = new Map<string, Map<string, string>>();
+
+  addLecture(courseId: string, title = 'Lecture'): string {
+    const id = randomUUID();
+    const lectures = this.lectures.get(courseId) ?? new Map<string, string>();
+    lectures.set(id, title);
+    this.lectures.set(courseId, lectures);
+    return id;
+  }
+
+  getLiveLecture(courseId: string, lectureId: string): Promise<LiveLectureRef | null> {
+    const c = this.courses.get(courseId);
+    if (c === undefined || this.lectures.get(courseId)?.has(lectureId) !== true) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve({
+      courseId,
+      ownerId: c.ownerId,
+      status: c.status,
+      liveRevisionId: c.liveRevisionId,
+      lectureId,
+      type: 'ARTICLE',
+      durationSeconds: null,
+      mediaAssetId: null,
+    });
+  }
+
+  getLiveCurriculum(courseId: string): Promise<LiveCurriculum | null> {
+    const c = this.courses.get(courseId);
+    if (c === undefined) return Promise.resolve(null);
+    const lectures = [...(this.lectures.get(courseId) ?? new Map<string, string>())];
+    return Promise.resolve({
+      courseId,
+      ownerId: c.ownerId,
+      status: c.status,
+      liveRevisionId: c.liveRevisionId,
+      slug: c.slug,
+      title: c.title,
+      sections: [
+        {
+          id: randomUUID(),
+          title: 'Section',
+          lectures: lectures.map(([id, title]) => ({
+            id,
+            type: 'ARTICLE' as const,
+            title,
+            durationSeconds: null,
+            isPreview: false,
+            mediaAssetId: null,
+            quiz: null,
+          })),
+        },
+      ],
+    });
+  }
+
+  getOwnedLiveCourseIds(ownerId: string): Promise<string[]> {
+    return Promise.resolve(
+      [...this.courses.values()].filter((c) => c.ownerId === ownerId).map((c) => c.id),
+    );
+  }
 
   add(ownerId: string, status: 'PUBLISHED' | 'ARCHIVED' = 'PUBLISHED'): CourseSummary {
     const id = randomUUID();

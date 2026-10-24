@@ -19,8 +19,10 @@ export const COURSE_PROGRESS = Symbol.for('udemy.COURSE_PROGRESS');
  */
 export interface CourseProgressReader {
   /**
-   * Percent complete (integer 0–100) per course id. A course without a value (no progress yet,
-   * no live curriculum, or no reader bound) is absent from the map: callers show `null`.
+   * Percent complete (integer 0–100, ⌊completed ∩ live / live × 100⌋) per course id. A course
+   * with a live curriculum ALWAYS has a value, 0 when nothing is completed yet (the card shows
+   * "Start learning"). A course without a live curriculum, a malformed id, or every course when
+   * no reader is bound (`NoCourseProgress`) is absent from the map: callers show `null`.
    */
   getPercents(userId: string, courseIds: readonly string[]): Promise<ReadonlyMap<string, number>>;
 }

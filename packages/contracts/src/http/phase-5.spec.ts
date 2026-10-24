@@ -224,6 +224,10 @@ describe('learning', () => {
     expect(progressPct(2, 3)).toBe(66);
     expect(progressPct(3, 3)).toBe(100);
     expect(progressPct(4, 3)).toBe(100);
+    // integer arithmetic: (29 / 100) * 100 is 28.999… in floating point
+    expect(progressPct(29, 100)).toBe(29);
+    expect(progressPct(57, 100)).toBe(57);
+    expect(progressPct(29, 50)).toBe(58);
     expect(ok(CourseProgressSchema, { completed: 4, total: 3, pct: 100 })).toBe(false);
     expect(
       ok(CompletionStateSchema, {

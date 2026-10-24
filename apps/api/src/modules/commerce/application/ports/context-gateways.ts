@@ -130,3 +130,26 @@ export abstract class CommerceAdminDirectory {
    */
   abstract searchIdsByEmail(fragment: string, limit: number): Promise<string[]>;
 }
+
+/** What a learner consumed of a course (`LearningFacade.getConsumption`, Phase 5 D8). */
+export interface CommerceConsumption {
+  readonly videoSecondsWatched: number;
+  readonly videoSecondsTotal: number;
+  readonly completedLectures: number;
+  readonly totalLectures: number;
+  readonly courseCompletedAt: Date | null;
+  readonly certificateStatus: 'ACTIVE' | 'REVOKED' | null;
+}
+
+/**
+ * Learning (`LearningFacade`, Phase 5 design §3, D8): the consumption figures behind the refund
+ * review rule and the refund views. Reads only and takes no locks, so it may run inside the
+ * refund transaction after the cart and order locks (schema doc R8).
+ */
+export abstract class CommerceLearning {
+  abstract getConsumption(
+    userId: string,
+    courseId: string,
+    ex?: Executor,
+  ): Promise<CommerceConsumption>;
+}

@@ -147,9 +147,12 @@ export const CourseProgressSchema = z
   .refine((p) => p.completed <= p.total, { message: 'completed ≤ total', path: ['completed'] });
 export type CourseProgress = z.infer<typeof CourseProgressSchema>;
 
-/** ⌊completed / total × 100⌋ (D5); 0 for an empty curriculum. */
+/**
+ * ⌊completed / total × 100⌋ (D5); 0 for an empty curriculum. Integer arithmetic (multiply
+ * first), like the SQL: `(29 / 100) * 100` is 28.999… in floating point and would floor to 28.
+ */
 export function progressPct(completed: number, total: number): number {
-  return total <= 0 ? 0 : Math.floor((Math.min(completed, total) / total) * 100);
+  return total <= 0 ? 0 : Math.floor((Math.min(completed, total) * 100) / total);
 }
 
 export const PlayerLectureSchema = z.object({

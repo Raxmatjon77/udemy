@@ -80,7 +80,8 @@ export const LearningCardSchema = z.object({
   /**
    * Percent complete (Phase 5 design D5, D21): ⌊completed ∩ live lecture ids / live lecture
    * count × 100⌋ from `COURSE_PROGRESS` (`LearningProgressReader`); 0 when nothing is completed,
-   * 100 means truly complete. Null only when no progress reader is bound (`NoCourseProgress`).
+   * 100 means truly complete ("Start learning" at 0, "N% complete" above it). Null when no
+   * progress reader is bound (`NoCourseProgress`) or the course has no live revision.
    * A later revision that adds lectures lowers it, but the course completion is permanent.
    */
   progress: z.number().int().min(0).max(100).nullable(),

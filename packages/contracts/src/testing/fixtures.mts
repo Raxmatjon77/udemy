@@ -28,6 +28,8 @@ import {
   CheckoutInProgressProblemSchema,
   type CheckoutResponse,
   CheckoutResponseSchema,
+  type CourseConsumption,
+  CourseConsumptionSchema,
   type OrderDetail,
   OrderDetailSchema,
   type OrderLine,
@@ -244,6 +246,27 @@ export function makeCheckoutResponse(overrides: Partial<CheckoutResponse> = {}):
   });
 }
 
+/**
+ * A buyer's consumption of a course (Phase 5 D8). Default: 1 of 4 lectures completed and
+ * 60 of 300 video seconds watched, under the 30% review threshold (no objection).
+ */
+export function makeCourseConsumption(
+  overrides: Partial<CourseConsumption> = {},
+): CourseConsumption {
+  return CourseConsumptionSchema.parse({
+    videoSecondsWatched: 60,
+    videoSecondsTotal: 300,
+    videoPct: 20,
+    completedLectures: 1,
+    totalLectures: 4,
+    lecturesPct: 25,
+    courseCompletedAt: null,
+    certificateStatus: null,
+    reviewReason: null,
+    ...overrides,
+  });
+}
+
 export function makeOrderLine(overrides: Partial<OrderLine> = {}): OrderLine {
   const listAmount = overrides.listAmount ?? '19.99';
   const discountAmount = overrides.discountAmount ?? '0.00';
@@ -265,6 +288,7 @@ export function makeOrderLine(overrides: Partial<OrderLine> = {}): OrderLine {
       eligible: true,
       reason: null,
     },
+    consumption: makeCourseConsumption(),
     ...overrides,
   });
 }
@@ -383,6 +407,7 @@ export function makeAdminRefund(overrides: Partial<AdminRefund> = {}): AdminRefu
     requestedBy: FIXTURE_IDS.student,
     providerRefundId: status === 'SUBMITTED' || status === 'SUCCEEDED' ? 're_test_fixture' : null,
     failureCode: status === 'FAILED' ? 'charge_disputed' : null,
+    reviewReason: null,
     ...rest,
   });
 }
@@ -401,6 +426,7 @@ export function makeAdminRefundQueueItem(
       status: 'ACTIVE',
     },
     recentRefundCount: 3,
+    consumption: makeCourseConsumption(),
     ...rest,
   });
 }

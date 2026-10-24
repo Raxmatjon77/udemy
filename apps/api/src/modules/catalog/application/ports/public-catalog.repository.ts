@@ -119,6 +119,16 @@ export abstract class PublicCatalogRepository {
   /** Lecture ids of the live revision in curriculum order (empty when not live). */
   abstract listLiveLectureIds(courseId: string, ex?: Executor): Promise<string[]>;
 
+  /**
+   * Ids of the owner's PUBLISHED or ARCHIVED courses (never deleted), most recently first
+   * published first, at most `limit` (engagement's instructor Q&A inbox).
+   */
+  abstract listLiveCourseIdsByOwner(
+    ownerId: string,
+    limit: number,
+    ex?: Executor,
+  ): Promise<string[]>;
+
   /** Lecture count and total video seconds of each course's live revision. */
   abstract liveTotals(
     courseIds: readonly string[],

@@ -1193,6 +1193,9 @@ export class FakePublicCatalogRepository extends PublicCatalogRepository {
   listLiveLectureIds(): Promise<string[]> {
     throw new Error('fake: not implemented');
   }
+  listLiveCourseIdsByOwner(): Promise<string[]> {
+    throw new Error('fake: not implemented');
+  }
   liveTotals(): Promise<ReadonlyMap<string, LiveTotals>> {
     throw new Error('fake: not implemented');
   }

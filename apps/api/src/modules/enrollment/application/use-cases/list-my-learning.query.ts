@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { LearningCard, LearningCardPage } from '@udemy/contracts';
+import { COURSE_PROGRESS, type CourseProgressReader } from '../../../../shared/learning-progress';
 import { CatalogFacade } from '../../../catalog';
 import { UsersFacade } from '../../../users';
 import { decodeMyLearningCursor, encodeMyLearningCursor } from '../enrollment-cursor';
@@ -16,7 +17,10 @@ export interface ListMyLearningInput {
  * `ListMyLearning` (design §5): the caller's ACTIVE enrollments, keyset `(granted_at DESC,
  * id DESC)`, as `LearningCard`s from `CatalogFacade.getCourseSummaries` (the live title and
  * thumbnail; `archived` badge, D13) and the instructor's public profile (null when banned).
- * `progress` is null until Phase 5.
+ * `progress` comes from the global `COURSE_PROGRESS` port (Phase 5 D21; AppModule binds it to
+ * learning's `LearningProgressReader`): one batched call per page, 0 when nothing is completed,
+ * null when the reader has no value (no live revision, or `NoCourseProgress`). Enrollment never
+ * imports learning (learning imports enrollment for its access checks).
  *
  * A course catalog no longer knows (deleted) is left out of the page; the cursor still moves
  * past it, so pages may be shorter than `limit`.
@@ -29,6 +33,7 @@ export class ListMyLearningQuery {
     private readonly enrollments: EnrollmentRepository,
     private readonly catalog: CatalogFacade,
     private readonly users: UsersFacade,
+    @Inject(COURSE_PROGRESS) private readonly progress: CourseProgressReader,
   ) {}
 
   async execute(input: ListMyLearningInput): Promise<LearningCardPage> {
@@ -53,6 +58,10 @@ export class ListMyLearningQuery {
         ])
       ).map((p) => [p.id, p]),
     );
+    const percents =
+      courses.size === 0
+        ? new Map<string, number>()
+        : await this.progress.getPercents(input.userId, [...courses.keys()]);
     const items = page.flatMap(({ enrollment }): LearningCard[] => {
       const course = courses.get(enrollment.courseId);
       if (course === undefined) return [];
@@ -71,7 +80,7 @@ export class ListMyLearningQuery {
           archived: course.status === 'ARCHIVED',
           source: enrollment.source,
           grantedAt: enrollment.grantedAt.toISOString(),
-          progress: null,
+          progress: percents.get(course.id) ?? null,
         },
       ];
     });

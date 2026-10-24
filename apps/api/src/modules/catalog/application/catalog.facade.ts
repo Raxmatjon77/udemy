@@ -13,6 +13,9 @@ import {
 } from './ports/revision.repository';
 import { isServableThumbnail } from './public-catalog-support';
 
+/** At most this many course ids from `getOwnedLiveCourseIds` (design §5 InstructorQaInbox). */
+export const OWNED_LIVE_COURSES_MAX = 100;
+
 /** At most this many ids per `getCourseSummaries` call (a cart holds 20, a page 48). */
 export const COURSE_SUMMARIES_MAX_IDS = 100;
 
@@ -225,6 +228,16 @@ export class CatalogFacade {
     return found?.lecture != null;
   }
 
+  /**
+   * Ids of the owner's courses that have a live revision (PUBLISHED or ARCHIVED, never
+   * deleted), the most recently first-published first, at most `OWNED_LIVE_COURSES_MAX`
+   * (engagement's instructor Q&A inbox: questions exist only on live courses).
+   */
+  getOwnedLiveCourseIds(ownerId: string, ex?: Executor): Promise<string[]> {
+    if (!UUID.test(ownerId)) return Promise.resolve([]);
+    return this.publicCatalog.listLiveCourseIdsByOwner(ownerId, OWNED_LIVE_COURSES_MAX, ex);
+  }
+
   /** Lecture ids of the live revision in curriculum order (progress denominator); [] if none. */
   getLiveLectureIds(courseId: string, ex?: Executor): Promise<string[]> {
     return this.publicCatalog.listLiveLectureIds(courseId, ex);
@@ -353,6 +366,24 @@ export class CatalogFacade {
     const quiz = await this.revisionQuiz(course.liveRevisionId, lectureId, ex);
     if (quiz === null) return null;
     return { revisionId: course.liveRevisionId, ...toLearnerQuiz(quiz) };
+  }
+
+  /**
+   * LEARNER-SAFE: the quiz of a QUIZ lecture of ANY revision (the allow-list view of
+   * `getQuizForAttempt`, without any part of the answer key). Learning shows an attempt with
+   * the questions of the revision it STARTED on, which may no longer be live (P5-T11), and
+   * checks submitted option positions against it. Null when the lecture is not a QUIZ lecture
+   * of that revision.
+   */
+  async getQuizForRevision(
+    revisionId: string,
+    lectureId: string,
+    ex?: Executor,
+  ): Promise<QuizForAttempt | null> {
+    if (!UUID.test(revisionId) || !UUID.test(lectureId)) return null;
+    const quiz = await this.revisionQuiz(revisionId, lectureId, ex);
+    if (quiz === null) return null;
+    return { revisionId, ...toLearnerQuiz(quiz) };
   }
 
   /**

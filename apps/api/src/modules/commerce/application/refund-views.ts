@@ -2,6 +2,7 @@ import type {
   AdminBuyer,
   AdminRefund,
   AdminRefundQueueItem,
+  CourseConsumption,
   PersonRef,
   Refund,
   RefundTransition,
@@ -34,7 +35,10 @@ export function toRefundView(refund: RefundRecord): Refund {
   };
 }
 
-/** The admin view: plus the buyer id, who asked, and the provider refund / failure. */
+/**
+ * The admin view: plus the buyer id, who asked, the provider refund / failure, and the
+ * consumption objection recorded at request time (Phase 5 D8).
+ */
 export function toAdminRefundView(refund: RefundRecord): AdminRefund {
   return {
     ...toRefundView(refund),
@@ -42,6 +46,7 @@ export function toAdminRefundView(refund: RefundRecord): AdminRefund {
     requestedBy: refund.requestedBy,
     providerRefundId: refund.providerRefundId,
     failureCode: refund.failureCode,
+    reviewReason: refund.reviewReason,
   };
 }
 
@@ -66,16 +71,22 @@ export function toActor(
   return account === undefined ? null : { id: account.id, displayName: account.displayName };
 }
 
+/**
+ * A refund queue row: the D11 count as the rule saw it, and the buyer's CURRENT consumption of
+ * the course (Phase 5 D8; read live by `CourseConsumptionViews`).
+ */
 export function toQueueItem(
   refund: RefundRecord,
   recentRefundCount: number,
   accounts: ReadonlyMap<string, CommerceAccount>,
+  consumption: CourseConsumption,
 ): AdminRefundQueueItem {
   return {
     ...toAdminRefundView(refund),
     orderNumber: refund.orderNumber,
     buyer: toAdminBuyer(accounts.get(refund.userId)),
     recentRefundCount,
+    consumption,
   };
 }
 

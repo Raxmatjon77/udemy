@@ -124,6 +124,9 @@ class InMemoryPublicCatalog extends PublicCatalogRepository {
   listLiveLectureIds(): Promise<string[]> {
     throw new Error('not used');
   }
+  listLiveCourseIdsByOwner(): Promise<string[]> {
+    throw new Error('not used');
+  }
   liveTotals(): Promise<ReadonlyMap<string, LiveTotals>> {
     throw new Error('not used');
   }

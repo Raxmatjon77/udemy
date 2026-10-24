@@ -31,6 +31,11 @@ export interface RefundRecord {
   readonly requestedBy: string | null;
   /** The reason of the latest REJECTED transition. */
   readonly rejectionReason: string | null;
+  /**
+   * STUDENT requests: the consumption objection recorded on the first transition (Phase 5 D8,
+   * contracts `AdminRefund.reviewReason`); null otherwise.
+   */
+  readonly reviewReason: string | null;
   readonly createdAt: Date;
   readonly approvedAt: Date | null;
   readonly succeededAt: Date | null;
@@ -62,7 +67,10 @@ export interface NewRefund {
   readonly comment: string | null;
   /** The first transition's actor: the student, or the admin. */
   readonly actorId: string;
-  /** ADMIN: 10–2000 characters (`refund_transitions_actor_ck`). */
+  /**
+   * ADMIN: 10–2000 characters (`refund_transitions_reason_ck`). STUDENT: the consumption
+   * objection that sent the request to review (Phase 5 D8), else null.
+   */
   readonly reason: string | null;
 }
 

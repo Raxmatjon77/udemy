@@ -36,9 +36,13 @@ export interface RequestRefundInput {
  *    cannot both count 2 and auto-approve, R5) -> the order row -> the line resolved WITHIN
  *    the order -> eligibility (`lineRefundState` at the DATABASE clock: no live refund, a paid
  *    PAID / PARTIALLY_REFUNDED order, a non-zero line, inside `COMMERCE_REFUND_WINDOW_DAYS`).
- * 3. The abuse rule: fewer than 3 counted refunds in 90 days -> APPROVED at once (the access
- *    this line granted is revoked in the same transaction, `RefundApproved`); otherwise
- *    REQUESTED for an admin (`RefundRequested`: student acknowledgement + admin alert).
+ * 3. The review rules: fewer than 3 counted refunds in 90 days AND no consumption objection
+ *    (`RefundEligibilityPolicy`, Phase 5 `LearningConsumptionPolicy`: an ACTIVE certificate, or
+ *    more than 30% of the live video watched or of the live lectures completed) -> APPROVED at
+ *    once (the access THIS line granted is revoked in the same transaction, `RefundApproved`);
+ *    otherwise REQUESTED for an admin (`RefundRequested`: student acknowledgement + admin
+ *    alert). The objection, if any, is recorded as the reason of the first refund transition
+ *    (the audit trail of why it needs review; contracts `AdminRefund.reviewReason`).
  * 4. After COMMIT, an approved refund is kicked to the dispatcher.
  */
 @Injectable()
@@ -84,17 +88,17 @@ export class RequestRefundCommand {
       });
       if (state.reason !== null) throw refundBlockedError(state.reason);
 
-      const decision = decideStudentRefund({
-        recentRefundCount: await this.refunds.countRecentStudentRefunds(
-          trx,
-          input.userId,
-          REFUND_REVIEW_LOOKBACK_DAYS,
-        ),
-        consumptionObjection: await this.policy.objection(
-          { userId: input.userId, courseId: line.courseId, orderLineId: line.id },
-          trx,
-        ),
-      });
+      const recentRefundCount = await this.refunds.countRecentStudentRefunds(
+        trx,
+        input.userId,
+        REFUND_REVIEW_LOOKBACK_DAYS,
+      );
+      // Learning reads only (no locks), after the cart and order locks (R8).
+      const objection = await this.policy.objection(
+        { userId: input.userId, courseId: line.courseId, orderLineId: line.id },
+        trx,
+      );
+      const decision = decideStudentRefund({ recentRefundCount, consumptionObjection: objection });
       const created = await this.refunds.insert(trx, {
         orderId: order.orderId,
         orderLineId: line.id,
@@ -105,7 +109,8 @@ export class RequestRefundCommand {
         reasonCode: input.reasonCode,
         comment: input.comment ?? null,
         actorId: input.userId,
-        reason: null,
+        // NEEDS_REVIEW because of consumption: why, on the first transition (audit).
+        reason: objection,
       });
       if (created.status === 'APPROVED') {
         await this.lifecycle.approved(trx, created, {

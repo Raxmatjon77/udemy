@@ -4,6 +4,7 @@ export {
   CatalogFacade,
   COURSE_SUMMARIES_MAX_IDS,
   LIVE_CURRICULUM_INDEX_MAX_IDS,
+  OWNED_LIVE_COURSES_MAX,
   type CourseSummary,
   type LiveCurriculum,
   type LiveCurriculumIndexEntry,

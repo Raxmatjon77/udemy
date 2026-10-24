@@ -9,6 +9,7 @@ import { AppConfigService } from '../../shared/config';
 import { CatalogModule } from '../catalog';
 import { EnrollmentModule } from '../enrollment';
 import { IdentityModule } from '../identity';
+import { LearningModule } from '../learning';
 import { CartQuoteService } from './application/cart-quote.service';
 import { CheckoutSessions } from './application/checkout-sessions.service';
 import { CommerceJobs } from './application/commerce-jobs';
@@ -16,6 +17,11 @@ import { CommerceSettings } from './application/commerce-settings';
 import { CreatingPaymentAbandoner } from './application/creating-payment-abandoner.service';
 import { AdminOrderViews } from './application/admin-order-views.service';
 import { EnrollmentFacadeGateway } from './application/enrollment-facade.gateway';
+import {
+  CourseConsumptionViews,
+  LearningConsumptionPolicy,
+} from './application/learning-consumption.policy';
+import { LearningFacadeGateway } from './application/learning-facade.gateway';
 import {
   CatalogFacadeGateway,
   IdentityFacadeAdminDirectory,
@@ -35,6 +41,7 @@ import {
   CommerceBuyers,
   CommerceCatalog,
   CommerceEnrollments,
+  CommerceLearning,
   CommercePeople,
 } from './application/ports/context-gateways';
 import { CouponRepository } from './application/ports/coupon.repository';
@@ -47,10 +54,7 @@ import {
   RefundDispatchTrigger,
 } from './application/ports/provider-refund-events';
 import { ReconcileRepository } from './application/ports/reconcile.repository';
-import {
-  NoConsumptionData,
-  RefundEligibilityPolicy,
-} from './application/ports/refund-eligibility.policy';
+import { RefundEligibilityPolicy } from './application/ports/refund-eligibility.policy';
 import { RefundDispatchRepository, RefundRepository } from './application/ports/refund.repository';
 import { SalesRepository } from './application/ports/sales.repository';
 import { ProviderRefundEventsHandler } from './application/provider-refund-events.handler';
@@ -143,6 +147,7 @@ export function commerceSettingsFrom(config: AppConfigService): CommerceSettings
     COMMERCE_INSTRUCTOR_SHARE_BPS: config.get('COMMERCE_INSTRUCTOR_SHARE_BPS'),
     COMMERCE_CHECKOUT_SESSION_TTL_MIN: config.get('COMMERCE_CHECKOUT_SESSION_TTL_MIN'),
     COMMERCE_REFUND_WINDOW_DAYS: config.get('COMMERCE_REFUND_WINDOW_DAYS'),
+    COMMERCE_REFUND_REVIEW_CONSUMED_PCT: config.get('COMMERCE_REFUND_REVIEW_CONSUMED_PCT'),
     COMMERCE_JOBS_ENABLED: config.get('COMMERCE_JOBS_ENABLED'),
     COMMERCE_RECONCILE_INTERVAL_MS: config.get('COMMERCE_RECONCILE_INTERVAL_MS'),
     COMMERCE_REFUND_DISPATCH_INTERVAL_MS: config.get('COMMERCE_REFUND_DISPATCH_INTERVAL_MS'),
@@ -176,10 +181,17 @@ export function commerceSettingsFrom(config: AppConfigService): CommerceSettings
  *   (`RefundDispatchTrigger`), the refund webhooks (`ProviderRefundEvents`), PAYMENT_REVIEW
  *   accept, admin order search / detail / refund queue, and instructor sales.
  *
+ * - Phase 5 (P5-T16, learning design D8): `RefundEligibilityPolicy` is bound to
+ *   `LearningConsumptionPolicy` (an ACTIVE certificate or > `COMMERCE_REFUND_REVIEW_CONSUMED_PCT`
+ *   consumed sends a student request to review; never a block), reading
+ *   `LearningFacade.getConsumption` through `CommerceLearning`; the student order lines and
+ *   the admin refund queue carry the consumption figures. Learning never imports commerce, so
+ *   importing `LearningModule` here is not a cycle.
+ *
  * Exports nothing: no other module calls commerce in Phase 4 (design §3).
  */
 @Module({
-  imports: [CatalogModule, EnrollmentModule, IdentityModule],
+  imports: [CatalogModule, EnrollmentModule, IdentityModule, LearningModule],
   controllers: [
     PublicPricesController,
     CoursePricingController,
@@ -204,6 +216,7 @@ export function commerceSettingsFrom(config: AppConfigService): CommerceSettings
     { provide: CommercePeople, useClass: IdentityFacadePeople },
     { provide: CommerceBuyers, useClass: IdentityFacadeBuyers },
     { provide: CommerceAdminDirectory, useClass: IdentityFacadeAdminDirectory },
+    { provide: CommerceLearning, useClass: LearningFacadeGateway },
 
     // The payment provider (the only Stripe client, D9)
     { provide: PAYMENT_PROVIDER, inject: [AppConfigService], useFactory: stripeProviderFrom },
@@ -224,10 +237,11 @@ export function commerceSettingsFrom(config: AppConfigService): CommerceSettings
     { provide: AdminOrderRepository, useClass: KyselyAdminOrderRepository },
     { provide: SalesRepository, useClass: KyselySalesRepository },
 
-    // Refunds (P4-T16): webhooks, dispatcher kick, the Phase 5 consumption seam
+    // Refunds (P4-T16): webhooks, dispatcher kick; the Phase 5 consumption rule (P5-T16)
     { provide: ProviderRefundEvents, useClass: ProviderRefundEventsHandler },
     { provide: RefundDispatchTrigger, useClass: RefundDispatchKick },
-    { provide: RefundEligibilityPolicy, useClass: NoConsumptionData },
+    { provide: RefundEligibilityPolicy, useClass: LearningConsumptionPolicy },
+    CourseConsumptionViews,
     RefundLifecycle,
     RefundDispatcher,
 

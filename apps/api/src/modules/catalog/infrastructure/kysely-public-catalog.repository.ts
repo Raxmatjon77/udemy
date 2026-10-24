@@ -186,6 +186,25 @@ export class KyselyPublicCatalogRepository extends PublicCatalogRepository {
     return row === undefined ? null : toSnapshotLecture(row);
   }
 
+  async listLiveCourseIdsByOwner(
+    ownerId: string,
+    limit: number,
+    ex: Executor = this.db,
+  ): Promise<string[]> {
+    const rows = await ex
+      .selectFrom('catalog.courses as c')
+      .select('c.id')
+      .where('c.ownerId', '=', ownerId)
+      .where('c.deletedAt', 'is', null)
+      .where('c.status', 'in', [...LIVE_STATUSES])
+      .where('c.publishedRevisionId', 'is not', null)
+      .orderBy('c.firstPublishedAt', 'desc')
+      .orderBy('c.id', 'desc')
+      .limit(limit)
+      .execute();
+    return rows.map((r) => r.id);
+  }
+
   async listLiveLectureIds(courseId: string, ex: Executor = this.db): Promise<string[]> {
     const rows = await ex
       .selectFrom('catalog.courses as c')

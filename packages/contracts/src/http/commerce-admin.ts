@@ -15,7 +15,7 @@ import {
   RefundStatusSchema,
   RevenueShareBpsSchema,
 } from './commerce-common';
-import { RefundSchema } from './commerce-orders';
+import { CourseConsumptionSchema, RefundReviewReasonSchema, RefundSchema } from './commerce-orders';
 import { IsoDateTimeSchema, multilineText, UuidSchema } from './fields';
 import { emptyToUndefined, pageSchema, PaginationQuerySchema } from './pagination';
 
@@ -164,6 +164,13 @@ export const AdminRefundSchema = RefundSchema.extend({
   requestedBy: UuidSchema.nullable(),
   providerRefundId: z.string().nullable(),
   failureCode: z.string().nullable(),
+  /**
+   * Additive (Phase 5, P5-T16): why the consumption rule sent this STUDENT request to review,
+   * as recorded at request time (the reason of its first transition); null when it did not
+   * object (auto-approved, or sent to review by `recentRefundCount` alone) and for ADMIN and
+   * SYSTEM refunds. See `CourseConsumption` for the current figures.
+   */
+  reviewReason: RefundReviewReasonSchema.nullable(),
 });
 export type AdminRefund = z.infer<typeof AdminRefundSchema>;
 
@@ -175,7 +182,10 @@ export const RefundTransitionSchema = z.object({
   /** The admin (review, retry, admin refund) or the student (request); null for the system. */
   actorId: UuidSchema.nullable(),
   actor: AdminActorSchema.nullable(),
-  /** The admin's reason (required on REJECTED and on admin refunds' first row). */
+  /**
+   * The admin's reason (required on REJECTED and on admin refunds' first row). On a STUDENT
+   * request's first row (REQUESTED): the consumption `RefundReviewReason`, if any (Phase 5).
+   */
   reason: z.string().nullable(),
   /** This attempt's provider refund (SUBMITTED / SUCCEEDED / FAILED rows). */
   providerRefundId: z.string().nullable(),
@@ -321,6 +331,11 @@ export const AdminRefundQueueItemSchema = AdminRefundSchema.extend({
    * rejection of one of the counted refunds lowers it.
    */
   recentRefundCount: z.number().int().min(0),
+  /**
+   * Additive (Phase 5, P5-T16): the buyer's CURRENT consumption of the course (read live; it
+   * can have grown since the request, unlike `reviewReason`, which is what the rule saw).
+   */
+  consumption: CourseConsumptionSchema,
 });
 export type AdminRefundQueueItem = z.infer<typeof AdminRefundQueueItemSchema>;
 

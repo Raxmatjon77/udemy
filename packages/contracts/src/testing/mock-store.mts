@@ -31,7 +31,14 @@ import type {
 } from '../http/commerce-common.js';
 import { REFUND_REVIEW_LOOKBACK_DAYS, REFUND_REVIEW_THRESHOLD } from '../http/commerce-common.js';
 import type { Coupon } from '../http/commerce-coupons.js';
-import type { OrderDetail, OrderSummary, Receipt, Refund } from '../http/commerce-orders.js';
+import {
+  type CourseConsumption,
+  type OrderDetail,
+  type OrderSummary,
+  type Receipt,
+  type Refund,
+  REFUND_REVIEW_CONSUMED_PCT,
+} from '../http/commerce-orders.js';
 import type { CoursePriceChange, CoursePricing, PublicPrice } from '../http/commerce-pricing.js';
 import type { RecentSale, SalesSummary, SalesTotals } from '../http/commerce-sales.js';
 import type {
@@ -145,6 +152,55 @@ export interface MockEnrollmentChange {
  */
 export type MockCourseProgressReader = (userId: string, courseId: string) => number | null;
 
+/** The raw consumption figures (learning's `getConsumption`), without the derived fields. */
+export type MockConsumptionFigures = Omit<
+  CourseConsumption,
+  'videoPct' | 'lecturesPct' | 'reviewReason'
+>;
+
+/**
+ * The refund consumption seam (Phase 5 D8, commerce's `LearningConsumptionPolicy`): what the
+ * user consumed of the course. The default reads as "nothing consumed" (no objection);
+ * `createLearningMockStore` binds its own.
+ */
+export type MockConsumptionReader = (userId: string, courseId: string) => MockConsumptionFigures;
+
+const NOTHING_CONSUMED: MockConsumptionFigures = Object.freeze({
+  videoSecondsWatched: 0,
+  videoSecondsTotal: 0,
+  completedLectures: 0,
+  totalLectures: 0,
+  courseCompletedAt: null,
+  certificateStatus: null,
+});
+
+/**
+ * P5-D6, like `@udemy/db` `consumptionReviewReason`: integer arithmetic, strict `>`, in this
+ * order: an ACTIVE certificate, video watched, lectures completed.
+ */
+export function mockCourseConsumption(
+  figures: MockConsumptionFigures,
+  pct: number = REFUND_REVIEW_CONSUMED_PCT,
+): CourseConsumption {
+  const f = figures;
+  const videoPct =
+    f.videoSecondsTotal > 0
+      ? Math.min(100, Math.floor((f.videoSecondsWatched * 100) / f.videoSecondsTotal))
+      : 0;
+  const lecturesPct =
+    f.totalLectures > 0
+      ? Math.min(100, Math.floor((f.completedLectures * 100) / f.totalLectures))
+      : 0;
+  let reviewReason: string | null = null;
+  if (f.certificateStatus === 'ACTIVE') reviewReason = 'certificate_issued';
+  else if (f.videoSecondsTotal > 0 && f.videoSecondsWatched * 100 > pct * f.videoSecondsTotal) {
+    reviewReason = `consumed_video_${videoPct}`;
+  } else if (f.totalLectures > 0 && f.completedLectures * 100 > pct * f.totalLectures) {
+    reviewReason = `consumed_lectures_${lecturesPct}`;
+  }
+  return { ...f, videoPct, lecturesPct, reviewReason };
+}
+
 export interface CommerceMockSeed {
   /** The signed-in user. Default `FIXTURE_IDS.student`. */
   viewerId?: string;
@@ -161,6 +217,8 @@ export interface CommerceMockSeed {
   /** Clock; default `() => new Date()`. */
   now?: () => Date;
   refundWindowDays?: number;
+  /** `COMMERCE_REFUND_REVIEW_CONSUMED_PCT` (Phase 5 D8). Default 30. */
+  refundReviewConsumedPct?: number;
   /** Override some of `MOCK_RATE_LIMITS` (e.g. `{ couponApply: { limit: 1, windowMs: 60_000 } }`). */
   rateLimits?: Partial<Record<MockRateLimitName, MockRateLimitRule>>;
 }
@@ -263,6 +321,8 @@ export class CommerceMockStore {
   private seq = 0x100;
   private orderNumber = 1000;
   private progressReader: MockCourseProgressReader = () => null;
+  private consumptionReader: MockConsumptionReader = () => NOTHING_CONSUMED;
+  private readonly refundReviewConsumedPct: number;
   private readonly enrollmentListeners: ((change: MockEnrollmentChange) => void)[] = [];
 
   constructor(seed: CommerceMockSeed = {}) {
@@ -270,6 +330,7 @@ export class CommerceMockStore {
     this.emailVerified = seed.emailVerified ?? true;
     this.checkoutOrigin = seed.checkoutOrigin ?? 'http://127.0.0.1:12111';
     this.refundWindowDays = seed.refundWindowDays ?? 30;
+    this.refundReviewConsumedPct = seed.refundReviewConsumedPct ?? REFUND_REVIEW_CONSUMED_PCT;
     this.now = seed.now ?? (() => new Date());
     this.rateLimits = { ...MOCK_RATE_LIMITS, ...seed.rateLimits };
     for (const user of seed.users ?? defaultMockUsers()) this.users.set(user.id, user);
@@ -289,6 +350,19 @@ export class CommerceMockStore {
   /** Binds `COURSE_PROGRESS` (`LearningCard.progress`); null restores `NoCourseProgress`. */
   setCourseProgressReader(reader: MockCourseProgressReader | null): void {
     this.progressReader = reader ?? (() => null);
+  }
+
+  /** Binds the refund consumption seam (Phase 5 D8); null restores "nothing consumed". */
+  setConsumptionReader(reader: MockConsumptionReader | null): void {
+    this.consumptionReader = reader ?? (() => NOTHING_CONSUMED);
+  }
+
+  /** `CourseConsumption` of a user and course, with the review rule applied. */
+  courseConsumption(userId: string, courseId: string): CourseConsumption {
+    return mockCourseConsumption(
+      this.consumptionReader(userId, courseId),
+      this.refundReviewConsumedPct,
+    );
   }
 
   /** Called after every grant, regrant and revoke (like a consumer of `enrollment.enrollment`). */
@@ -971,6 +1045,7 @@ export class CommerceMockStore {
             eligible: block === null,
             reason: block,
           },
+          consumption: block === null ? this.courseConsumption(order.userId, line.courseId) : null,
         };
       }),
       payment: {
@@ -1039,6 +1114,8 @@ export class CommerceMockStore {
       actorId: string | null;
       /** ADMIN: the reason on the first transition. */
       reason?: string | null;
+      /** STUDENT: the consumption objection, recorded as the first transition's reason. */
+      reviewReason?: string | null;
     },
   ): MockRefund {
     const at = this.iso();
@@ -1063,11 +1140,12 @@ export class CommerceMockStore {
       requestedBy: input.initiatedBy === 'STUDENT' ? order.userId : null,
       providerRefundId: null,
       failureCode: null,
+      reviewReason: input.reviewReason ?? null,
       transitions: [],
     };
     this.refundTransition(refund, refund.status, {
       actorId: input.initiatedBy === 'STUDENT' ? order.userId : input.actorId,
-      reason: input.reason ?? null,
+      reason: input.reviewReason ?? input.reason ?? null,
     });
     this.refunds.push(refund);
     if (input.approve) this.revokeFor(refund, input.actorId);
@@ -1108,7 +1186,10 @@ export class CommerceMockStore {
     const block = this.lineRefundBlock(order, line);
     if (block === ErrorCode.RefundAlreadyRequested) throw new MockApiError(409, block);
     if (block !== null) throw new MockApiError(422, block);
-    const approve = this.recentRefundCount(order.userId) < REFUND_REVIEW_THRESHOLD;
+    // D11 + Phase 5 D8: a consumption objection also sends the request to review.
+    const objection = this.courseConsumption(order.userId, line.courseId).reviewReason;
+    const approve =
+      objection === null && this.recentRefundCount(order.userId) < REFUND_REVIEW_THRESHOLD;
     return this.studentView(
       this.createRefund(order, line, {
         initiatedBy: 'STUDENT',
@@ -1116,6 +1197,7 @@ export class CommerceMockStore {
         comment: input.comment ?? null,
         approve,
         actorId: null,
+        reviewReason: objection,
       }),
     );
   }
@@ -1244,6 +1326,7 @@ export class CommerceMockStore {
       orderNumber: order.orderNumber,
       buyer: this.buyer(refund.userId),
       recentRefundCount: this.recentRefundCount(refund.userId, refund.createdAt, refund.id),
+      consumption: this.courseConsumption(refund.userId, refund.courseId),
     };
   }
 

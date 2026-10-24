@@ -39,8 +39,12 @@ import {
   CheckoutInProgressProblemSchema,
   CheckoutRequestSchema,
   CheckoutResponseSchema,
+  CourseConsumptionSchema,
   OrderDetailSchema,
+  OrderLineSchema,
   PriceChangedProblemSchema,
+  REFUND_REVIEW_CONSUMED_PCT,
+  RefundReviewReasonSchema,
   RequestRefundRequestSchema,
 } from './commerce-orders';
 import {
@@ -318,6 +322,7 @@ describe('orders and refunds', () => {
       eligible: true,
       reason: null,
     },
+    consumption: null,
   };
   const order = {
     id,
@@ -340,6 +345,34 @@ describe('orders and refunds', () => {
     expect(OrderDetailSchema.parse(order)).toEqual(order);
     expect(ok(OrderDetailSchema, { ...order, lines: [] })).toBe(false);
     expect(ok(OrderDetailSchema, { ...order, status: 'SHIPPED' })).toBe(false);
+  });
+
+  it('Phase 5: order lines carry the buyer consumption (or null); review reasons are closed', () => {
+    const consumption = {
+      videoSecondsWatched: 450,
+      videoSecondsTotal: 1000,
+      videoPct: 45,
+      completedLectures: 1,
+      totalLectures: 4,
+      lecturesPct: 25,
+      courseCompletedAt: null,
+      certificateStatus: null,
+      reviewReason: 'consumed_video_45',
+    };
+    expect(CourseConsumptionSchema.parse(consumption)).toEqual(consumption);
+    expect(OrderLineSchema.parse({ ...line, consumption }).consumption).toEqual(consumption);
+    expect(ok(OrderLineSchema, { ...line, consumption: undefined })).toBe(false);
+    expect(ok(CourseConsumptionSchema, { ...consumption, videoPct: 101 })).toBe(false);
+    expect(ok(CourseConsumptionSchema, { ...consumption, certificateStatus: 'PENDING' })).toBe(
+      false,
+    );
+    for (const reason of ['certificate_issued', 'consumed_video_31', 'consumed_lectures_100']) {
+      expect(ok(RefundReviewReasonSchema, reason)).toBe(true);
+    }
+    for (const reason of ['consumed_video_101', 'consumed_video_07', 'consumed_quiz_50', '']) {
+      expect(ok(RefundReviewReasonSchema, reason)).toBe(false);
+    }
+    expect(REFUND_REVIEW_CONSUMED_PCT).toBe(30);
   });
 
   it('students pick from the student reasons only', () => {
