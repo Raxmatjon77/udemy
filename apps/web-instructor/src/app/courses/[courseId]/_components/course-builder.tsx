@@ -23,8 +23,10 @@ import { DetailsTab } from './details-tab';
 import { LectureDrawer } from './lecture-drawer';
 import { LockBanner } from './lock-banner';
 import { PricingTab } from './pricing-tab';
+import { AnnouncementsTab } from './announcements-tab';
 import { PromotionsTab } from './promotions-tab';
 import { ReviewTab } from './review-tab';
+import { ReviewsTab } from './reviews-tab';
 
 const TAB_LABELS: Record<BuilderTab, string> = {
   details: 'Details',
@@ -32,11 +34,13 @@ const TAB_LABELS: Record<BuilderTab, string> = {
   pricing: 'Pricing',
   promotions: 'Promotions',
   review: 'Review',
+  reviews: 'Student reviews',
+  announcements: 'Announcements',
 };
 
 /**
  * The course builder (design §10): Details, Curriculum, Pricing, Promotions and Review tabs over
- * one course. While a submission is pending (D2) or the course is archived, the catalog tabs are
+ * one course, plus the Phase 5 engagement tabs (Student reviews with replies, Announcements). While a submission is pending (D2) or the course is archived, the catalog tabs are
  * read-only; pricing and coupons are commerce data and stay editable (Phase 4 D2).
  */
 export function CourseBuilder({
@@ -58,6 +62,8 @@ export function CourseBuilder({
     pricing: null,
     promotions: null,
     review: null,
+    reviews: null,
+    announcements: null,
   });
 
   const withdraw = useMutation({
@@ -190,7 +196,11 @@ export function CourseBuilder({
         error={withdrawError}
       />
 
-      <div role="tablist" aria-label="Course builder" className="flex gap-1 border-b">
+      <div
+        role="tablist"
+        aria-label="Course builder"
+        className="flex gap-1 overflow-x-auto border-b"
+      >
         {BUILDER_TABS.map((value) => (
           <button
             key={value}
@@ -277,6 +287,23 @@ export function CourseBuilder({
           withdrawing={withdraw.isPending}
           withdrawError={withdrawError}
         />
+      </div>
+
+      <div
+        role="tabpanel"
+        id="panel-reviews"
+        aria-labelledby="tab-reviews"
+        hidden={tab !== 'reviews'}
+      >
+        {tab === 'reviews' ? <ReviewsTab courseId={courseId} /> : null}
+      </div>
+      <div
+        role="tabpanel"
+        id="panel-announcements"
+        aria-labelledby="tab-announcements"
+        hidden={tab !== 'announcements'}
+      >
+        {tab === 'announcements' ? <AnnouncementsTab course={data} /> : null}
       </div>
 
       <LectureDrawer

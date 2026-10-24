@@ -7,6 +7,8 @@ import {
   type InstructorApplicationStatus,
   type MeResponse,
   type RefundStatus,
+  type ReportStatus,
+  type ReportSubjectType,
 } from '@udemy/contracts';
 
 import { api } from './api';
@@ -38,6 +40,12 @@ export const queryKeys = {
   userEnrollments: (userId: string) => ['admin', 'enrollments', 'user', userId] as const,
   pickerUsers: ['admin', 'picker', 'users'] as const,
   pickerCourses: ['admin', 'picker', 'courses'] as const,
+  moderation: ['admin', 'moderation'] as const,
+  moderationQueue: (type: ReportSubjectType | null, status: ReportStatus) =>
+    ['admin', 'moderation', 'queue', { type, status }] as const,
+  userCertificates: (userId: string) => ['admin', 'certificates', 'user', userId] as const,
+  revisionQuiz: (revisionId: string, lectureId: string) =>
+    ['admin', 'course-reviews', 'detail', revisionId, 'quiz', lectureId] as const,
 };
 
 /** The `/admin/orders` filters the UI drives (paging is the query's own). */

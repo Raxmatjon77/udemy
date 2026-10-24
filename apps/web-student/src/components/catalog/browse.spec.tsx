@@ -87,9 +87,53 @@ describe('<BrowseFilters>', () => {
 });
 
 describe('<BrowseResults>', () => {
-  // Later pages ask for their prices (Phase 4); none by default.
+  // Later pages ask for their prices (Phase 4) and ratings (Phase 5); none by default.
   beforeEach(() => {
-    server.use(http.get(`${PROXY}/commerce/prices`, () => HttpResponse.json({ items: [] })));
+    server.use(
+      http.get(`${PROXY}/commerce/prices`, () => HttpResponse.json({ items: [] })),
+      http.get(`${PROXY}/engagement/ratings`, () => HttpResponse.json({ items: [] })),
+    );
+  });
+
+  it('shows the star ratings: page one from the server, later pages in one batch each', async () => {
+    const user = userEvent.setup();
+    const ratingRequests: string[] = [];
+    const card = (n: number) => coursePage(n, 1, null).items[0]!.id;
+    const rating = (courseId: string, average: string) => ({
+      courseId,
+      average,
+      count: 1,
+      histogram: {
+        '1': 0,
+        '2': 0,
+        '3': 0,
+        '4': average === '4.0' ? 1 : 0,
+        '5': average === '5.0' ? 1 : 0,
+      },
+    });
+    server.use(
+      http.get(`${PROXY}/catalog/courses`, () => HttpResponse.json(coursePage(3, 2, null))),
+      http.get(`${PROXY}/engagement/ratings`, ({ request }) => {
+        ratingRequests.push(new URL(request.url).searchParams.get('courseIds')!);
+        return HttpResponse.json({ items: [rating(card(4), '4.0')] });
+      }),
+    );
+    renderWithQuery(
+      <BrowseResults
+        filters={{}}
+        initialPage={coursePage(1, 2, CURSOR_PAGE_2)}
+        initialRatings={{ [card(1)]: rating(card(1), '5.0') }}
+        limit={2}
+      />,
+    );
+    const stars = () =>
+      screen
+        .getAllByTestId('course-rating')
+        .map((r) => r.querySelector('[role=img]')!.getAttribute('aria-label'));
+    expect(stars()).toEqual(['Rated 5 out of 5']);
+    await user.click(screen.getByRole('button', { name: 'Load more courses' }));
+    await waitFor(() => expect(stars()).toEqual(['Rated 5 out of 5', 'Rated 4 out of 5']));
+    expect(ratingRequests).toEqual([`${card(3)},${card(4)}`]);
   });
 
   it('shows the prices: page one from the server, later pages in one batch each', async () => {

@@ -52,7 +52,11 @@ export function ReadinessPanel({
                 onClick={() => onNavigate(target)}
                 className="font-medium text-primary underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               >
-                {target.tab === 'details' ? 'Go to details' : 'Go to curriculum'}
+                {target.tab === 'details'
+                  ? 'Go to details'
+                  : issue.code.startsWith('QUIZ_') && target.lectureId
+                    ? 'Open quiz editor'
+                    : 'Go to curriculum'}
                 <span className="sr-only">: {message}</span>
               </button>
             </li>

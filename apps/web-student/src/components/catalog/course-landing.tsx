@@ -1,4 +1,4 @@
-import type { CourseLanding, PublicPrice, PublicProfile } from '@udemy/contracts';
+import type { CourseLanding, CourseRating, PublicPrice, PublicProfile } from '@udemy/contracts';
 import { MarkdownView } from '@udemy/markdown/react';
 import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
@@ -9,21 +9,27 @@ import { formatTotalDuration, languageLabel, levelLabel, pluralize } from '@/lib
 import { formatDate } from '@/lib/format';
 
 import { Breadcrumbs } from './category-nav';
+import { CourseRatingLine } from './course-rating';
+import { CourseReviews } from './course-reviews';
 import { CourseThumbnail } from './course-thumbnail';
+import { WishlistButton } from './wishlist-button';
 import { CurriculumOutline } from './curriculum-outline';
 
 /**
  * The course landing page body (design §10): everything comes from the live revision the API
  * returns. Rendered on the server; the curriculum (preview dialog) and the `PurchaseBox`
- * (Phase 4) are the client islands. Until the Phase 5 player, enrolled students (and the
- * owner) open every lecture from the curriculum here.
+ * (Phase 4) are the client islands. Phase 5: the rating summary (server-rendered) and the
+ * public reviews (keyset, filter by stars), the wishlist button for signed-in visitors.
  */
 export function CourseLandingView({
   landing,
   price,
   signedIn,
+  rating,
 }: {
   landing: CourseLanding;
+  /** From `GET /engagement/ratings`: undefined when it could not be loaded. */
+  rating?: CourseRating | undefined;
   /** From `GET /commerce/prices`: null = no price (not for sale), undefined = not loaded. */
   price: PublicPrice | null | undefined;
   signedIn: boolean;
@@ -59,6 +65,11 @@ export function CourseLandingView({
             {landing.subtitle ? (
               <p className="text-lg text-pretty text-background/85">{landing.subtitle}</p>
             ) : null}
+            <CourseRatingLine
+              rating={rating}
+              long
+              className="text-sm [&_span.text-muted-foreground]:text-background/80"
+            />
             {landing.instructor ? (
               <p className="text-sm text-background/85">
                 Created by <span className="font-medium">{landing.instructor.displayName}</span>
@@ -151,6 +162,13 @@ export function CourseLandingView({
           ) : null}
 
           {landing.instructor ? <InstructorCard instructor={landing.instructor} /> : null}
+
+          <section aria-labelledby="reviews-title" className="flex flex-col gap-4">
+            <h2 id="reviews-title" className="text-xl font-semibold">
+              Student feedback
+            </h2>
+            <CourseReviews courseId={landing.id} rating={rating} signedIn={signedIn} />
+          </section>
         </div>
 
         <aside
@@ -176,6 +194,7 @@ export function CourseLandingView({
                   signedIn={signedIn}
                 />
               )}
+              {signedIn ? <WishlistButton courseId={landing.id} /> : null}
               <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
                 <li>{pluralize(totals.lectureCount, 'lecture')}</li>
                 {totals.videoSeconds > 0 ? (

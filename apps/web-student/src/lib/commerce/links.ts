@@ -8,9 +8,9 @@ export function courseHref(slug: string): string {
   return `/course/${encodeURIComponent(slug)}`;
 }
 
-/** Where an enrolled student goes to learn (Phase 4: the landing page; Phase 5: the player). */
-export function learnHref(slug: string): string {
-  return courseHref(slug);
+/** Where an enrolled student goes to learn: the Phase 5 course player (`/learn/{courseId}`). */
+export function learnHref(courseId: string): string {
+  return `/learn/${encodeURIComponent(courseId)}`;
 }
 
 export const CART_PATH = '/cart';

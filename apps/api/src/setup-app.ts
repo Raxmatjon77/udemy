@@ -5,6 +5,7 @@ import { attachLogger } from '@udemy/nest-common';
 import helmet from 'helmet';
 import { IDENTITY_PREFIX_EXCLUSIONS } from './modules/identity';
 import { AppConfigService } from './shared/config';
+import { installRealtimeAdapter } from './shared/realtime';
 
 export const GLOBAL_PREFIX = 'api';
 
@@ -27,7 +28,8 @@ export const API_APP_OPTIONS = Object.freeze({
 
 /**
  * Everything that configures the HTTP app but is not a module: middleware, prefix,
- * versioning, docs. Shared by main.ts and the HTTP tests so both run the same setup.
+ * versioning, docs, and the socket.io adapter (Phase 5 realtime, `/realtime/socket.io`).
+ * Shared by main.ts, the e2e harness and the HTTP tests so all run the same setup.
  */
 export function setupApp(app: NestExpressApplication): void {
   const config = app.get(AppConfigService);
@@ -45,6 +47,10 @@ export function setupApp(app: NestExpressApplication): void {
   // Exclusions: well-known URIs served at the root (GET /.well-known/jwks.json).
   app.setGlobalPrefix(GLOBAL_PREFIX, { exclude: [...IDENTITY_PREFIX_EXCLUSIONS] });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+
+  // socket.io on the same HTTP server, outside the `api` prefix (a socket.io path, not an Express
+  // route): RedisIoAdapter with the handshake checks. Must precede app.init()/listen().
+  installRealtimeAdapter(app);
 
   if (config.get('SWAGGER_ENABLED')) {
     const document = SwaggerModule.createDocument(

@@ -57,6 +57,19 @@ describe('catalog pages', () => {
         browse = new URL(request.url);
         return HttpResponse.json(coursePage(1, 3, CURSOR_PAGE_2));
       }),
+      // Phase 5: one batched ratings request too; only the first course has reviews.
+      http.get(`${API}/engagement/ratings`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              courseId: first,
+              average: '4.7',
+              count: 3,
+              histogram: { '1': 0, '2': 0, '3': 0, '4': 1, '5': 2 },
+            },
+          ],
+        }),
+      ),
     );
     const out = html(
       (await CoursesPage({
@@ -75,6 +88,8 @@ describe('catalog pages', () => {
     expect(prices!.split(',')).toEqual(coursePage(1, 3, null).items.map((c) => c.id));
     const shown = [...out.matchAll(/data-testid="price"[^>]*>([^<]*)</g)].map((m) => m[1]);
     expect(shown).toEqual(['$19.99', 'Not available yet', 'Not available yet']);
+    expect(out.match(/data-testid="course-rating"/g)).toHaveLength(1);
+    expect(out).toContain('aria-label="Rated 4.7 out of 5"');
   });
 
   it('/courses stays up with an error state when the API is down', async () => {

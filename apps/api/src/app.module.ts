@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerGuard } from '@nestjs/throttler';
 import { createConfigModule, DatabaseModule } from '@udemy/nest-common';
 import { AccessModule, PoliciesGuard } from './modules/access';
 import { CatalogModule } from './modules/catalog';
 import { CommerceModule } from './modules/commerce';
 import { EnrollmentEntitlements, EnrollmentModule } from './modules/enrollment';
-import { ClientAuthGuard, IdentityModule, JwtAuthGuard } from './modules/identity';
+import {
+  ClientAuthGuard,
+  IdentityModule,
+  JwtAuthGuard,
+  SessionRevocationStore,
+} from './modules/identity';
 import { MediaModule } from './modules/media';
 import { UsersModule } from './modules/users';
 import { AuthSupportModule } from './shared/auth';
@@ -15,10 +19,12 @@ import { apiEnvSchema, AppConfigModule, ObjectStorageModule } from './shared/con
 import { CourseEntitlementsModule } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
+import { CourseProgressModule, NoCourseProgress } from './shared/learning-progress';
 import { createApiLoggerModule } from './shared/logging';
 import { OutboxModule } from './shared/outbox';
+import { RealtimeModule } from './shared/realtime';
 import { RedisModule } from './shared/redis';
-import { ThrottlingModule } from './shared/throttler';
+import { RealtimeAwareThrottlerGuard, ThrottlingModule } from './shared/throttler';
 import { ValidationModule } from './shared/validation';
 
 @Module({
@@ -50,6 +56,15 @@ import { ValidationModule } from './shared/validation';
       imports: [EnrollmentModule],
       useExisting: EnrollmentEntitlements,
     }),
+    // COURSE_PROGRESS (enrollment asks "how far is this user?" for the my-learning cards, Phase 5
+    // D21): unknown (null) until learning binds LearningProgressReader (P5-T10).
+    CourseProgressModule.forRoot({ useClass: NoCourseProgress }),
+    // WS tickets, handshake authentication, the socket.io Redis adapter and emitter (Phase 5
+    // D15-D17). The handshake checks session revocation through identity's store.
+    RealtimeModule.forRoot({
+      imports: [IdentityModule],
+      sessionRevocations: SessionRevocationStore,
+    }),
     // Bounded contexts (src/modules/*), one import per module facade.
     AccessModule,
     IdentityModule,
@@ -66,8 +81,10 @@ import { ValidationModule } from './shared/validation';
     // 2. per-client-IP rate limit (needs 1 for the trusted IP),
     // 3. which user (Bearer token bound to the BFF's app),
     // 4. what that user may do (route markers; RouteSecurityAuditor checks them at boot).
+    // Each also runs for socket.io handlers: allowed only inside a @RealtimeGateway on a socket
+    // the handshake authenticated (Phase 5 design §9); every other non-HTTP context is denied.
     { provide: APP_GUARD, useExisting: ClientAuthGuard },
-    { provide: APP_GUARD, useExisting: ThrottlerGuard },
+    { provide: APP_GUARD, useExisting: RealtimeAwareThrottlerGuard },
     { provide: APP_GUARD, useExisting: JwtAuthGuard },
     { provide: APP_GUARD, useExisting: PoliciesGuard },
   ],

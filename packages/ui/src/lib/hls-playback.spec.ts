@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   HLS_CONFIG,
   HlsPlaybackController,
+  playlistProblemOf,
   type HlsConstructor,
   type HlsErrorData,
   type PlaybackMedia,
@@ -95,7 +96,7 @@ class FakeVideo implements PlaybackMedia {
 
 const SRC = '/api/proxy/catalog/courses/c1/lectures/l1/hls/master.m3u8';
 
-function setup(options: { mse?: boolean; loadFails?: boolean } = {}) {
+function setup(options: { mse?: boolean; loadFails?: boolean; startPosition?: number } = {}) {
   const video = new FakeVideo();
   const statuses: PlayerStatus[] = [];
   const loadHls = vi.fn(async () => {
@@ -108,6 +109,7 @@ function setup(options: { mse?: boolean; loadFails?: boolean } = {}) {
     loadHls,
     hasMediaSource: () => options.mse ?? true,
     onStatus: (status) => statuses.push(status),
+    ...(options.startPosition === undefined ? {} : { startPosition: options.startPosition }),
   });
   const hls = () => FakeHls.instances.at(-1)!;
   return { video, statuses, controller, loadHls, hls, last: () => statuses.at(-1) };
@@ -461,5 +463,74 @@ describe('native HLS fallback', () => {
     ctx.controller.destroy();
     expect(ctx.video.removeAttribute).toHaveBeenCalledWith('src');
     expect([...ctx.video.listeners.values()].every((set) => set.size === 0)).toBe(true);
+  });
+});
+
+describe('start position (resume)', () => {
+  it('starts loading at the resume position and seeks there once the manifest is parsed', async () => {
+    const ctx = setup({ startPosition: 42 });
+    await ctx.controller.start();
+    ctx.hls().manifestParsed();
+    expect(ctx.hls().startLoad).toHaveBeenCalledWith(42);
+    expect(ctx.video.currentTime).toBe(42);
+  });
+
+  it('ignores a zero or invalid start position', async () => {
+    const ctx = setup({ startPosition: Number.NaN });
+    await ctx.controller.start();
+    ctx.hls().manifestParsed();
+    expect(ctx.hls().startLoad).toHaveBeenCalledWith(-1);
+  });
+
+  it('native HLS seeks to the start position on loadedmetadata', async () => {
+    const ctx = setup({ mse: false, startPosition: 30 });
+    ctx.video.canPlayType.mockReturnValue('maybe');
+    await ctx.controller.start();
+    ctx.video.dispatch('loadedmetadata');
+    expect(ctx.video.currentTime).toBe(30);
+  });
+});
+
+describe('problem code of a refused master playlist (P2 debt)', () => {
+  function xhr(body: string, retryAfter: string | null = null) {
+    return {
+      responseText: body,
+      getResponseHeader: (name: string) => (name === 'retry-after' ? retryAfter : null),
+    };
+  }
+
+  it('carries the problem code and Retry-After of the failed master on the error status', async () => {
+    const ctx = setup();
+    await ctx.controller.start();
+    ctx.hls().error({
+      details: ErrorDetails.MANIFEST_LOAD_ERROR,
+      fatal: true,
+      code: 429,
+      networkDetails: xhr('{"type":"about:blank","status":429,"code":"rate_limited"}', '30'),
+    });
+    expect(ctx.last()).toEqual({
+      kind: 'error',
+      reason: 'network',
+      httpStatus: 429,
+      code: 'rate_limited',
+      retryAfterSeconds: 30,
+    });
+  });
+
+  it('reads codes defensively', () => {
+    expect(playlistProblemOf(null)).toEqual({});
+    expect(playlistProblemOf({ responseText: '#EXTM3U' })).toEqual({});
+    expect(playlistProblemOf({ responseText: '{not json' })).toEqual({});
+    expect(playlistProblemOf(xhr('{"code":"<script>"}'))).toEqual({});
+    expect(playlistProblemOf(xhr('{"code":"media_not_ready"}', 'soon'))).toEqual({
+      code: 'media_not_ready',
+    });
+    expect(
+      playlistProblemOf({
+        get responseText(): string {
+          throw new Error('InvalidStateError');
+        },
+      }),
+    ).toEqual({});
   });
 });

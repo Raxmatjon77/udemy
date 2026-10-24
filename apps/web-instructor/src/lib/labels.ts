@@ -168,9 +168,12 @@ export function describeReadinessIssue(
         message: `${lectureRef}: the article is too short${counts(issue)}.`,
         target: curriculum,
       };
-    // Phase 5 quiz readiness; TODO(P5-T7): link to the quiz editor once it exists.
+    // Phase 5 quiz readiness: the target opens the lecture drawer, which holds the quiz editor.
     case 'QUIZ_EMPTY':
-      return { message: `${lectureRef}: the quiz has no questions.`, target: curriculum };
+      return {
+        message: `${lectureRef}: the quiz has no questions. Add at least one.`,
+        target: curriculum,
+      };
     case 'QUIZ_QUESTION_INVALID':
       return {
         message: `${lectureRef}: a quiz question needs 2–6 options and its correct answer(s) marked.`,

@@ -1342,8 +1342,11 @@ export class LearningMockStore {
       }
       if (review) review.suspendedAt = this.iso();
     } else if (change.kind === 'REGRANTED') {
+      // An admin revocation sticks: a regrant only undoes a revocation the enrollment caused.
+      const lastRevoke = certificate?.transitions.findLast((t) => t.action === 'REVOKE');
       if (
         certificate?.status === 'REVOKED' &&
+        lastRevoke?.cause !== 'ADMIN' &&
         this.courseCompletions.has(this.key(change.userId, change.courseId))
       ) {
         this.transitionCertificate(certificate, 'ACTIVE', 'ENROLLMENT_REGRANTED', null, null);

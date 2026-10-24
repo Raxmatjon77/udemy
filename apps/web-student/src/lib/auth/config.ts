@@ -13,7 +13,10 @@ import { serverEnv } from '../env';
  *   go through proxy.ts too, so without this an anonymous visitor's `<img>` would be
  *   redirected to the login page (design §14).
  * - `/cart`: the guest cart (Phase 4 D4); checking out sends a visitor to the login page.
- *   `/checkout/*`, `/my-learning` and `/account/*` are NOT listed: they need a session.
+ * - `/certificates/*`: public certificate verification (Phase 5 D7; the link is shared).
+ * - `/unsubscribe`: the one-click e-mail unsubscribe page (Phase 5 D14; token in `#token`).
+ *   `/checkout/*`, `/my-learning`, `/learn/*` and `/account/*` are NOT listed: they need a
+ *   session.
  */
 export const PUBLIC_PATHS = [
   '/',
@@ -23,6 +26,8 @@ export const PUBLIC_PATHS = [
   '/course/*',
   '/media/*',
   '/cart',
+  '/certificates/*',
+  '/unsubscribe',
 ];
 
 /**

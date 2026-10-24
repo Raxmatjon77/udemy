@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 import { SiteHeader } from '@/components/site-header';
+import { getSession } from '@/lib/auth/session';
+import { serverEnv } from '@/lib/env';
 
 import { Providers } from './providers';
 
@@ -38,10 +40,13 @@ export const viewport: Viewport = {
  */
 export default async function RootLayout({ children }: { children: ReactNode }) {
   await connection();
+  // The realtime socket needs a session (tickets are per user) and a configured endpoint.
+  const session = serverEnv().REALTIME_PUBLIC_URL === undefined ? null : await getSession();
+  const realtime = session !== null;
   return (
     <html lang="en" className={`${fontSans.variable} ${fontMono.variable}`}>
       <body className="flex min-h-dvh flex-col">
-        <Providers>
+        <Providers realtime={realtime}>
           <SiteHeader />
           <div className="flex flex-1 flex-col">{children}</div>
         </Providers>

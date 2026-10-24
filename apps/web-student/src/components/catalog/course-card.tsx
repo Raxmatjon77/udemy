@@ -1,10 +1,11 @@
-import type { CourseCard as CourseCardData, PublicPrice } from '@udemy/contracts';
+import type { CourseCard as CourseCardData, CourseRating, PublicPrice } from '@udemy/contracts';
 import { Badge } from '@udemy/ui/components/badge';
 import Link from 'next/link';
 
 import { PriceTag, type PriceMap } from '@/components/commerce/price-tag';
 import { formatTotalDuration, levelLabel, pluralize } from '@/lib/catalog/format';
 
+import { CourseRatingLine } from './course-rating';
 import { CourseThumbnail } from './course-thumbnail';
 
 /**
@@ -14,9 +15,12 @@ import { CourseThumbnail } from './course-thumbnail';
 export function CourseCard({
   course,
   price,
+  rating,
   priority = false,
 }: {
   course: CourseCardData;
+  /** From `GET /engagement/ratings` (Phase 5): shown when the course has reviews. */
+  rating?: CourseRating | null | undefined;
   /**
    * From `GET /commerce/prices`: a price, null when the course has none (not for sale), or
    * undefined when prices could not be loaded (then no price line is shown at all).
@@ -51,6 +55,7 @@ export function CourseCard({
         {course.instructor ? (
           <p className="text-xs text-muted-foreground">{course.instructor.displayName}</p>
         ) : null}
+        <CourseRatingLine rating={rating} />
         {price !== undefined ? <PriceTag price={price} className="pt-1" /> : null}
         <p className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-2 text-xs text-muted-foreground">
           <span>{pluralize(course.lectureCount, 'lecture')}</span>
@@ -75,9 +80,15 @@ export function CourseGrid({
   courses,
   prices,
   priceOf,
+  ratings,
+  ratingOf,
   priorityCount = 0,
   label,
 }: {
+  /** The courses' rating summaries (Phase 5); missing = no reviews or not loaded. */
+  ratings?: Readonly<Record<string, CourseRating>> | undefined;
+  /** Per-course lookup instead of `ratings`. */
+  ratingOf?: ((courseId: string) => CourseRating | undefined) | undefined;
   courses: readonly CourseCardData[];
   /** The courses' prices; a course missing from the map has no price. Undefined: not loaded. */
   prices?: PriceMap | undefined;
@@ -97,6 +108,7 @@ export function CourseGrid({
           <CourseCard
             course={course}
             price={priceOf ? priceOf(course.id) : prices ? (prices[course.id] ?? null) : undefined}
+            rating={ratingOf ? ratingOf(course.id) : ratings?.[course.id]}
             priority={index < priorityCount}
           />
         </li>

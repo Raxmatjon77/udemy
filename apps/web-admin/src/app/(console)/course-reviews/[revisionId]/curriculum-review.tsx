@@ -22,6 +22,7 @@ import { LECTURE_TYPE_LABEL, MEDIA_STATUS_LABEL } from '@/lib/labels';
 import { problemMessage, type MessageOverrides } from '@/lib/problem';
 
 import { ChangeBadges } from './change-badges';
+import { RevisionQuizPreview } from './revision-quiz';
 import type { DiffIndex } from './revision-diff';
 
 /** Admin playback of a lecture inside a revision under review (design §8). */
@@ -111,6 +112,19 @@ function LecturePreview({
     />
   ) : null;
 
+  if (lecture.type === 'QUIZ') {
+    return (
+      <div className="grid gap-4">
+        {description}
+        <RevisionQuizPreview
+          revisionId={revisionId}
+          lectureId={lecture.id}
+          summary={lecture.quiz}
+        />
+      </div>
+    );
+  }
+
   if (lecture.type === 'ARTICLE') {
     return (
       <div className="grid gap-4">
@@ -188,7 +202,13 @@ function LectureRow({
   const asset = lecture.mediaAssetId ? assets.get(lecture.mediaAssetId) : undefined;
   const changes = diff.lecture(lecture.id);
   const previewLabel =
-    lecture.type === 'VIDEO' ? 'Play' : lecture.type === 'ARTICLE' ? 'Read' : 'Details';
+    lecture.type === 'VIDEO'
+      ? 'Play'
+      : lecture.type === 'ARTICLE'
+        ? 'Read'
+        : lecture.type === 'QUIZ'
+          ? 'Questions'
+          : 'Details';
 
   return (
     <li className="grid gap-3 py-3" data-testid={`lecture-${lecture.id}`}>

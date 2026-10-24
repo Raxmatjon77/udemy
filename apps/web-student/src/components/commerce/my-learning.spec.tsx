@@ -29,7 +29,7 @@ describe('<MyLearning>', () => {
     expect(within(archived).getByText('Start learning')).toBeTruthy();
     expect(
       within(archived).getByRole('link', { name: 'Complete TypeScript' }).getAttribute('href'),
-    ).toBe('/course/complete-typescript');
+    ).toBe(`/learn/${FIXTURE_IDS.course}`);
 
     const free = byTitle('Git Basics');
     expect(within(free).getByText('Free')).toBeTruthy();

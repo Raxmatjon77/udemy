@@ -835,4 +835,21 @@ describe('createLearningHandlers (MSW)', () => {
       'user_not_found',
     );
   });
+
+  it('admin certificates: an admin revocation sticks across an enrollment revoke + regrant', async () => {
+    reset();
+    store.commerce.seedEnrollment(FIXTURE_IDS.student, course);
+    store.seedCompletion(FIXTURE_IDS.student, course);
+    as(FIXTURE_IDS.admin, 'admin');
+    const [entry] = (await call('GET', `/admin/users/${FIXTURE_IDS.student}/certificates`)).json
+      .items;
+    const id = entry.certificate.id as string;
+    await call('POST', `/admin/certificates/${id}/revoke`, { reason: 'Plagiarised work' });
+    store.commerce.revokeEnrollmentOf(FIXTURE_IDS.student, course, 'REFUND');
+    store.commerce.seedEnrollment(FIXTURE_IDS.student, course);
+    const [after] = (await call('GET', `/admin/users/${FIXTURE_IDS.student}/certificates`)).json
+      .items;
+    expect(after.certificate.status).toBe('REVOKED');
+    expect(after.transitions.map((t: { action: string }) => t.action)).toEqual(['ISSUE', 'REVOKE']);
+  });
 });

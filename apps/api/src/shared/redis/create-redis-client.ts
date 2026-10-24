@@ -1,11 +1,16 @@
 import { Logger } from '@nestjs/common';
-import { Redis } from 'ioredis';
+import { Redis, type RedisOptions } from 'ioredis';
 import type { RedisClient } from './redis.constants';
 
 export interface CreateRedisClientOptions {
   url: string;
   /** Shown by `CLIENT LIST`, e.g. `udemy-api`. */
   connectionName: string;
+  /**
+   * Replaces individual defaults below, e.g. for a pub/sub subscriber connection (the socket.io
+   * Redis adapter, `shared/realtime`), which must queue its SUBSCRIBEs until connected.
+   */
+  overrides?: RedisOptions;
 }
 
 /** A command that takes longer than this fails (and becomes a 503): a hung Redis must not hang requests. */
@@ -31,6 +36,7 @@ export function createRedisClient(options: CreateRedisClientOptions): RedisClien
     connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
     commandTimeout: REDIS_COMMAND_TIMEOUT_MS,
     retryStrategy: (attempt: number) => Math.min(attempt * 200, MAX_RECONNECT_DELAY_MS),
+    ...options.overrides,
   });
 
   // Without an 'error' listener ioredis prints every reconnect failure to stderr. Log only the

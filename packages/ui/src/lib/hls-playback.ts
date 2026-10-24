@@ -61,7 +61,21 @@ export type PlayerStatus =
   | { kind: 'loading' }
   | { kind: 'ready' }
   | { kind: 'refreshing'; attempt: number }
-  | { kind: 'error'; reason: PlayerErrorReason; httpStatus?: number };
+  | {
+      kind: 'error';
+      reason: PlayerErrorReason;
+      httpStatus?: number;
+      /** The stable problem `code` of a refused master playlist (problem+json body), if any. */
+      code?: string;
+      /** `Retry-After` of a refused master playlist (429), in seconds. */
+      retryAfterSeconds?: number;
+    };
+
+/** What a failed playlist response said about itself (hls.js passes the XHR along). */
+export interface PlaylistProblem {
+  code?: string;
+  retryAfterSeconds?: number;
+}
 
 export interface RefreshPolicy {
   /** Playlist reloads per incident before giving up. */
@@ -98,6 +112,42 @@ export interface HlsErrorData {
   details: string;
   fatal: boolean;
   response?: { code?: number } | undefined;
+  /** The loader's request object (an `XMLHttpRequest` with the default loader). */
+  networkDetails?: unknown;
+}
+
+interface ResponseLike {
+  responseText?: unknown;
+  getResponseHeader?: (name: string) => string | null;
+}
+
+/**
+ * Reads the problem+json `code` and `Retry-After` of a failed playlist request from the XHR
+ * hls.js reports as `networkDetails` (the master playlist is loaded as text, so the error body
+ * is readable). Anything unexpected yields `{}`: the caller still has the HTTP status.
+ */
+export function playlistProblemOf(networkDetails: unknown): PlaylistProblem {
+  if (typeof networkDetails !== 'object' || networkDetails === null) return {};
+  const response = networkDetails as ResponseLike;
+  const problem: PlaylistProblem = {};
+  try {
+    if (typeof response.responseText === 'string' && response.responseText.startsWith('{')) {
+      const body = JSON.parse(response.responseText) as { code?: unknown };
+      if (typeof body.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(body.code)) {
+        problem.code = body.code;
+      }
+    }
+  } catch {
+    // not JSON (or not readable): no code
+  }
+  try {
+    const raw = response.getResponseHeader?.('retry-after');
+    const seconds = raw ? Number(raw) : Number.NaN;
+    if (Number.isInteger(seconds) && seconds >= 0) problem.retryAfterSeconds = seconds;
+  } catch {
+    // headers not exposed
+  }
+  return problem;
 }
 
 type HlsListener = (event: string, data: never) => void;
@@ -139,6 +189,8 @@ export interface HlsPlaybackOptions {
   /** Whether MSE/ManagedMediaSource exists; checked before hls.js is even downloaded. */
   hasMediaSource: () => boolean;
   onStatus: (status: PlayerStatus) => void;
+  /** Where the first load starts, in seconds (resume position); default the beginning. */
+  startPosition?: number;
   policy?: Partial<RefreshPolicy>;
   /** Clock; defaults to `Date.now`. */
   now?: () => number;
@@ -203,6 +255,8 @@ export class HlsPlaybackController {
   constructor(private readonly options: HlsPlaybackOptions) {
     this.policy = { ...DEFAULT_REFRESH_POLICY, ...options.policy };
     this.now = options.now ?? Date.now;
+    const start = options.startPosition;
+    if (start !== undefined && Number.isFinite(start) && start > 0) this.resumeAt = start;
   }
 
   get current(): PlayerStatus {
@@ -305,7 +359,7 @@ export class HlsPlaybackController {
         this.scheduleRefresh();
         return;
       }
-      this.fail(reasonForHttpStatus(code), code);
+      this.fail(reasonForHttpStatus(code), code, playlistProblemOf(data.networkDetails));
       return;
     }
 
@@ -431,13 +485,17 @@ export class HlsPlaybackController {
 
   /* ------------------------------------------------------------------ plumbing ---- */
 
-  private fail(reason: PlayerErrorReason, httpStatus?: number): void {
+  private fail(
+    reason: PlayerErrorReason,
+    httpStatus?: number,
+    problem: PlaylistProblem = {},
+  ): void {
     this.clearTimer();
     this.hls?.stopLoad();
     this.setStatus(
       httpStatus === undefined || httpStatus === 0
         ? { kind: 'error', reason }
-        : { kind: 'error', reason, httpStatus },
+        : { kind: 'error', reason, httpStatus, ...problem },
     );
   }
 

@@ -24,10 +24,22 @@ vi.mock('next/navigation', async (importOriginal) => ({
 const server = setupMswServer();
 const ORIGIN = 'http://localhost:3000';
 
-/** The landing, and no price for it (not for sale) unless a test serves one. */
+/** The landing, and no price for it (not for sale) unless a test serves one; no reviews. */
 function serveLanding(landing = courseLanding()) {
   server.use(
     http.get(`${API}/commerce/prices`, () => HttpResponse.json({ items: [] })),
+    http.get(`${API}/engagement/ratings`, ({ request }) =>
+      HttpResponse.json({
+        items: (new URL(request.url).searchParams.get('courseIds') ?? '')
+          .split(',')
+          .map((courseId) => ({
+            courseId,
+            average: null,
+            count: 0,
+            histogram: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 },
+          })),
+      }),
+    ),
     http.get(`${API}/catalog/courses/by-slug/:slug`, ({ params }) =>
       params.slug === landing.slug
         ? HttpResponse.json(landing)
@@ -190,5 +202,38 @@ describe('/course/[slug] page', () => {
     await expect(CoursePage(props(slug))).rejects.toMatchObject({
       digest: expect.stringMatching(/^NEXT_HTTP_ERROR_FALLBACK;404/),
     });
+  });
+});
+
+describe('/course/[slug] ratings (Phase 5)', () => {
+  it('renders the rating summary from the public ratings endpoint on the server', async () => {
+    serveLanding();
+    server.use(
+      http.get(`${API}/engagement/ratings`, () =>
+        HttpResponse.json({
+          items: [
+            {
+              courseId: COURSE_ID,
+              average: '4.5',
+              count: 2,
+              histogram: { '1': 0, '2': 0, '3': 0, '4': 1, '5': 1 },
+            },
+          ],
+        }),
+      ),
+    );
+    const html = await renderPage('modern-typescript');
+    expect(html).toContain('aria-label="Rated 4.5 out of 5"');
+    expect(html).toContain('2 ratings');
+    expect(html).toContain('Student feedback');
+  });
+
+  it('still renders when the ratings cannot be loaded', async () => {
+    serveLanding();
+    server.use(http.get(`${API}/engagement/ratings`, () => HttpResponse.error()));
+    vi.spyOn(console, 'error').mockImplementationOnce(() => undefined);
+    const html = await renderPage('modern-typescript');
+    expect(html).toContain('Student feedback');
+    expect(html).not.toContain('Rated ');
   });
 });

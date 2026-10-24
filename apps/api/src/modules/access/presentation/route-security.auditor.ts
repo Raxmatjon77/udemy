@@ -1,8 +1,10 @@
 import { Injectable, Logger, type OnApplicationBootstrap, RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { DiscoveryService, MetadataScanner } from '@nestjs/core';
-import { isPermission } from '@udemy/contracts';
+import { GATEWAY_METADATA, MESSAGE_MAPPING_METADATA } from '@nestjs/websockets/constants';
+import { isPermission, REALTIME_SOCKET_PATH } from '@udemy/contracts';
 import { AuthMetadataReader, type RouteAuthDescriptor } from '../../../shared/auth';
+import { isRealtimeGateway } from '../../../shared/realtime';
 import { OwnershipRegistry } from '../application/ownership.registry';
 
 /** One misconfigured route handler and everything wrong with it. */
@@ -44,6 +46,15 @@ interface DiscoveredRoute {
   readonly handler: object;
 }
 
+/** A class with `@WebSocketGateway` metadata and/or `@SubscribeMessage` handlers. */
+interface DiscoveredSocketClass {
+  readonly type: { readonly name: string; readonly prototype: unknown };
+  readonly isGateway: boolean;
+  readonly isRealtime: boolean;
+  /** `@SubscribeMessage` handlers as `{ name: 'Class.method', handler }`. */
+  readonly handlers: readonly { readonly name: string; readonly handler: object }[];
+}
+
 function pathsOf(target: object): string[] {
   const value: unknown = Reflect.getMetadata(PATH_METADATA, target);
   const paths = Array.isArray(value) ? value : [value];
@@ -61,6 +72,12 @@ function joinPath(controllerPath: string, handlerPath: string): string {
  * a `@WebhookIngress` route that is not a public POST guarded by a signature verifier (all
  * from `AuthMetadataReader.describe`), or a `@CheckPolicy` whose `:own` permission has no
  * registered OwnershipResolver. It then logs every route reachable without a BFF.
+ *
+ * Socket.io (Phase 5 design §9): every `@SubscribeMessage` handler is audited like a route. Boot
+ * fails for a gateway that is not a `@RealtimeGateway`, a `@SubscribeMessage` outside one, a
+ * gateway handler without a security marker, with `@NoClientAuth` / `@WebhookIngress` (sockets are
+ * always bound to a BFF app and a user), or with `@CheckPolicy` (it reads HTTP route params). The
+ * realtime ingress (`/realtime/socket.io`) is logged next to the non-BFF routes.
  */
 @Injectable()
 export class RouteSecurityAuditor implements OnApplicationBootstrap {
@@ -81,6 +98,12 @@ export class RouteSecurityAuditor implements OnApplicationBootstrap {
       `Routes without client credentials (${inventory.length}): ` +
         inventory.map((r) => `${r.method} ${r.path} [${r.ingress}]`).join(', '),
     );
+    const gateways = this.realtimeGateways();
+    if (gateways.length > 0) {
+      this.logger.log(
+        `Realtime ingress: WS ${REALTIME_SOCKET_PATH}/ [ticket handshake] (gateways: ${gateways.join(', ')})`,
+      );
+    }
   }
 
   /** All misconfigured routes (empty = OK). */
@@ -91,10 +114,25 @@ export class RouteSecurityAuditor implements OnApplicationBootstrap {
       const problems = this.problemsOf(this.reader.describe(handler, controller));
       if (problems.length > 0) findings.push({ route: name, problems });
     }
+    let socketHandlers = 0;
+    for (const socketClass of this.socketClasses()) {
+      socketHandlers += socketClass.handlers.length;
+      findings.push(...this.socketFindings(socketClass));
+    }
     if (findings.length === 0) {
-      this.logger.log(`Route security audit passed (${routes.length} routes)`);
+      this.logger.log(
+        `Route security audit passed (${routes.length} routes, ${socketHandlers} socket handlers)`,
+      );
     }
     return findings;
+  }
+
+  /** Names of the `@RealtimeGateway` classes (the socket.io ingress), sorted. */
+  realtimeGateways(): string[] {
+    return this.socketClasses()
+      .filter((c) => c.isGateway && c.isRealtime)
+      .map((c) => c.type.name)
+      .sort();
   }
 
   /** Every route that skips client authentication, sorted by method and path. */
@@ -136,6 +174,68 @@ export class RouteSecurityAuditor implements OnApplicationBootstrap {
       }
     }
     return routes;
+  }
+
+  /** Every provider or controller class that is a gateway or has `@SubscribeMessage` handlers. */
+  private socketClasses(): DiscoveredSocketClass[] {
+    const seen = new Set<unknown>();
+    const classes: DiscoveredSocketClass[] = [];
+    for (const wrapper of [...this.discovery.getProviders(), ...this.discovery.getControllers()]) {
+      const type: unknown = wrapper.metatype;
+      if (typeof type !== 'function' || seen.has(type)) continue;
+      seen.add(type);
+      const prototype: unknown = type.prototype;
+      if (typeof prototype !== 'object' || prototype === null) continue;
+      const handlers: { name: string; handler: object }[] = [];
+      for (const methodName of this.scanner.getAllMethodNames(prototype)) {
+        const handler: unknown = Reflect.get(prototype, methodName);
+        if (typeof handler !== 'function') continue;
+        if (Reflect.getMetadata(MESSAGE_MAPPING_METADATA, handler) !== true) continue;
+        handlers.push({ name: `${type.name}.${methodName}`, handler });
+      }
+      const isGateway = Reflect.getMetadata(GATEWAY_METADATA, type) === true;
+      if (!isGateway && handlers.length === 0) continue;
+      classes.push({ type, isGateway, isRealtime: isRealtimeGateway(type), handlers });
+    }
+    return classes;
+  }
+
+  private socketFindings(socketClass: DiscoveredSocketClass): RouteSecurityFinding[] {
+    const { type, isGateway, isRealtime, handlers } = socketClass;
+    if (isGateway && !isRealtime) {
+      return [
+        {
+          route: type.name,
+          problems: [
+            '@WebSocketGateway without @RealtimeGateway: gateways must use @RealtimeGateway() (ticket handshake, path, WebSocket transport)',
+          ],
+        },
+      ];
+    }
+    if (!isGateway) {
+      return handlers.map(({ name }) => ({
+        route: name,
+        problems: ['@SubscribeMessage outside a @RealtimeGateway class'],
+      }));
+    }
+    const findings: RouteSecurityFinding[] = [];
+    for (const { name, handler } of handlers) {
+      const descriptor = this.reader.describe(handler, type);
+      const problems = [...descriptor.problems];
+      if (descriptor.client.kind === 'none' && !problems.some((p) => p.includes('@NoClientAuth'))) {
+        problems.push('@NoClientAuth on a socket handler: sockets are always bound to a BFF app');
+      }
+      if (descriptor.ingress.kind === 'webhook') {
+        problems.push('@WebhookIngress on a socket handler');
+      }
+      if (descriptor.security.kind === 'authorized' && descriptor.security.policies.length > 0) {
+        problems.push(
+          '@CheckPolicy on a socket handler: it reads HTTP route params; check the resource in the handler',
+        );
+      }
+      if (problems.length > 0) findings.push({ route: name, problems });
+    }
+    return findings;
   }
 
   private problemsOf(descriptor: RouteAuthDescriptor): string[] {

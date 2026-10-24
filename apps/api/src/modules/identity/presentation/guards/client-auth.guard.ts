@@ -9,6 +9,7 @@ import {
   setClientContext,
 } from '../../../../shared/auth';
 import { AppConfigService } from '../../../../shared/config';
+import { classifyGuardContext, type RealtimeIdentity } from '../../../../shared/realtime';
 import { ClientNotAllowed, Unauthenticated } from '../../domain/identity.errors';
 import {
   CLIENT_ID_HEADER,
@@ -33,6 +34,11 @@ function sha256(value: string): Buffer {
  * - Authenticated, but the route has `@AllowClients(...)` without this app: 403 `client_not_allowed`.
  * - Success: the request becomes client-authenticated BEFORE the end-user IP/UA are resolved,
  *   so `X-Client-IP` / `X-Client-User-Agent` are trusted only from a verified BFF.
+ *
+ * WebSocket (Phase 5 design §9): a socket has no client credentials; its app was fixed by the
+ * BFF-authenticated request that issued its ticket. A `@RealtimeGateway` handler on an
+ * authenticated socket passes (honouring `@AllowClients` against that app); every other
+ * non-HTTP context is denied.
  */
 @Injectable()
 export class ClientAuthGuard implements CanActivate {
@@ -47,7 +53,9 @@ export class ClientAuthGuard implements CanActivate {
   ) {}
 
   canActivate(ctx: ExecutionContext): boolean {
-    if (ctx.getType() !== 'http') throw new Unauthenticated();
+    const context = classifyGuardContext(ctx);
+    if (context.kind === 'denied') return false;
+    if (context.kind === 'realtime') return this.allowsRealtime(ctx, context.identity);
     const { client: access } = this.reader.forContext(ctx);
     if (access.kind === 'none') return true;
     // @NoClientAuth together with @AllowClients: the route auditor fails boot; deny meanwhile.
@@ -74,6 +82,15 @@ export class ClientAuthGuard implements CanActivate {
       throw new ClientNotAllowed();
     }
     return true;
+  }
+
+  /** A gateway handler: the socket's app must be allowed; `@NoClientAuth` makes no sense here. */
+  private allowsRealtime(ctx: ExecutionContext, identity: RealtimeIdentity): boolean {
+    const { client: access } = this.reader.forContext(ctx);
+    if (access.kind === 'any') return true;
+    if (access.kind === 'restricted') return access.apps.includes(identity.principal.app);
+    // 'none' / 'conflict': RouteSecurityAuditor fails boot for these on a gateway; deny meanwhile.
+    return false;
   }
 
   /** The app of valid credentials, else undefined. Always does one hash + one comparison. */

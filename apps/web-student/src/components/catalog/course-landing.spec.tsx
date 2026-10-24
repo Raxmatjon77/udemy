@@ -7,6 +7,8 @@ import { useEffect } from 'react';
 import type { HlsPlayerError } from '@udemy/ui/components/hls-player';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { makeCourseRating, makePublicReview, fixtureId } from '@udemy/contracts/testing';
+
 import {
   ARTICLE_PREVIEW_ID,
   COURSE_ID,
@@ -55,6 +57,18 @@ vi.mock('@udemy/ui/components/hls-player', () => ({
 }));
 
 const server = setupMswServer();
+
+// Phase 5 islands: the public reviews and (signed in) the wishlist state. None by default.
+beforeEach(() => {
+  server.use(
+    http.get(`${PROXY}/engagement/courses/:courseId/reviews`, () =>
+      HttpResponse.json({ items: [], nextCursor: null }),
+    ),
+    http.get(`${PROXY}/me/wishlist/states`, () =>
+      HttpResponse.json({ items: [{ courseId: COURSE_ID, wishlisted: false }] }),
+    ),
+  );
+});
 
 describe('<CourseLandingView>', () => {
   it('renders the course header, outcomes, requirements and the sanitized description', () => {
@@ -325,5 +339,145 @@ describe('preview modal', () => {
     expect((await within(dialog).findByRole('alert')).textContent).toBe(
       'This lecture is not available as a free preview.',
     );
+  });
+});
+
+describe('student feedback (Phase 5)', () => {
+  const rating = makeCourseRating({
+    courseId: COURSE_ID,
+    histogram: { '1': 1, '2': 0, '3': 1, '4': 3, '5': 5 },
+  });
+
+  it('shows the rating summary in the header and the histogram', async () => {
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} rating={rating} />);
+    const header = screen.getByRole('region', { name: /Modern TypeScript/ });
+    expect(within(header).getByTestId('course-rating').textContent).toBe('4.1(10 ratings)');
+    const feedback = screen.getByRole('region', { name: 'Student feedback' });
+    expect(within(feedback).getByRole('img', { name: 'Rated 4.1 out of 5' })).toBeTruthy();
+    expect(
+      within(feedback)
+        .getAllByRole('button', { name: /star/ })
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['5 stars: 50%', '4 stars: 30%', '3 stars: 10%', '2 stars: 0%', '1 star: 10%']);
+    expect(await within(feedback).findByText('No reviews yet.')).toBeTruthy();
+  });
+
+  it('lists public reviews with keyset "Load more" and filters by stars', async () => {
+    const user = userEvent.setup();
+    const asked: { rating: string | null; cursor: string | null }[] = [];
+    const page1 = [
+      makePublicReview({ id: fixtureId(0x4e01), rating: 5, body: 'Superb </script> course' }),
+      makePublicReview({
+        id: fixtureId(0x4e02),
+        rating: 4,
+        body: 'Good',
+        author: null,
+        reply: {
+          body: 'Thanks!',
+          author: { id: fixtureId(0x1157), displayName: 'Ada Instructor' },
+          createdAt: '2026-10-10T12:00:00.000Z',
+          editedAt: null,
+        },
+      }),
+    ];
+    const page2 = [makePublicReview({ id: fixtureId(0x4e03), rating: 1, body: 'Meh' })];
+    server.use(
+      http.get(`${PROXY}/engagement/courses/${COURSE_ID}/reviews`, ({ request }) => {
+        const url = new URL(request.url);
+        const query = {
+          rating: url.searchParams.get('rating'),
+          cursor: url.searchParams.get('cursor'),
+        };
+        asked.push(query);
+        if (query.rating === '1') return HttpResponse.json({ items: page2, nextCursor: null });
+        return query.cursor
+          ? HttpResponse.json({ items: page2, nextCursor: null })
+          : HttpResponse.json({ items: page1, nextCursor: 'c2' });
+      }),
+    );
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} rating={rating} />);
+
+    const reviews = await screen.findAllByTestId('review');
+    expect(reviews).toHaveLength(2);
+    // Plain text, never markup.
+    expect(within(reviews[0]!).getByText('Superb </script> course')).toBeTruthy();
+    expect(within(reviews[1]!).getByText('Former student')).toBeTruthy();
+    expect(within(reviews[1]!).getByTestId('review-reply').textContent).toContain(
+      'Response from Ada Instructor',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Load more reviews' }));
+    await waitFor(() => expect(screen.getAllByTestId('review')).toHaveLength(3));
+
+    await user.click(screen.getByRole('button', { name: '1 star: 10%' }));
+    await waitFor(() => expect(screen.getAllByTestId('review')).toHaveLength(1));
+    expect(screen.getByRole('button', { name: '1 star: 10%' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(asked).toEqual([
+      { rating: null, cursor: null },
+      { rating: null, cursor: 'c2' },
+      { rating: '1', cursor: null },
+    ]);
+  });
+
+  it('a signed-in visitor can add the course to the wishlist (and remove it)', async () => {
+    const user = userEvent.setup();
+    const puts: string[] = [];
+    let wishlisted = false;
+    server.use(
+      http.get(`${PROXY}/me/purchase-states`, () => HttpResponse.json({ items: [] })),
+      http.get(`${PROXY}/me/wishlist/states`, () =>
+        HttpResponse.json({ items: [{ courseId: COURSE_ID, wishlisted }] }),
+      ),
+      http.put(`${PROXY}/me/wishlist/:courseId`, ({ params }) => {
+        puts.push(`PUT ${String(params.courseId)}`);
+        wishlisted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.delete(`${PROXY}/me/wishlist/:courseId`, ({ params }) => {
+        puts.push(`DELETE ${String(params.courseId)}`);
+        wishlisted = false;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderWithQuery(<CourseLandingView landing={courseLanding()} price={null} signedIn />);
+    const heart = await screen.findByRole('button', { name: 'Add to wishlist' });
+    expect(heart.getAttribute('aria-pressed')).toBe('false');
+    await user.click(heart);
+    const on = await screen.findByRole('button', { name: 'Wishlisted' });
+    expect(on.getAttribute('aria-pressed')).toBe('true');
+    await user.click(on);
+    await screen.findByRole('button', { name: 'Add to wishlist' });
+    expect(puts).toEqual([`PUT ${COURSE_ID}`, `DELETE ${COURSE_ID}`]);
+  });
+
+  it('explains why an owned or enrolled course cannot be wishlisted', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(`${PROXY}/me/purchase-states`, () => HttpResponse.json({ items: [] })),
+      http.put(`${PROXY}/me/wishlist/:courseId`, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Conflict',
+            status: 409,
+            code: ErrorCode.CourseNotWishlistable,
+          },
+          { status: 409, headers: { 'content-type': 'application/problem+json' } },
+        ),
+      ),
+    );
+    renderWithQuery(<CourseLandingView landing={courseLanding()} price={null} signedIn />);
+    await user.click(await screen.findByRole('button', { name: 'Add to wishlist' }));
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'You already have access to this course.',
+    );
+  });
+
+  it('shows no wishlist button to signed-out visitors', async () => {
+    renderWithQuery(<CourseLandingView landing={courseLanding()} {...GUEST} />);
+    await screen.findByText('No reviews yet.');
+    expect(screen.queryByRole('button', { name: 'Add to wishlist' })).toBeNull();
   });
 });

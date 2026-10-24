@@ -166,7 +166,7 @@ export function CheckoutSuccess({
               {/* The course's current slug; null once the course was deleted. */}
               {line.slug ? (
                 <Button asChild size="sm">
-                  <Link href={learnHref(line.slug)}>Go to course</Link>
+                  <Link href={learnHref(line.courseId)}>Go to course</Link>
                 </Button>
               ) : null}
             </li>

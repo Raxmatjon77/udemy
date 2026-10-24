@@ -7,7 +7,9 @@ import {
   getPrincipal,
   type PolicySpec,
   type Principal,
+  type RouteSecurity,
 } from '../../../shared/auth';
+import { classifyGuardContext, type RealtimeIdentity } from '../../../shared/realtime';
 import { Authorizer } from '../application/authorizer';
 
 /**
@@ -22,6 +24,12 @@ import { Authorizer } from '../application/authorizer';
  *
  * A misconfigured route (no marker, conflicting markers) fails closed with a 500; the
  * RouteSecurityAuditor makes such routes fail startup, so this is defence in depth.
+ *
+ * WebSocket (Phase 5 design §9): a `@SubscribeMessage` handler of a `@RealtimeGateway` on an
+ * authenticated socket is checked against the socket's principal: `@AuthenticatedOnly` passes,
+ * `@RequirePermissions` needs every permission. `@CheckPolicy` reads route params of an HTTP
+ * request and is refused on a gateway (the auditor fails boot). Every other non-HTTP context is
+ * denied.
  */
 @Injectable()
 export class PoliciesGuard implements CanActivate {
@@ -31,9 +39,8 @@ export class PoliciesGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (context.getType() !== 'http') {
-      throw new Error(`PoliciesGuard: unsupported execution context '${context.getType()}'`);
-    }
+    const guardContext = classifyGuardContext(context);
+    if (guardContext.kind === 'denied') return false;
     const descriptor = this.reader.forContext(context);
     const { security } = descriptor;
     if (
@@ -46,6 +53,8 @@ export class PoliciesGuard implements CanActivate {
       );
     }
     if (security.kind === 'public') return true;
+    if (guardContext.kind === 'realtime')
+      return this.allowsRealtime(guardContext.identity, security);
 
     const request = context.switchToHttp().getRequest<Request>();
     const principal = getPrincipal(request);
@@ -61,6 +70,15 @@ export class PoliciesGuard implements CanActivate {
       await this.checkPolicy(principal, policy, request);
     }
     return true;
+  }
+
+  private allowsRealtime(
+    identity: RealtimeIdentity,
+    security: Exclude<RouteSecurity, { kind: 'public' | 'missing' | 'conflict' }>,
+  ): boolean {
+    if (security.kind === 'authenticated') return true;
+    if (security.policies.length > 0) return false;
+    return security.permissions.every((p) => this.authorizer.can(identity.principal, p));
   }
 
   private async checkPolicy(principal: Principal, policy: PolicySpec, req: Request): Promise<void> {

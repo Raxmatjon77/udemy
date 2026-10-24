@@ -124,6 +124,22 @@ const MESSAGES: Partial<Record<ErrorCode, Message>> = {
   [ErrorCode.UploadIncomplete]: 'Some parts of the file did not arrive. Retrying them…',
   [ErrorCode.UploadSizeMismatch]:
     'The uploaded file does not match the size that was announced. Please upload it again.',
+
+  // quizzes (Phase 5)
+  [ErrorCode.QuizQuestionNotFound]: 'This question no longer exists. The quiz was reloaded.',
+  [ErrorCode.QuizOptionsInvalid]: 'Each question needs 2 to 6 options with different texts.',
+  [ErrorCode.QuizLimitExceeded]: 'A quiz can have at most 50 questions.',
+
+  // engagement (Phase 5)
+  [ErrorCode.QuestionNotFound]: 'This question no longer exists or was hidden.',
+  [ErrorCode.AnswerNotFound]: 'This answer no longer exists or was hidden.',
+  [ErrorCode.NotContentAuthor]: 'Only the author can change this.',
+  [ErrorCode.ReviewNotFound]: 'This review no longer exists.',
+  [ErrorCode.ReplyNotFound]: 'This reply no longer exists.',
+  [ErrorCode.AnnouncementNotFound]: 'This announcement no longer exists.',
+  [ErrorCode.AnnouncementLimitExceeded]:
+    'This course has reached its limit of 4 announcements in 30 days.',
+  [ErrorCode.EnrollmentRequired]: 'Only the course owner and its students can do this.',
 };
 
 function byStatus(error: ProxyFetchError): string {

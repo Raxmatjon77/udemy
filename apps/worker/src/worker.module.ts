@@ -12,6 +12,8 @@ import { MediaEventsModule } from './media/media-events.module';
 import { MessagingModule } from './messaging';
 import { PayoutsModule } from './payouts/payouts.module';
 import { WorkerConfigModule, workerEnvSchema } from './shared/config';
+import { RealtimeModule } from './shared/realtime';
+import { RedisModule } from './shared/redis';
 import { StorageModule } from './shared/storage/storage.module';
 import { UsersMailModule } from './users/users-mail.module';
 
@@ -25,6 +27,9 @@ import { UsersMailModule } from './users/users-mail.module';
     MailModule.forRoot(),
     // S3_* (validated by workerEnvSchema); ObjectStorage is destroyed on shutdown.
     StorageModule,
+    // REDIS_URL (the api's instance): realtime pushes through @socket.io/redis-emitter.
+    RedisModule,
+    RealtimeModule,
     MessagingModule,
     HandlersModule,
     IdentityMailModule,

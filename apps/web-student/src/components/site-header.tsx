@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Button } from '@udemy/ui/components/button';
 
 import { HeaderCart } from '@/components/commerce/header-cart';
+import { HeaderNotifications } from '@/components/notifications/header-notifications';
 import { getSession } from '@/lib/auth/session';
 
 import { UserMenu, VerifyEmailBanner } from './user-menu';
@@ -37,6 +38,7 @@ export async function SiteHeader() {
           </nav>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
+          {session ? <HeaderNotifications /> : null}
           <HeaderCart signedIn={session !== null} />
           {session ? (
             <UserMenu isInstructor={session.roles.includes('INSTRUCTOR')} />

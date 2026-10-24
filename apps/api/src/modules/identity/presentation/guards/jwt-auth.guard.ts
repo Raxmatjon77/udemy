@@ -1,6 +1,7 @@
 import { type CanActivate, type ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthMetadataReader, getClientContext, setPrincipal } from '../../../../shared/auth';
+import { classifyGuardContext } from '../../../../shared/realtime';
 import { AccessTokenAuthenticator } from '../../application/access-token.authenticator';
 import { Unauthenticated } from '../../domain/identity.errors';
 import { readBearerToken } from './bearer-token';
@@ -14,6 +15,11 @@ import { readBearerToken } from './bearer-token';
  * - Every other route (including misconfigured ones, which PoliciesGuard then denies) needs a
  *   valid token issued to the calling client's app and a non-revoked session:
  *   401 `token_expired` / 401 `unauthorized` / 503 `service_unavailable` (Redis down).
+ *
+ * WebSocket (Phase 5 design §9): the user of a socket was authenticated once, at the handshake
+ * (single-use ticket + session revocation check, `RealtimeConnectionAuth`), and the socket is
+ * closed after 15 minutes. A `@RealtimeGateway` handler on such a socket passes; every other
+ * non-HTTP context is denied.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -25,7 +31,9 @@ export class JwtAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    if (ctx.getType() !== 'http') throw new Unauthenticated();
+    const context = classifyGuardContext(ctx);
+    if (context.kind === 'denied') return false;
+    if (context.kind === 'realtime') return true;
     const req = ctx.switchToHttp().getRequest<Request>();
     const bearer = readBearerToken(req);
     // Tokens are bound to a client app: without an authenticated client there is no user.

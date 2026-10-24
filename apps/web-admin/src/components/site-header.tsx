@@ -4,6 +4,7 @@ import { Badge } from '@udemy/ui/components/badge';
 import { getSession } from '@/lib/auth/session';
 
 import { MainNav } from './main-nav';
+import { NotificationBell } from './notification-bell';
 import { UserMenu } from './user-menu';
 
 export async function SiteHeader() {
@@ -22,7 +23,12 @@ export async function SiteHeader() {
           </Link>
           {isAdmin ? <MainNav /> : null}
         </div>
-        {isAdmin ? <UserMenu /> : null}
+        {isAdmin ? (
+          <div className="flex items-center gap-2">
+            <NotificationBell />
+            <UserMenu />
+          </div>
+        ) : null}
       </div>
     </header>
   );

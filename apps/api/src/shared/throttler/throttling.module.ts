@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { ClientIpResolver } from '../auth/client-ip.resolver';
 import { AppConfigService } from '../config/app-config.service';
+import { RealtimeAwareThrottlerGuard } from './realtime-aware-throttler.guard';
 
 /** Name of the single global throttler (keys look like `global:<ip>`). */
 export const GLOBAL_THROTTLER = 'global';
@@ -18,7 +19,9 @@ export const GLOBAL_THROTTLER = 'global';
  *
  * The guard is NOT registered here: AppModule registers every APP_GUARD in one place, in the
  * order ClientAuthGuard -> ThrottlerGuard -> JwtAuthGuard -> PoliciesGuard, and uses the
- * ThrottlerGuard exported by this module (`useExisting`).
+ * `RealtimeAwareThrottlerGuard` exported by this module (`useExisting`): the library guard plus
+ * the WebSocket rule of the Phase 5 design §9 (allow `@RealtimeGateway` handlers, deny other
+ * non-HTTP contexts).
  *
  * TODO(phase 1+): Redis storage, so the limit is shared across replicas (today: in-memory,
  * per pod). `@nest-lab/throttler-storage-redis@1.2.0` (latest) declares peer
@@ -46,7 +49,7 @@ export const GLOBAL_THROTTLER = 'global';
       }),
     }),
   ],
-  providers: [ThrottlerGuard],
-  exports: [ThrottlerGuard],
+  providers: [RealtimeAwareThrottlerGuard],
+  exports: [RealtimeAwareThrottlerGuard],
 })
 export class ThrottlingModule {}

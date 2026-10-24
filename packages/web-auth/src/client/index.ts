@@ -1,6 +1,12 @@
 'use client';
 
-import { ProblemDetailsSchema, type ProblemDetails } from '@udemy/contracts';
+import {
+  ProblemDetailsSchema,
+  RealtimeTicketSchema,
+  type ProblemDetails,
+  type RealtimeTicket,
+} from '@udemy/contracts';
+import { REALTIME_TICKET_PATH } from '../realtime-ticket-path';
 import { safeNextPath } from '../safe-next';
 
 /**
@@ -9,6 +15,7 @@ import { safeNextPath } from '../safe-next';
  */
 
 export { isSafeNextPath, safeNextPath } from '../safe-next';
+export { REALTIME_TICKET_PATH } from '../realtime-ticket-path';
 
 /* ----------------------------------------------------------------------------------------
  * Cross-tab logout (BroadcastChannel('auth'))
@@ -271,4 +278,31 @@ export function createProxyJson(options: ProxyFetchOptions = {}) {
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
   };
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Realtime ticket (Phase 5 D16)
+ * -------------------------------------------------------------------------------------- */
+
+/**
+ * `POST /api/realtime/ticket` (`createRealtimeTicketHandler`): a single-use socket.io ticket for
+ * the handshake `auth` payload. Call it before every (re)connect; a ticket lives 30 s.
+ *
+ * Throws `ProxyFetchError` on a non-2xx answer (401 signed out, 429 with `retryAfterSeconds`,
+ * 503 `realtime_unavailable`: fall back to polling) and a 502 one when the body is not a
+ * `RealtimeTicket`. Never redirects to login: realtime is an optional enhancement.
+ */
+export async function fetchRealtimeTicket(
+  init: { signal?: AbortSignal } = {},
+): Promise<RealtimeTicket> {
+  const response = await fetch(REALTIME_TICKET_PATH, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { accept: 'application/json' },
+    ...(init.signal ? { signal: init.signal } : {}),
+  });
+  if (!response.ok) throw await ProxyFetchError.fromResponse(response);
+  const parsed = RealtimeTicketSchema.safeParse(await response.json().catch(() => undefined));
+  if (!parsed.success) throw new ProxyFetchError(502, null, { cause: parsed.error });
+  return parsed.data;
 }

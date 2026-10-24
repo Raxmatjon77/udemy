@@ -8,6 +8,8 @@ const LINKS = [
   { href: '/account/profile', label: 'Profile' },
   { href: '/account/sessions', label: 'Sessions & security' },
   { href: '/account/orders', label: 'Orders & receipts' },
+  { href: '/account/certificates', label: 'Certificates' },
+  { href: '/account/notifications', label: 'Notifications' },
 ] as const;
 
 export function AccountNav() {

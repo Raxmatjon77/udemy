@@ -1,6 +1,7 @@
 import { type CanActivate, Controller, Get, Module, Post, UseGuards } from '@nestjs/common';
 import { DiscoveryModule, MetadataScanner } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
+import { SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import type { Request } from 'express';
 import { describe, expect, it } from 'vitest';
 import {
@@ -17,6 +18,7 @@ import {
   WebhookIngress,
 } from '../../../shared/auth';
 import { HealthController } from '../../../shared/health/health.controller';
+import { RealtimeGateway } from '../../../shared/realtime';
 import { OwnershipRegistry } from '../application/ownership.registry';
 import { RouteSecurityAuditor, RouteSecurityError } from './route-security.auditor';
 
@@ -118,14 +120,62 @@ class ApplicationOwnership implements OwnershipResolver {
 @Module({ providers: [ApplicationOwnership] })
 class OwnershipModule {}
 
+@RealtimeGateway()
+class GoodGateway {
+  @SubscribeMessage('subscribe')
+  @AuthenticatedOnly()
+  subscribe(): void {}
+
+  @SubscribeMessage('admin')
+  @RequirePermissions('user:read:any')
+  admin(): void {}
+
+  /** Not a message handler: never audited. */
+  handleConnection(): void {}
+}
+
+@RealtimeGateway()
+class BadGateway {
+  @SubscribeMessage('unmarked')
+  unmarked(): void {}
+
+  @SubscribeMessage('policy')
+  @CheckPolicy({ resource: 'instructor_application', action: 'read', id: byId })
+  policy(): void {}
+
+  @SubscribeMessage('open')
+  @Public()
+  @NoClientAuth()
+  open(): void {}
+
+  @SubscribeMessage('fine')
+  @AuthenticatedOnly()
+  fine(): void {}
+}
+
+@WebSocketGateway()
+class PlainGateway {
+  @SubscribeMessage('ping')
+  @AuthenticatedOnly()
+  ping(): void {}
+}
+
+/** A provider that is not a gateway: its handler would never be bound, or bound unguarded. */
+class StrayHandlers {
+  @SubscribeMessage('stray')
+  @AuthenticatedOnly()
+  stray(): void {}
+}
+
 async function boot(
   controllers: (new () => unknown)[],
   imports: (new () => unknown)[] = [],
+  providers: (new () => unknown)[] = [],
 ): Promise<void> {
   const moduleRef = await Test.createTestingModule({
     imports: [DiscoveryModule, ...imports],
     controllers,
-    providers: [AuthMetadataReader, OwnershipRegistry, RouteSecurityAuditor],
+    providers: [AuthMetadataReader, OwnershipRegistry, RouteSecurityAuditor, ...providers],
   }).compile();
   await moduleRef.init();
   await moduleRef.close();
@@ -182,6 +232,7 @@ describe('RouteSecurityAuditor', () => {
           { metatype: GoodController },
           { metatype: HealthController },
         ],
+        getProviders: () => [],
       } as never,
       new MetadataScanner(),
       new AuthMetadataReader(),
@@ -208,11 +259,59 @@ describe('RouteSecurityAuditor', () => {
 
   it('accepts the real HealthController (@Public @NoClientAuth)', () => {
     const auditor = new RouteSecurityAuditor(
-      { getControllers: () => [{ metatype: HealthController }] } as never,
+      { getControllers: () => [{ metatype: HealthController }], getProviders: () => [] } as never,
       new MetadataScanner(),
       new AuthMetadataReader(),
       { has: () => true } as never,
     );
     expect(auditor.audit()).toEqual([]);
+  });
+
+  describe('socket.io gateways (Phase 5 design §9)', () => {
+    function auditorFor(providers: (new () => unknown)[]): RouteSecurityAuditor {
+      return new RouteSecurityAuditor(
+        {
+          getControllers: () => [],
+          getProviders: () => providers.map((metatype) => ({ metatype })),
+        } as never,
+        new MetadataScanner(),
+        new AuthMetadataReader(),
+        { has: () => true } as never,
+      );
+    }
+
+    it('boots when every handler of a @RealtimeGateway is marked', async () => {
+      await expect(boot([GoodController], [], [GoodGateway])).resolves.toBeUndefined();
+      expect(auditorFor([GoodGateway]).realtimeGateways()).toEqual(['GoodGateway']);
+    });
+
+    it('fails boot for unmarked, @CheckPolicy and @NoClientAuth gateway handlers', () => {
+      expect(auditorFor([BadGateway]).audit()).toEqual([
+        { route: 'BadGateway.unmarked', problems: [expect.stringContaining('no security marker')] },
+        {
+          route: 'BadGateway.policy',
+          problems: [expect.stringContaining('@CheckPolicy on a socket handler')],
+        },
+        {
+          route: 'BadGateway.open',
+          problems: [expect.stringContaining('@NoClientAuth on a socket handler')],
+        },
+      ]);
+    });
+
+    it('fails boot for a plain @WebSocketGateway and a @SubscribeMessage outside a gateway', async () => {
+      expect(auditorFor([PlainGateway, StrayHandlers]).audit()).toEqual([
+        {
+          route: 'PlainGateway',
+          problems: [expect.stringContaining('@WebSocketGateway without @RealtimeGateway')],
+        },
+        {
+          route: 'StrayHandlers.stray',
+          problems: ['@SubscribeMessage outside a @RealtimeGateway class'],
+        },
+      ]);
+      const error = await boot([], [], [StrayHandlers]).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(RouteSecurityError);
+    });
   });
 });

@@ -1,5 +1,9 @@
 import 'server-only';
-import { createApiProxyHandler, createAuthRouteHandlers } from '@udemy/web-auth';
+import {
+  createApiProxyHandler,
+  createAuthRouteHandlers,
+  createRealtimeTicketHandler,
+} from '@udemy/web-auth';
 
 import { webAuthConfig } from './config';
 
@@ -13,3 +17,6 @@ export const authRoutes = createAuthRouteHandlers(webAuthConfig);
 
 /** `/api/proxy/*` → the API with the session's access token. */
 export const apiProxy = createApiProxyHandler(webAuthConfig);
+
+/** `POST /api/realtime/ticket` → a single-use socket.io ticket (Phase 5 D16). */
+export const realtimeTicket = createRealtimeTicketHandler(webAuthConfig);

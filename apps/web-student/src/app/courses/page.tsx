@@ -6,6 +6,7 @@ import { CategoryChips } from '@/components/catalog/category-nav';
 import { parseBrowseFilters } from '@/lib/catalog/browse-params';
 import { browseCourses, getCategoryTree, settle } from '@/lib/catalog/server';
 import { pricesForPage } from '@/lib/commerce/server';
+import { ratingsForPage } from '@/lib/engagement/server';
 
 export const metadata: Metadata = {
   title: 'Browse courses',
@@ -21,7 +22,7 @@ export default async function CoursesPage({ searchParams }: PageProps<'/courses'
     settle(getCategoryTree()),
     settle(browseCourses(filters, { limit })),
   ]);
-  const prices = await pricesForPage(page);
+  const [prices, ratings] = await Promise.all([pricesForPage(page), ratingsForPage(page)]);
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6">
@@ -41,6 +42,7 @@ export default async function CoursesPage({ searchParams }: PageProps<'/courses'
         categories={tree.ok ? tree.data : undefined}
         result={page}
         prices={prices}
+        ratings={ratings}
         limit={limit}
         ignored={ignored}
       />

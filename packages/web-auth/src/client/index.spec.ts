@@ -4,10 +4,12 @@ import {
   broadcastLogout,
   createProxyFetch,
   createProxyJson,
+  fetchRealtimeTicket,
   logout,
   onLogoutBroadcast,
   parseRetryAfter,
   ProxyFetchError,
+  REALTIME_TICKET_PATH,
   tabId,
 } from './index';
 
@@ -240,5 +242,61 @@ describe('createProxyFetch on a final 401', () => {
     await createProxyFetch()('/me');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(assign).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fetchRealtimeTicket', () => {
+  const TICKET = {
+    ticket: 'B'.repeat(43),
+    url: 'http://localhost:4000',
+    expiresAt: '2026-10-10T10:00:30.000Z',
+  };
+
+  it('POSTs to the BFF ticket route (same origin, no body) and returns the parsed ticket', async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify(TICKET), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(fetchRealtimeTicket()).resolves.toEqual(TICKET);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(REALTIME_TICKET_PATH);
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('same-origin');
+    expect(init.body).toBeUndefined();
+  });
+
+  it('throws ProxyFetchError with the problem and Retry-After, and never redirects to login', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const response = problemResponse(429, 'rate_limited');
+        response.headers.set('retry-after', '30');
+        return response;
+      }),
+    );
+    const error = await fetchRealtimeTicket().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProxyFetchError);
+    expect((error as ProxyFetchError).code).toBe('rate_limited');
+    expect((error as ProxyFetchError).retryAfterSeconds).toBe(30);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => problemResponse(401, 'unauthorized')),
+    );
+    await expect(fetchRealtimeTicket()).rejects.toBeInstanceOf(ProxyFetchError);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('rejects a body that is not a RealtimeTicket with a 502 error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ticket: 'x' }), { status: 201 })),
+    );
+    const error = await fetchRealtimeTicket().catch((e: unknown) => e);
+    expect((error as ProxyFetchError).status).toBe(502);
   });
 });

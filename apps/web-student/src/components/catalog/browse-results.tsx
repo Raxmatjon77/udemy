@@ -1,7 +1,12 @@
 'use client';
 
 import { useInfiniteQuery, useQueries, type InfiniteData } from '@tanstack/react-query';
-import type { CourseCard as CourseCardData, CourseCardPage, PublicPrice } from '@udemy/contracts';
+import type {
+  CourseCard as CourseCardData,
+  CourseCardPage,
+  CourseRating,
+  PublicPrice,
+} from '@udemy/contracts';
 import { Alert, AlertDescription } from '@udemy/ui/components/alert';
 import { Button } from '@udemy/ui/components/button';
 import { Spinner } from '@udemy/ui/components/spinner';
@@ -12,9 +17,13 @@ import type { BrowseFilters } from '@/lib/catalog/browse-params';
 import { catalogQueryKeys, fetchCoursePage } from '@/lib/catalog/client';
 import { pluralize } from '@/lib/catalog/format';
 import { commerceKeys, fetchPublicPrices } from '@/lib/commerce/client';
+import { engagementKeys, fetchRatings } from '@/lib/engagement/client';
 import { problemMessage } from '@/lib/problem';
 
 import { CourseGrid } from './course-card';
+
+/** Course id → rating summary (`lib/engagement/server.ts` builds it for page one). */
+export type RatingMap = Readonly<Record<string, CourseRating>>;
 
 /**
  * The course grid with keyset "Load more". The first page is rendered by the server page (it
@@ -26,6 +35,7 @@ export function BrowseResults({
   filters,
   initialPage,
   initialPrices,
+  initialRatings,
   limit,
 }: {
   /** The API filters (a category page adds its category here). */
@@ -33,6 +43,8 @@ export function BrowseResults({
   initialPage: CourseCardPage;
   /** Page one's prices (rendered by the server); undefined when they could not be loaded. */
   initialPrices?: PriceMap | undefined;
+  /** Page one's rating summaries (rendered by the server); undefined when not loaded. */
+  initialRatings?: RatingMap | undefined;
   limit: number;
 }) {
   const query = useInfiniteQuery<
@@ -63,6 +75,25 @@ export function BrowseResults({
       };
     }),
   });
+
+  // Later pages: one batched `GET /engagement/ratings` per page too (public, cached for 60 s).
+  const laterRatings = useQueries({
+    queries: laterPages.map((page) => {
+      const ids = page.items.map((course) => course.id);
+      return {
+        queryKey: engagementKeys.ratings(ids),
+        queryFn: ({ signal }: { signal: AbortSignal }) => fetchRatings(ids, signal),
+        staleTime: 60_000,
+      };
+    }),
+  });
+  const ratingOf = useMemo(() => {
+    const known = new Map<string, CourseRating>(Object.entries(initialRatings ?? {}));
+    for (const result of laterRatings) {
+      for (const rating of result.data ?? []) known.set(rating.courseId, rating);
+    }
+    return (courseId: string) => known.get(courseId);
+  }, [initialRatings, laterRatings]);
 
   // Per course: a price, null (no price: not for sale) or undefined (its page's prices did not
   // load, so the card shows no price line rather than a wrong "Not available yet").
@@ -101,7 +132,13 @@ export function BrowseResults({
       </p>
 
       {courses.length > 0 ? (
-        <CourseGrid courses={courses} priceOf={priceOf} priorityCount={4} label="Courses" />
+        <CourseGrid
+          courses={courses}
+          priceOf={priceOf}
+          ratingOf={ratingOf}
+          priorityCount={4}
+          label="Courses"
+        />
       ) : null}
 
       {query.isFetchNextPageError ? (

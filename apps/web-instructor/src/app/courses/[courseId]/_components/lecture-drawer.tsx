@@ -41,6 +41,8 @@ import { markdownIssues, type MarkdownIssueView } from '@/lib/markdown-issues';
 import { hasCode, problemMessage, type MessageOverrides } from '@/lib/problem';
 import { friendlyZodError } from '@/lib/zod-messages';
 
+import { QuizEditor } from './quiz-editor';
+
 const PREVIEWABLE: ReadonlySet<string> = new Set(PREVIEWABLE_LECTURE_TYPES);
 
 /** Errors of `GET /courses/:c/lectures/:l/download` (working copy). */
@@ -62,7 +64,7 @@ function useRefreshCurriculum(courseId: string) {
 /**
  * Lecture editor in a side drawer (design §10): title, free-preview toggle and the content of
  * the lecture type: VIDEO (upload, processing status, owner preview player), ARTICLE (markdown
- * editor with live preview) or RESOURCE (file upload).
+ * editor with live preview), RESOURCE (file upload) or QUIZ (the quiz editor, Phase 5).
  */
 export function LectureDrawer({
   courseId,
@@ -108,12 +110,16 @@ function LectureEditor({
             ? 'Upload the lecture video. It is processed into streaming quality levels.'
             : lecture.type === 'ARTICLE'
               ? 'Write the article in markdown. The preview shows what students will see.'
-              : 'Upload a PDF or ZIP file students can download.'}
+              : lecture.type === 'QUIZ'
+                ? 'Write the questions, mark the correct options and set the pass mark.'
+                : 'Upload a PDF or ZIP file students can download.'}
         </DialogDescription>
       </DialogHeader>
       <LectureSettings courseId={courseId} lecture={lecture} readOnly={readOnly} />
       {lecture.type === 'ARTICLE' ? (
         <ArticleEditor courseId={courseId} lecture={lecture} readOnly={readOnly} />
+      ) : lecture.type === 'QUIZ' ? (
+        <QuizEditor courseId={courseId} lectureId={lecture.id} readOnly={readOnly} />
       ) : (
         <MediaPanel courseId={courseId} lecture={lecture} readOnly={readOnly} />
       )}
@@ -200,7 +206,7 @@ function LectureSettings({
         <p id={`${previewId}-description`} className="text-xs text-muted-foreground">
           {previewable
             ? 'Anyone can watch or read a preview lecture on the course page (at most 10 per course).'
-            : 'Resource lectures cannot be previews.'}
+            : `${LECTURE_TYPE_LABELS[lecture.type]} lectures cannot be previews.`}
         </p>
       </div>
       {update.isError ? (

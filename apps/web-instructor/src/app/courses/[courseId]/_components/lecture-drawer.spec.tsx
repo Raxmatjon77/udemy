@@ -5,8 +5,10 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 import { ArticleSchema, MEDIA_FAILURE_LABELS, SaveArticleRequestSchema } from '@udemy/contracts';
+import { LEARNING_FIXTURE_IDS } from '@udemy/contracts/testing';
 
 import { asset, IDS, lecture, markdownNotAllowed, signedUrl } from '@/test/fixtures';
+import { COURSE, installLearning } from '@/test/learning';
 import { problem, proxy, server, setupMockApi } from '@/test/msw';
 import { renderWithClient } from '@/test/render';
 
@@ -302,5 +304,25 @@ describe('resource lecture', () => {
     );
     expect(await screen.findByLabelText('Processing progress')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Download file' })).toBeNull();
+  });
+});
+
+describe('quiz lecture (Phase 5)', () => {
+  it('opens the quiz editor instead of a media panel, without a preview option', async () => {
+    installLearning();
+    const quizLecture = lecture({
+      id: LEARNING_FIXTURE_IDS.lectureQuiz,
+      sectionId: IDS.sectionA,
+      position: 0,
+      type: 'QUIZ',
+      title: 'Check yourself',
+      quiz: { passPct: 70, questionCount: 3 },
+    });
+    renderWithClient(
+      <LectureDrawer courseId={COURSE} lecture={quizLecture} readOnly={false} onClose={() => {}} />,
+    );
+    expect(await screen.findByRole('listitem', { name: 'Question 3' })).toBeTruthy();
+    expect(screen.getByText('Quiz lectures cannot be previews.')).toBeTruthy();
+    expect(screen.queryByText(/Upload/)).toBeNull();
   });
 });

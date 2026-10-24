@@ -43,6 +43,14 @@ function DragHandle({ label, ...props }: { label: string } & Record<string, unkn
 }
 
 function lectureSummary(lecture: Lecture): string {
+  if (lecture.type === 'QUIZ') {
+    // `quiz` is optional until the api fills it (P5-T6); the editor loads the full quiz.
+    if (!lecture.quiz) return 'Quiz';
+    const { questionCount, passPct } = lecture.quiz;
+    return questionCount === 0
+      ? 'No questions yet'
+      : `${questionCount} question${questionCount === 1 ? '' : 's'} · pass at ${passPct}%`;
+  }
   if (lecture.type === 'ARTICLE') {
     return lecture.articleLength ? `${lecture.articleLength} characters` : 'Empty article';
   }

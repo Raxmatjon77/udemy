@@ -3,7 +3,7 @@
  *
  * Server-only (every module imports `server-only`). Entries:
  * - `@udemy/web-auth`           config, cookies, API client, auth route handlers, API proxy,
- *                               signed media redirects, CSP builder
+ *                               signed media redirects, CSP builder, realtime ticket route
  * - `@udemy/web-auth/proxy`     `createAuthProxy` for `src/proxy.ts`
  * - `@udemy/web-auth/session`   `createGetSession` for server components (uses next/headers)
  * - `@udemy/web-auth/client`    `'use client'` helpers (logout broadcast, proxy fetch)
@@ -60,6 +60,8 @@ export type {
   SignedRedirectOptions,
 } from './signed-redirect';
 export { buildContentSecurityPolicy, createNonce } from './csp';
+export { createRealtimeTicketHandler, REALTIME_TICKET_PATH } from './realtime-ticket';
+export type { RealtimeTicketHandler } from './realtime-ticket';
 export type { CspInput } from './csp';
 export { refreshSingleFlight } from './refresh';
 export type { RefreshOutcome } from './refresh';

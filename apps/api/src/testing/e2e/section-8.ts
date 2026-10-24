@@ -171,6 +171,15 @@ export const SECTION_8_PHASE_4_COMMERCE_C: readonly Operation[] = [
   [`${V1}/admin/refunds/{refundId}/retry`, 'post'],
 ];
 
+/**
+ * Phase 5 realtime plumbing (P5-T5): the WS ticket route of the learning experience design §8
+ * "Notifications" (every BFF); covered by realtime.e2e.spec.ts. The socket.io
+ * ingress itself (`/realtime/socket.io`) is not an HTTP operation and is not listed.
+ */
+export const SECTION_8_PHASE_5_REALTIME: readonly Operation[] = [
+  [`${V1}/realtime/tickets`, 'post'],
+];
+
 export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_1,
   ...SECTION_8_PHASE_2,
@@ -178,6 +187,7 @@ export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_4_ENROLLMENT,
   ...SECTION_8_PHASE_4_COMMERCE_B,
   ...SECTION_8_PHASE_4_COMMERCE_C,
+  ...SECTION_8_PHASE_5_REALTIME,
 ];
 
 /** Every Phase 4 operation (P4-T17: phase4.e2e.spec.ts checks it against Swagger and Express). */

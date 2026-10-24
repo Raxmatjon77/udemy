@@ -42,6 +42,7 @@ import { ACCOUNT_STATUS_LABEL, ROLE_LABEL } from '@/lib/labels';
 import { hasCode } from '@/lib/problem';
 import { queryKeys } from '@/lib/queries';
 
+import { UserCertificates } from './user-certificates';
 import { UserEnrollments } from './user-enrollments';
 
 const UnbanFormSchema = z.object({
@@ -297,6 +298,11 @@ export function UserDetail({ id, currentUserId }: { id: string; currentUserId: s
             id: 'enrollments',
             label: 'Enrollments',
             content: <UserEnrollments userId={user.id} userName={user.displayName} />,
+          },
+          {
+            id: 'certificates',
+            label: 'Certificates',
+            content: <UserCertificates userId={user.id} userName={user.displayName} />,
           },
         ]}
       />

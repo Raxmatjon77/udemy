@@ -46,10 +46,10 @@ describe('<CheckoutSuccess>', () => {
     const paid = await screen.findByTestId('checkout-paid');
     expect(within(paid).getByRole('heading').textContent).toBe("You're enrolled");
     const links = await within(paid).findAllByRole('link', { name: 'Go to course' });
-    expect(links.map((link) => link.getAttribute('href')).sort()).toEqual([
-      '/course/complete-typescript',
-      '/course/postgres-in-depth',
-    ]);
+    // Phase 5: "Go to course" opens the course player.
+    expect(links.map((link) => link.getAttribute('href')).sort()).toEqual(
+      [`/learn/${FIXTURE_IDS.course}`, `/learn/${FIXTURE_IDS.course2}`].sort(),
+    );
     expect(within(paid).getByRole('link', { name: 'View receipt' }).getAttribute('href')).toBe(
       `/account/orders/${orderId}/receipt`,
     );

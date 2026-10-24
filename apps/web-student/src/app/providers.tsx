@@ -8,13 +8,16 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { onLogoutBroadcast } from '@udemy/web-auth/client';
+import { RealtimeProvider } from '@udemy/web-realtime';
 import { useEffect, type ReactNode } from 'react';
 
 import { isApiError } from '@/lib/problem';
 
 /*
  * Client-side providers for the whole app: TanStack Query (all data goes through the BFF's
- * /api/proxy, see src/lib/api.ts) and the cross-tab logout listener.
+ * /api/proxy, see src/lib/api.ts), the cross-tab logout listener and the realtime socket
+ * (Phase 5 D15–D17: notification and Q&A hints that invalidate queries; off when signed out
+ * or without `REALTIME_PUBLIC_URL`, in which case the screens poll).
  */
 
 function makeQueryClient(): QueryClient {
@@ -69,13 +72,20 @@ function LogoutBroadcastListener() {
   return null;
 }
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({
+  realtime = false,
+  children,
+}: {
+  /** Open the realtime socket (signed in and `REALTIME_PUBLIC_URL` configured). */
+  realtime?: boolean;
+  children: ReactNode;
+}) {
   const queryClient = getQueryClient();
 
   return (
     <QueryClientProvider client={queryClient}>
       <LogoutBroadcastListener />
-      {children}
+      <RealtimeProvider enabled={realtime}>{children}</RealtimeProvider>
     </QueryClientProvider>
   );
 }

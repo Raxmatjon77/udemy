@@ -2,6 +2,8 @@
 import { E2E_APP_ENV } from './apply-e2e-app-env';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { rm } from 'node:fs/promises';
+import type { AddressInfo } from 'node:net';
+import type { ModuleMetadata } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test as NestTest } from '@nestjs/testing';
 import {
@@ -32,7 +34,8 @@ import { ipRateLimitKeys, TestNetIpAllocator } from './test-net-ips';
 
 /*
  * Shared harness for HTTP e2e files that boot the REAL AppModule (all four global guards in
- * production order, `setupApp` prefix exclusions/versioning/Swagger, real Postgres + Redis).
+ * production order, `setupApp` prefix exclusions/versioning/Swagger and the socket.io Redis
+ * adapter, real Postgres + Redis).
  *
  * Usage (the env import MUST be the first import of the spec file):
  *
@@ -88,6 +91,12 @@ export interface E2eHarness {
   readonly app: NestExpressApplication;
   /** A supertest agent on the running app. */
   http(): ReturnType<typeof request>;
+  /**
+   * The socket.io origin for `socket.io-client` (`io(url, { path: REALTIME_SOCKET_PATH,
+   * transports: ['websocket'] })`). Starts listening on 127.0.0.1 (ephemeral port) on first use;
+   * the realtime adapter is the one `setupApp` installed, exactly as in main.ts.
+   */
+  realtimeUrl(): Promise<string>;
   /** Skips the test locally when Postgres or Redis is unreachable (fails with CI=true). */
   skip(ctx: SkippableContext): void;
   /** This test's TEST-NET `X-Client-IP` (fresh per test; per-IP rate-limit keys cleared). */
@@ -150,7 +159,12 @@ export function withoutTraceId(body: unknown): Record<string, unknown> {
   return rest;
 }
 
-export function useE2eApp(): E2eHarness {
+export interface E2eAppOptions {
+  /** Extra modules next to AppModule (e.g. a probe `@RealtimeGateway` before P5-T14). */
+  readonly imports?: NonNullable<ModuleMetadata['imports']>;
+}
+
+export function useE2eApp(options: E2eAppOptions = {}): E2eHarness {
   const pg = useIntegrationDatabase({ max: 4 });
   const itRedis = useIntegrationRedis();
   const ips = new TestNetIpAllocator();
@@ -175,7 +189,9 @@ export function useE2eApp(): E2eHarness {
 
   beforeAll(async () => {
     if (!available()) return;
-    const moduleRef = await NestTest.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await NestTest.createTestingModule({
+      imports: [AppModule, ...(options.imports ?? [])],
+    }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({
       ...API_APP_OPTIONS,
       logger: false,
@@ -261,6 +277,20 @@ export function useE2eApp(): E2eHarness {
   }
 
   const http = (): ReturnType<typeof request> => request(running().getHttpServer());
+
+  let listening: Promise<string> | undefined;
+  function realtimeUrl(): Promise<string> {
+    listening ??= (async () => {
+      const target = running();
+      await target.listen(0, '127.0.0.1');
+      const address = (
+        target.getHttpServer() as { address(): AddressInfo | string | null }
+      ).address();
+      if (address === null || typeof address === 'string') throw new Error('no TCP address');
+      return `http://127.0.0.1:${address.port}`;
+    })();
+    return listening;
+  }
 
   function as(
     appName: ClientApp,
@@ -408,6 +438,7 @@ export function useE2eApp(): E2eHarness {
       return running();
     },
     http,
+    realtimeUrl,
     skip(ctx: SkippableContext): void {
       pg.skipIfUnavailable(ctx);
       itRedis.skipIfUnavailable(ctx);

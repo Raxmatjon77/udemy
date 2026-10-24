@@ -3,11 +3,13 @@
 import {
   useEffect,
   useEffectEvent,
+  useImperativeHandle,
   useRef,
   useState,
   type ComponentProps,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from 'react';
 
 import {
@@ -16,6 +18,7 @@ import {
   type PlayerErrorReason,
   type PlayerStatus,
 } from '../lib/hls-playback';
+import { PlayedRangeTracker, type PlayedRangeSeconds } from '../lib/played-ranges';
 import { cn } from '../lib/utils';
 import { Button } from './button';
 import { Spinner } from './spinner';
@@ -32,16 +35,52 @@ import { Spinner } from './spinner';
  *   has focus: Space/K play-pause, ←/→ 5 s, J/L 10 s, M mute, F fullscreen.
  * - `children` go inside `<video>`: the slot for `<track kind="captions">` elements.
  * - CSP: needs `media-src blob:`, `worker-src blob:` and `connect-src <media origin>`.
+ *
+ * Learning progress (Phase 5 design D3, §10): `startPosition` resumes playback, the player
+ * tracks what was actually PLAYED (seeks never count) and reports it through `onPlayedRanges`
+ * at natural boundaries (pause, seek, end); a heartbeat collects the rest with the imperative
+ * `flushPlayedRanges()` (interval, tab hidden, pagehide). `seek()` moves without counting.
  */
 
 export interface HlsPlayerError {
   reason: PlayerErrorReason;
   httpStatus?: number;
+  /** The stable problem `code` of a refused master playlist (e.g. `rate_limited`), if known. */
+  code?: string;
+  /** `Retry-After` of a refused master playlist, in seconds. */
+  retryAfterSeconds?: number;
+}
+
+export type { PlayedRangeSeconds };
+
+/** Why a played-ranges report was made. */
+export type PlayedRangesReason = 'pause' | 'seek' | 'ended' | 'flush';
+
+export interface PlayedRangesReport {
+  reason: PlayedRangesReason;
+  /** The playback position when the report was made, in seconds. */
+  positionSeconds: number;
+  /** Media duration in seconds, or null while unknown. */
+  durationSeconds: number | null;
+  /** What was played since the previous report, merged (fractional seconds); may be empty. */
+  ranges: PlayedRangeSeconds[];
+}
+
+/** Imperative API (`ref`). */
+export interface HlsPlayerHandle {
+  /** Moves the playhead (a note's timestamp); does not count as watched. */
+  seek(seconds: number): void;
+  /** The current playback position in seconds. */
+  currentTime(): number;
+  /** Reports and clears what was played since the previous report (reason `flush`). */
+  flushPlayedRanges(): PlayedRangesReport;
+  /** Whether the media is playing right now. */
+  isPlaying(): boolean;
 }
 
 export interface HlsPlayerProps extends Omit<
   ComponentProps<'div'>,
-  'title' | 'onError' | 'children'
+  'title' | 'onError' | 'children' | 'ref'
 > {
   /** Master playlist URL (same-origin BFF route). */
   src: string;
@@ -51,6 +90,16 @@ export interface HlsPlayerProps extends Omit<
   title: string;
   /** Called once each time the player enters its error state. */
   onError?: (error: HlsPlayerError) => void;
+  /** Resume position in seconds for the first load (later reloads keep the live position). */
+  startPosition?: number;
+  /** Played ranges at natural boundaries: pause, seek, end (see `HlsPlayerHandle.flushPlayedRanges`). */
+  onPlayedRanges?: (report: PlayedRangesReport) => void;
+  /** Playback started or stopped (play/playing vs pause/ended/waiting). */
+  onPlayingChange?: (playing: boolean) => void;
+  /** The video reached its end. */
+  onEnded?: () => void;
+  /** Imperative handle: seek, current time, flush played ranges. */
+  ref?: Ref<HlsPlayerHandle>;
   /** `<track>` elements (captions, later). */
   children?: ReactNode;
   /** Class names of the `<video>` element. */
@@ -90,11 +139,20 @@ function hasMediaSource(): boolean {
   );
 }
 
+function mediaDuration(video: HTMLVideoElement | null): number | null {
+  return video && Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null;
+}
+
 function HlsPlayer({
   src,
   poster,
   title,
   onError,
+  startPosition,
+  onPlayedRanges,
+  onPlayingChange,
+  onEnded,
+  ref,
   children,
   className,
   videoClassName,
@@ -102,17 +160,109 @@ function HlsPlayer({
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controllerRef = useRef<HlsPlaybackController | null>(null);
+  const [tracker] = useState(() => new PlayedRangeTracker());
   const [status, setStatus] = useState<PlayerStatus>({ kind: 'idle' });
 
   const reportError = useEffectEvent((next: PlayerStatus) => {
     if (next.kind === 'error') {
-      onError?.(
-        next.httpStatus === undefined
-          ? { reason: next.reason }
-          : { reason: next.reason, httpStatus: next.httpStatus },
-      );
+      const error: HlsPlayerError = { reason: next.reason };
+      if (next.httpStatus !== undefined) error.httpStatus = next.httpStatus;
+      if (next.code !== undefined) error.code = next.code;
+      if (next.retryAfterSeconds !== undefined) error.retryAfterSeconds = next.retryAfterSeconds;
+      onError?.(error);
     }
   });
+
+  /** Builds a report from the tracker (clears it). */
+  const takeReport = (reason: PlayedRangesReport['reason']): PlayedRangesReport => {
+    const video = videoRef.current;
+    const ranges = tracker.take();
+    const position =
+      video && Number.isFinite(video.currentTime) ? video.currentTime : tracker.position;
+    return {
+      reason,
+      positionSeconds: position,
+      durationSeconds: mediaDuration(video),
+      ranges,
+    };
+  };
+
+  const report = useEffectEvent((reason: Exclude<PlayedRangesReport['reason'], 'flush'>) => {
+    onPlayedRanges?.(takeReport(reason));
+  });
+  const playingChanged = useEffectEvent((playing: boolean) => onPlayingChange?.(playing));
+  const ended = useEffectEvent(() => onEnded?.());
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      seek(seconds: number) {
+        const video = videoRef.current;
+        if (!video || !Number.isFinite(seconds)) return;
+        const end = mediaDuration(video) ?? Number.POSITIVE_INFINITY;
+        const target = Math.min(Math.max(0, seconds), end);
+        tracker.jumpTo(target);
+        video.currentTime = target;
+      },
+      currentTime() {
+        const video = videoRef.current;
+        return video && Number.isFinite(video.currentTime) ? video.currentTime : tracker.position;
+      },
+      flushPlayedRanges() {
+        return takeReport('flush');
+      },
+      isPlaying() {
+        const video = videoRef.current;
+        return !!video && !video.paused && !video.ended;
+      },
+    }),
+    // takeReport only reads refs and the stable tracker
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tracker],
+  );
+
+  // Played-range tracking from the media events (the controller does not care about them).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onTimeUpdate = () => {
+      if (!video.paused && !video.seeking) tracker.observe(video.currentTime);
+    };
+    const onPlaying = () => {
+      tracker.observe(video.currentTime);
+      playingChanged(true);
+    };
+    const onPause = () => {
+      tracker.cut(video.currentTime);
+      playingChanged(false);
+      if (!video.ended) report('pause');
+    };
+    const onSeeking = () => tracker.cut();
+    const onSeeked = () => {
+      tracker.jumpTo(video.currentTime);
+      report('seek');
+    };
+    const onWaiting = () => tracker.cut();
+    const onEndedEvent = () => {
+      tracker.cut(video.currentTime);
+      playingChanged(false);
+      report('ended');
+      ended();
+    };
+    const listeners: Array<[string, () => void]> = [
+      ['timeupdate', onTimeUpdate],
+      ['playing', onPlaying],
+      ['pause', onPause],
+      ['seeking', onSeeking],
+      ['seeked', onSeeked],
+      ['waiting', onWaiting],
+      ['ended', onEndedEvent],
+    ];
+    for (const [type, listener] of listeners) video.addEventListener(type, listener);
+    return () => {
+      for (const [type, listener] of listeners) video.removeEventListener(type, listener);
+    };
+  }, [tracker]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -126,6 +276,7 @@ function HlsPlayer({
         setStatus(next);
         reportError(next);
       },
+      ...(startPosition === undefined ? {} : { startPosition }),
     });
     controllerRef.current = controller;
     void controller.start();
@@ -133,6 +284,9 @@ function HlsPlayer({
       controller.destroy();
       if (controllerRef.current === controller) controllerRef.current = null;
     };
+    // The start position applies to the first load of a source only; changing it later (the
+    // parent saw new progress) must not reload the video.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
 
   function onKeyDown(event: KeyboardEvent<HTMLVideoElement>) {

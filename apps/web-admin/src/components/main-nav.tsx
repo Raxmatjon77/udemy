@@ -7,6 +7,7 @@ import { cn } from '@udemy/ui/lib/utils';
 const LINKS = [
   { href: '/course-reviews', label: 'Course reviews' },
   { href: '/courses', label: 'Courses' },
+  { href: '/moderation', label: 'Moderation' },
   { href: '/categories', label: 'Categories' },
   { href: '/instructor-applications', label: 'Instructor applications' },
   { href: '/users', label: 'Users' },

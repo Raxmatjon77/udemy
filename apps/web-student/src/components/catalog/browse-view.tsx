@@ -12,7 +12,7 @@ import type { PriceMap } from '@/components/commerce/price-tag';
 import type { Loaded } from '@/lib/catalog/server';
 
 import { BrowseFilters } from './browse-filters';
-import { BrowseResults } from './browse-results';
+import { BrowseResults, type RatingMap } from './browse-results';
 import { CatalogUnavailable, EmptyState } from './catalog-states';
 
 const IGNORED_LABELS: Record<BrowseFilterKey, string> = {
@@ -33,6 +33,7 @@ export function BrowseView({
   categories,
   result,
   prices,
+  ratings,
   limit,
   ignored = [],
 }: {
@@ -47,6 +48,8 @@ export function BrowseView({
   result: Loaded<CourseCardPage>;
   /** The first page's prices; undefined when they could not be loaded. */
   prices?: PriceMap | undefined;
+  /** The first page's rating summaries (Phase 5); undefined when they could not be loaded. */
+  ratings?: RatingMap | undefined;
   limit: number;
   /** URL filters dropped as invalid, to tell the user. */
   ignored?: readonly BrowseFilterKey[];
@@ -90,6 +93,7 @@ export function BrowseView({
           filters={apiFilters}
           initialPage={result.data}
           initialPrices={prices}
+          initialRatings={ratings}
           limit={limit}
         />
       )}

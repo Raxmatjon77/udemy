@@ -6,6 +6,7 @@ import { cn } from '@udemy/ui/lib/utils';
 
 const LINKS = [
   { href: '/courses', label: 'Courses' },
+  { href: '/qa', label: 'Q&A' },
   { href: '/sales', label: 'Sales' },
 ] as const;
 

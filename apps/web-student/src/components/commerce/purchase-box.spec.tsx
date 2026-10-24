@@ -171,7 +171,7 @@ describe('<PurchaseBox> signed in', () => {
     await stateOf('enrolled');
     expect(screen.queryByTestId('price')).toBeNull();
     expect(screen.getByRole('link', { name: 'Go to course' }).getAttribute('href')).toBe(
-      '/course/complete-typescript',
+      `/learn/${PAID.id}`,
     );
   });
 
@@ -190,7 +190,7 @@ describe('<PurchaseBox> signed in', () => {
 
     await stateOf('free');
     await user.click(screen.getByRole('button', { name: 'Enroll for free' }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith('/course/git-basics'));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/learn/${FIXTURE_IDS.freeCourse}`));
     expect(store.myLearning().map((card) => card.courseId)).toEqual([FREE.id]);
     await stateOf('enrolled');
   });

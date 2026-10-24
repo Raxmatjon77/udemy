@@ -18,7 +18,16 @@ const rendersPage = (res: Response) => res.headers.get('x-middleware-next') === 
 describe('student PUBLIC_PATHS', () => {
   it('lists the public catalog, the media routes and the (guest) cart', () => {
     expect(PUBLIC_PATHS).toEqual(
-      expect.arrayContaining(['/', '/courses', '/categories/*', '/course/*', '/media/*', '/cart']),
+      expect.arrayContaining([
+        '/',
+        '/courses',
+        '/categories/*',
+        '/course/*',
+        '/media/*',
+        '/cart',
+        '/certificates/*',
+        '/unsubscribe',
+      ]),
     );
   });
 
@@ -31,6 +40,8 @@ describe('student PUBLIC_PATHS', () => {
     '/course/modern-typescript',
     '/media/course-thumbnail/0b7f1d1e-5a8f-4c3a-9a51-6f1b2c3d4e5f?variant=w480',
     '/cart',
+    '/certificates/01J9ZP4X6V8Q2M3N5R7T9W0Y1A',
+    '/unsubscribe',
   ])('lets an anonymous visitor open %s (with a CSP nonce)', async (path) => {
     const res = await proxy(anonymous(path));
     expect(res.headers.get('location')).toBeNull();
@@ -50,6 +61,10 @@ describe('student PUBLIC_PATHS', () => {
     '/account/orders',
     '/account/orders/0b7f1d1e-5a8f-4c3a-9a51-6f1b2c3d4e5f/receipt',
     '/cart/extra',
+    '/learn/0b7f1d1e-5a8f-4c3a-9a51-6f1b2c3d4e5f',
+    '/account/certificates',
+    '/account/notifications',
+    '/unsubscribe/extra',
   ])('still sends anonymous visitors of %s to the login page', async (path) => {
     const res = await proxy(anonymous(path));
     expect(res.status).toBe(307);

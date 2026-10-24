@@ -8,6 +8,7 @@ import { courseJsonLd, courseMetadata } from '@/lib/catalog/seo';
 import { getSession } from '@/lib/auth/session';
 import { getCourseLanding } from '@/lib/catalog/server';
 import { priceForCourse } from '@/lib/commerce/server';
+import { ratingForCourse } from '@/lib/engagement/server';
 
 /**
  * `/course/{slug}`: the public landing page of a published course (design §10).
@@ -29,12 +30,21 @@ export default async function CoursePage({ params }: PageProps<'/course/[slug]'>
   const { slug } = await params;
   const landing = await getCourseLanding(slug);
   if (!landing) notFound();
-  const [price, session] = await Promise.all([priceForCourse(landing.id), getSession()]);
+  const [price, session, rating] = await Promise.all([
+    priceForCourse(landing.id),
+    getSession(),
+    ratingForCourse(landing.id),
+  ]);
 
   return (
     <>
       <JsonLd data={courseJsonLd(landing, appOrigin())} nonce={await cspNonce()} />
-      <CourseLandingView landing={landing} price={price} signedIn={session !== null} />
+      <CourseLandingView
+        landing={landing}
+        price={price}
+        signedIn={session !== null}
+        rating={rating}
+      />
     </>
   );
 }

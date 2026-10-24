@@ -92,7 +92,7 @@ export function PurchaseBox({
     onSuccess: () => {
       void refreshStates();
       void queryClient.invalidateQueries({ queryKey: commerceKeys.myLearning });
-      router.push(learnHref(course.slug));
+      router.push(learnHref(course.id));
     },
     onError: (error) => {
       setMessage(problemMessage(error, PURCHASE_MESSAGES));
@@ -155,7 +155,7 @@ export function PurchaseBox({
         <>
           <p className="font-semibold">You&apos;re enrolled</p>
           <Button asChild size="lg" className="w-full">
-            <Link href={learnHref(course.slug)}>Go to course</Link>
+            <Link href={learnHref(course.id)}>Go to course</Link>
           </Button>
         </>
       ) : null}

@@ -5,6 +5,7 @@ import type { LearningCard, LearningCardPage } from '@udemy/contracts';
 import { Alert, AlertDescription } from '@udemy/ui/components/alert';
 import { Badge } from '@udemy/ui/components/badge';
 import { Button } from '@udemy/ui/components/button';
+import { Progress } from '@udemy/ui/components/progress';
 import { Skeleton } from '@udemy/ui/components/skeleton';
 import { Spinner } from '@udemy/ui/components/spinner';
 import Link from 'next/link';
@@ -17,8 +18,9 @@ import { problemMessage } from '@/lib/problem';
 
 /**
  * `/my-learning` (design §10): the ACTIVE enrollments, newest first, with keyset "Load more".
- * `progress` is always null in Phase 4; the cards link to the landing page until the Phase 5
- * player exists (`learnHref`).
+ * Phase 5: each card shows its progress (`LearningCard.progress`, the % of live lectures
+ * completed; null before the api reports it), a "Completed" badge at 100%, and opens the course
+ * player (`/learn/{courseId}`).
  */
 export function MyLearning() {
   const query = useInfiniteQuery<
@@ -124,7 +126,7 @@ function LearningCourseCard({ card }: { card: LearningCard }) {
       <div className="flex flex-1 flex-col gap-2 p-4">
         <h3 className="line-clamp-2 leading-snug font-semibold">
           <Link
-            href={learnHref(card.slug)}
+            href={learnHref(card.courseId)}
             className="outline-none after:absolute after:inset-0 after:content-['']"
           >
             {card.title}
@@ -133,16 +135,29 @@ function LearningCourseCard({ card }: { card: LearningCard }) {
         {card.instructor ? (
           <p className="text-xs text-muted-foreground">{card.instructor.displayName}</p>
         ) : null}
-        <div className="mt-auto flex flex-wrap items-center gap-2 pt-2">
-          {card.archived ? (
-            <Badge variant="secondary" title="No longer sold; you keep access">
-              Archived
-            </Badge>
+        <div className="mt-auto flex flex-col gap-2 pt-2">
+          {card.progress !== null && card.progress > 0 ? (
+            <Progress
+              value={card.progress}
+              aria-label={`${card.title}: ${card.progress}% complete`}
+            />
           ) : null}
-          {card.source === 'FREE' ? <Badge variant="outline">Free</Badge> : null}
-          <span className="ml-auto text-xs text-muted-foreground">
-            {card.progress === null ? 'Start learning' : `${card.progress}% complete`}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {card.archived ? (
+              <Badge variant="secondary" title="No longer sold; you keep access">
+                Archived
+              </Badge>
+            ) : null}
+            {card.source === 'FREE' ? <Badge variant="outline">Free</Badge> : null}
+            {card.progress === 100 ? <Badge>Completed</Badge> : null}
+            <span className="ml-auto text-xs text-muted-foreground" data-testid="learning-progress">
+              {card.progress === null || card.progress === 0
+                ? 'Start learning'
+                : card.progress === 100
+                  ? '100% complete'
+                  : `${card.progress}% complete · Continue`}
+            </span>
+          </div>
         </div>
       </div>
     </article>

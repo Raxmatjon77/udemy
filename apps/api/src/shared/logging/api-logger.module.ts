@@ -18,12 +18,14 @@ export const API_LOG_REDACT_PATHS: readonly string[] = [
   'req.headers["stripe-signature"]',
   // Checkout responses (`{ orderId, checkoutUrl }`, `checkout_in_progress` problems).
   ...['', '*.', '*.*.'].map((at) => `${at}checkoutUrl`),
+  // WS tickets (Phase 5 design §9): `POST /realtime/tickets` responses, handshake `auth`.
+  ...['', '*.', '*.*.'].map((at) => `${at}ticket`),
 ];
 
 /** A Stripe Checkout Session id, as it appears in hosted-page URLs and API payloads. */
 const CHECKOUT_SESSION_ID = /\bcs_(?:test|live)_[A-Za-z0-9]+/;
 /** Keys whose value is always censored, wherever it is nested. */
-const CENSORED_KEYS: ReadonlySet<string> = new Set(['checkoutUrl']);
+const CENSORED_KEYS: ReadonlySet<string> = new Set(['checkoutUrl', 'ticket']);
 const MAX_DEPTH = 8;
 
 function isCheckoutUrl(value: unknown): value is string {

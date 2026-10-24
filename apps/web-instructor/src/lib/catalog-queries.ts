@@ -6,6 +6,7 @@ import {
   type Curriculum,
   type MediaAssetStatus,
 } from '@udemy/contracts';
+import { useLiveRefetchInterval } from '@udemy/web-realtime';
 
 import { catalogApi } from './catalog-api';
 
@@ -19,10 +20,14 @@ export const catalogKeys = {
   history: (courseId: string) => ['course', courseId, 'history'] as const,
   article: (courseId: string, lectureId: string) =>
     ['course', courseId, 'article', lectureId] as const,
-  asset: (assetId: string) => ['media', 'asset', assetId] as const,
+  /** `['asset', id]`: the realtime `media.changed` hint invalidates this root (Phase 5 §10). */
+  asset: (assetId: string) => ['asset', assetId] as const,
 };
 
-/** How often a processing asset is polled (design §10 sequence: every 3 s). */
+/**
+ * How often a processing asset is polled (design §10 sequence: every 3 s). Phase 5: with the
+ * realtime socket connected, `media.changed` refetches it instead and this is only the fallback.
+ */
 export const ASSET_POLL_MS = 3_000;
 
 const TERMINAL: ReadonlySet<MediaAssetStatus> = new Set(MEDIA_TERMINAL_STATUSES);
@@ -66,6 +71,7 @@ export function useCourseHistory(courseId: string) {
  */
 export function useAssetStatus(initial: AssetView | null) {
   const assetId = initial?.id ?? '';
+  const pollMs = useLiveRefetchInterval(ASSET_POLL_MS);
   return useQuery({
     queryKey: catalogKeys.asset(assetId),
     queryFn: () => catalogApi.asset(assetId),
@@ -73,7 +79,7 @@ export function useAssetStatus(initial: AssetView | null) {
     ...(initial ? { initialData: initial, initialDataUpdatedAt: 0 } : {}),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status && isTerminal(status) ? false : ASSET_POLL_MS;
+      return status && isTerminal(status) ? false : pollMs;
     },
     refetchIntervalInBackground: false,
   });

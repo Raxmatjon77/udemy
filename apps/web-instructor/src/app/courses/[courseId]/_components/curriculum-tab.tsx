@@ -671,8 +671,7 @@ function AddLectureForm({
           className="h-8 w-32"
           disabled={disabled}
         >
-          {/* TODO(P5-T7): offer QUIZ once the quiz editor exists (and P5-T6 serves it). */}
-          {LECTURE_TYPES.filter((value) => value !== 'QUIZ').map((value) => (
+          {LECTURE_TYPES.map((value) => (
             <option key={value} value={value}>
               {LECTURE_TYPE_LABELS[value]}
             </option>

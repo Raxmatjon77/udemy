@@ -8,6 +8,7 @@ import {
   claimEvent,
   IdempotentEventProcessor,
 } from '../messaging/idempotency/idempotent-event-processor';
+import { testHandlerContext } from '../testing/handler-context';
 import {
   deleteMail,
   itSmtpHost,
@@ -134,7 +135,7 @@ describe('identity mail consumers (integration: Postgres + Mailpit)', () => {
     await expect(
       it_.db.transaction().execute(async (trx) => {
         await claimEvent(trx, verification.consumerName, event.eventId);
-        await verification.handler.handle(event, trx);
+        await verification.handler.handle(event, trx, testHandlerContext());
         throw new Error('simulated commit failure');
       }),
     ).rejects.toThrow('simulated commit failure');
@@ -172,7 +173,9 @@ describe('identity mail consumers (integration: Postgres + Mailpit)', () => {
     expect(row?.expiresAt.getTime()).toBe(requestedAt.getTime() + 24 * 60 * 60 * 1000);
 
     // 5. A handler re-run for the same event (claim gone, row kept) does not invalidate it.
-    await it_.db.transaction().execute((trx) => verification.handler.handle(event, trx));
+    await it_.db
+      .transaction()
+      .execute((trx) => verification.handler.handle(event, trx, testHandlerContext()));
     const third = await waitForMail(user.email, { count: 3 });
     expect(tokenFromMail(third[2]?.Text ?? '', '/verify-email')).toBe(token);
     expect(await tokenRow(token)).toMatchObject({ consumedAt: null, invalidatedAt: null });
@@ -208,7 +211,9 @@ describe('identity mail consumers (integration: Postgres + Mailpit)', () => {
     });
 
     // Out-of-order redelivery of the older event: skipped, no mail, newer link untouched.
-    await it_.db.transaction().execute((trx) => reset.handler.handle(older, trx));
+    await it_.db
+      .transaction()
+      .execute((trx) => reset.handler.handle(older, trx, testHandlerContext()));
     await new Promise((resolve) => setTimeout(resolve, 500));
     await expect(waitForMail(user.email, { count: 2 })).resolves.toHaveLength(2);
     expect((await tokenRow(newToken))?.invalidatedAt).toBeNull();
