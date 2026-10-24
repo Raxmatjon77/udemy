@@ -4,8 +4,10 @@ import {
   type CourseReadiness,
   type CourseReadinessIssue,
   type CourseReadinessIssueCode,
+  isQuizQuestionComplete,
   type LectureType,
   type MediaAssetStatus,
+  type QuizQuestionKind,
 } from '@udemy/contracts';
 
 export type { CourseReadiness, CourseReadinessIssue };
@@ -32,6 +34,16 @@ export interface ReadinessLecture {
   readonly asset: ReadinessAsset | null;
   /** ARTICLE lectures: plain-text length of the body (0 when never saved); else null. */
   readonly articlePlainLength: number | null;
+  /** QUIZ lectures: the working-copy questions (null or absent: no quiz content). */
+  readonly quiz?: ReadinessQuiz | null;
+}
+
+/** The facts of a QUIZ lecture readiness looks at (Phase 5 design §5). */
+export interface ReadinessQuiz {
+  readonly questions: readonly {
+    readonly kind: QuizQuestionKind;
+    readonly options: readonly { readonly isCorrect: boolean }[];
+  }[];
 }
 
 export interface ReadinessSection {
@@ -139,7 +151,9 @@ export function evaluateReadiness(
   for (const section of input.sections) {
     for (const lecture of section.lectures) {
       const at = { sectionId: section.id, lectureId: lecture.id };
-      if (lecture.type === 'ARTICLE') {
+      if (lecture.type === 'QUIZ') {
+        issues.push(...quizIssues(lecture.quiz ?? null, at));
+      } else if (lecture.type === 'ARTICLE') {
         const length = lecture.articlePlainLength ?? 0;
         if (length < COURSE_READINESS_RULES.minArticleChars) {
           issues.push(
@@ -159,6 +173,23 @@ export function evaluateReadiness(
   }
 
   return { ready: issues.length === 0, issues };
+}
+
+/**
+ * QUIZ readiness (Phase 5 design §5): `QUIZ_EMPTY` without questions (required 1, actual 0);
+ * otherwise ONE `QUIZ_QUESTION_INVALID` per lecture when any question breaks the key rule
+ * (2–6 options, SINGLE exactly one correct, MULTIPLE at least one; `isQuizQuestionComplete`),
+ * with `actual` = the number of such questions. A QUIZ has no media, so the media rules never
+ * apply to it.
+ */
+function quizIssues(
+  quiz: ReadinessQuiz | null,
+  at: { readonly sectionId: string; readonly lectureId: string },
+): CourseReadinessIssue[] {
+  const questions = quiz?.questions ?? [];
+  if (questions.length === 0) return [issue('QUIZ_EMPTY', { ...at, required: 1, actual: 0 })];
+  const invalid = questions.filter((q) => !isQuizQuestionComplete(q.kind, q.options)).length;
+  return invalid === 0 ? [] : [issue('QUIZ_QUESTION_INVALID', { ...at, actual: invalid })];
 }
 
 /** Total seconds of READY video lectures (what the landing page will show). */

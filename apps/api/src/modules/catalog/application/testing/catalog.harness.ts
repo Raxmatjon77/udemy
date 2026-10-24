@@ -40,6 +40,13 @@ import { UpdateCategoryCommand } from '../use-cases/update-category.command';
 import { UpdateCourseCommand } from '../use-cases/update-course.command';
 import { UpdateLectureCommand } from '../use-cases/update-lecture.command';
 import { UpdateSectionCommand } from '../use-cases/update-section.command';
+import { AddQuizQuestionCommand } from '../use-cases/add-quiz-question.command';
+import { DeleteQuizQuestionCommand } from '../use-cases/delete-quiz-question.command';
+import { GetQuizQuery } from '../use-cases/get-quiz.query';
+import { PutQuizQuestionOptionsCommand } from '../use-cases/put-quiz-question-options.command';
+import { ReorderQuizQuestionsCommand } from '../use-cases/reorder-quiz-questions.command';
+import { UpdateQuizQuestionCommand } from '../use-cases/update-quiz-question.command';
+import { UpdateQuizSettingsCommand } from '../use-cases/update-quiz-settings.command';
 import {
   CatalogWorld,
   FakeCatalogEventPublisher,
@@ -49,6 +56,7 @@ import {
   FakeCourseRepository,
   FakeCurriculumRepository,
   FakeMediaFacade,
+  FakeQuizRepository,
   FakeRevisionRepository,
   FakeSubmissionRateLimiter,
   FakeTransactionRunner,
@@ -60,6 +68,7 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
   const courses = new FakeCourseRepository(world);
   const lifecycle = new FakeCourseLifecycleRepository(world);
   const curriculum = new FakeCurriculumRepository(world);
+  const quizzes = new FakeQuizRepository(world);
   const categories = new FakeCategoryRepository(world);
   const events = new FakeCatalogEventPublisher(world);
   const tx = new FakeTransactionRunner(world);
@@ -68,10 +77,10 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
   const revisions = new FakeRevisionRepository(world);
   const people = new FakeCoursePeopleDirectory();
   const rateLimiter = new FakeSubmissionRateLimiter();
-  const snapshotter = new WorkingCopySnapshotter(courses, curriculum);
+  const snapshotter = new WorkingCopySnapshotter(courses, curriculum, quizzes);
 
   const locker = new CourseLocker(courses);
-  const reader = new CurriculumReader(curriculum, media);
+  const reader = new CurriculumReader(curriculum, quizzes, media);
   const readiness = new CourseReadinessEvaluator(courses, categories, reader, settings);
   const detail = new CourseDetailAssembler(
     courses,
@@ -86,6 +95,7 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
     courses,
     lifecycle,
     curriculum,
+    quizzes,
     categories,
     events,
     tx,
@@ -123,7 +133,7 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
     addSection: new AddSectionCommand(courses, curriculum, locker, tx),
     updateSection: new UpdateSectionCommand(courses, curriculum, locker, tx),
     deleteSection: new DeleteSectionCommand(courses, curriculum, media, locker, tx),
-    addLecture: new AddLectureCommand(courses, curriculum, locker, tx),
+    addLecture: new AddLectureCommand(courses, curriculum, quizzes, locker, tx),
     updateLecture: new UpdateLectureCommand(courses, curriculum, reader, locker, tx),
     deleteLecture: new DeleteLectureCommand(courses, curriculum, media, locker, tx),
     getArticle: new GetArticleQuery(courses, curriculum),
@@ -154,6 +164,14 @@ export function createCatalogHarness(settings: CatalogSettings = CatalogSettings
     reviewQueue: new ListReviewQueueQuery(lifecycle, people),
     revisionReview: new GetRevisionReviewQuery(courses, revisions, categories, people, media),
     adminCourses: new AdminSearchCoursesQuery(courses, people),
+    // quizzes (Phase 5)
+    getQuiz: new GetQuizQuery(courses, curriculum, quizzes),
+    updateQuizSettings: new UpdateQuizSettingsCommand(courses, curriculum, quizzes, locker, tx),
+    addQuizQuestion: new AddQuizQuestionCommand(courses, curriculum, quizzes, locker, tx),
+    updateQuizQuestion: new UpdateQuizQuestionCommand(courses, curriculum, quizzes, locker, tx),
+    deleteQuizQuestion: new DeleteQuizQuestionCommand(courses, curriculum, quizzes, locker, tx),
+    putQuizOptions: new PutQuizQuestionOptionsCommand(courses, curriculum, quizzes, locker, tx),
+    reorderQuizQuestions: new ReorderQuizQuestionsCommand(courses, curriculum, quizzes, locker, tx),
   };
 }
 

@@ -193,6 +193,84 @@ describe('evaluateReadiness (invariant 6)', () => {
   });
 });
 
+describe('evaluateReadiness: QUIZ lectures (Phase 5 design §5)', () => {
+  type Kind = 'SINGLE_CHOICE' | 'MULTIPLE_CHOICE';
+  const question = (kind: Kind, correct: readonly boolean[]) => ({
+    kind,
+    options: correct.map((isCorrect) => ({ isCorrect })),
+  });
+  function withQuiz(quiz: { questions: ReturnType<typeof question>[] } | null): ReadinessInput {
+    const input = readyInput();
+    const [s1, s2] = input.sections;
+    if (s1 === undefined || s2 === undefined) throw new Error('fixture');
+    const quizLecture = {
+      id: 'q1',
+      type: 'QUIZ' as const,
+      mediaAssetId: null,
+      asset: null,
+      articlePlainLength: null,
+      quiz,
+    };
+    return { ...input, sections: [s1, { ...s2, lectures: [...s2.lectures, quizLecture] }] };
+  }
+
+  it('a complete quiz is ready and never needs media (no LECTURE_MEDIA_MISSING)', () => {
+    const result = evaluateReadiness(
+      withQuiz({
+        questions: [
+          question('SINGLE_CHOICE', [false, true]),
+          question('MULTIPLE_CHOICE', [true, true, false]),
+        ],
+      }),
+      thresholds,
+    );
+    expect(result).toEqual({ ready: true, issues: [] });
+  });
+
+  it('QUIZ_EMPTY without questions (or without quiz content)', () => {
+    for (const quiz of [{ questions: [] }, null]) {
+      expect(evaluateReadiness(withQuiz(quiz), thresholds).issues).toEqual([
+        { code: 'QUIZ_EMPTY', sectionId: 's2', lectureId: 'q1', required: 1, actual: 0 },
+      ]);
+    }
+  });
+
+  it('ONE QUIZ_QUESTION_INVALID per lecture, `actual` = the number of broken questions', () => {
+    const result = evaluateReadiness(
+      withQuiz({
+        questions: [
+          question('SINGLE_CHOICE', [true, true]), // SINGLE with two correct
+          question('SINGLE_CHOICE', [false, false]), // no correct option
+          question('MULTIPLE_CHOICE', [false, false, false]), // MULTIPLE needs one correct
+          question('MULTIPLE_CHOICE', [true]), // one option only
+          question('SINGLE_CHOICE', []), // no options yet
+          question('SINGLE_CHOICE', [true, false]), // fine
+        ],
+      }),
+      thresholds,
+    );
+    expect(result.ready).toBe(false);
+    expect(result.issues).toEqual([
+      {
+        code: 'QUIZ_QUESTION_INVALID',
+        sectionId: 's2',
+        lectureId: 'q1',
+        required: null,
+        actual: 5,
+      },
+    ]);
+  });
+
+  it('a quiz counts as a lecture, not as video', () => {
+    const input = withQuiz({ questions: [question('SINGLE_CHOICE', [true, false])] });
+    expect(readyVideoSeconds(input.sections)).toBe(1800);
+    const fewer = evaluateReadiness(input, { minLectures: 7, minVideoSeconds: 0 });
+    expect(fewer.issues).toEqual([
+      expect.objectContaining({ code: 'TOO_FEW_LECTURES', required: 7, actual: 6 }),
+    ]);
+  });
+});
+
 describe('plainTextLength (readiness character counts)', () => {
   it('ignores markdown syntax and link destinations, counts code points', () => {
     expect(plainTextLength('# Title\n\n**bold** and _em_')).toBe('Title bold and em'.length);

@@ -14,7 +14,8 @@ import { CategoryDirectory, isServableThumbnail } from '../public-catalog-suppor
  * `course_not_found`.
  *
  * The instructor card is `UsersFacade.getPublicProfile`, null for a banned or unknown owner.
- * Durations are the ones frozen at submit (`revision_lectures.duration_seconds`).
+ * Durations are the ones frozen at submit (`revision_lectures.duration_seconds`). QUIZ lectures
+ * (Phase 5) appear in the outline by title and type only: the quiz content is not even loaded.
  */
 @Injectable()
 export class GetCourseLandingQuery {
@@ -28,8 +29,10 @@ export class GetCourseLandingQuery {
   async execute(slug: string): Promise<CourseLanding> {
     const course = await this.publicCatalog.findPublishedBySlug(slug);
     if (course === null) throw new CourseNotFound();
+    // Outline only: no article bodies and NEVER quiz content (questions, answer keys).
     const revision = await this.revisions.findById(course.liveRevisionId, undefined, {
       articleBodies: false,
+      quizzes: false,
     });
     // A PUBLISHED course always has its live revision (FK); a race with a concurrent
     // approve is harmless (we render the revision we resolved).

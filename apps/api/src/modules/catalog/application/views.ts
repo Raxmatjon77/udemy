@@ -7,9 +7,13 @@ import type {
   Curriculum,
   CurriculumSection,
   Lecture,
+  LectureQuizSummary,
+  QuizAuthoring,
+  QuizQuestionAuthoring,
   RevisionSummary,
   Section,
 } from '@udemy/contracts';
+import { isQuizQuestionComplete, QUIZ_LIMITS } from '../domain/quiz';
 import { isEffectivelyActive } from '../domain/category';
 import { isWorkingCopyLocked } from '../domain/course';
 import { readyVideoSeconds } from '../domain/readiness';
@@ -18,6 +22,7 @@ import type { CategoryRecord, CategoryWithCount } from './ports/category.reposit
 import type { RevisionSummaryRecord } from './ports/course-lifecycle.repository';
 import type { CourseRecord } from './ports/course.repository';
 import type { ArticleRecord, LectureRecord, SectionRecord } from './ports/curriculum.repository';
+import type { QuizQuestionRecord, WorkingQuizRecord } from './ports/quiz.repository';
 
 export function toSectionView(section: SectionRecord): Section {
   return {
@@ -29,10 +34,19 @@ export function toSectionView(section: SectionRecord): Section {
   };
 }
 
+/** `Lecture.quiz` / the live curriculum's quiz summary: pass mark and question count. */
+export function toQuizSummary(quiz: WorkingQuizRecord | null): LectureQuizSummary {
+  return {
+    passPct: quiz?.settings.passPct ?? QUIZ_LIMITS.defaultPassPct,
+    questionCount: quiz?.questions.length ?? 0,
+  };
+}
+
 export function toLectureView(
   lecture: LectureRecord,
   asset: AssetView | null,
   articlePlainLength: number | null,
+  quiz: WorkingQuizRecord | null = null,
 ): Lecture {
   return {
     id: lecture.id,
@@ -45,12 +59,51 @@ export function toLectureView(
     mediaAssetId: lecture.mediaAssetId,
     asset,
     articleLength: lecture.type === 'ARTICLE' ? (articlePlainLength ?? 0) : null,
+    quiz: lecture.type === 'QUIZ' ? toQuizSummary(quiz) : null,
     updatedAt: lecture.updatedAt.toISOString(),
   };
 }
 
 export function toLoadedLectureView(lecture: LoadedLecture): Lecture {
-  return toLectureView(lecture.record, lecture.asset, lecture.articlePlainLength);
+  return toLectureView(lecture.record, lecture.asset, lecture.articlePlainLength, lecture.quiz);
+}
+
+/**
+ * One working-copy question for its owner or an admin, ANSWER KEY INCLUDED (`isCorrect`,
+ * `explanationMd`): only the authoring routes (`Pol course:read` / `course:update`) use it.
+ */
+export function toQuizQuestionAuthoringView(question: QuizQuestionRecord): QuizQuestionAuthoring {
+  return {
+    id: question.id,
+    position: question.position,
+    kind: question.kind,
+    promptMd: question.promptMd,
+    explanationMd: question.explanationMd,
+    options: question.options.map((o) => ({
+      position: o.position,
+      text: o.text,
+      isCorrect: o.isCorrect,
+    })),
+    complete: isQuizQuestionComplete(question.kind, question.options),
+    updatedAt: question.updatedAt.toISOString(),
+  };
+}
+
+/** The whole working-copy quiz for its owner or an admin (answer key included). */
+export function toQuizAuthoringView(
+  course: CourseRecord,
+  lectureId: string,
+  quiz: WorkingQuizRecord,
+): QuizAuthoring {
+  return {
+    courseId: course.id,
+    lectureId,
+    version: course.version,
+    locked: isWorkingCopyLocked(course),
+    passPct: quiz.settings.passPct,
+    questions: quiz.questions.map(toQuizQuestionAuthoringView),
+    updatedAt: quiz.settings.updatedAt.toISOString(),
+  };
 }
 
 export function toCurriculumView(course: CourseRecord, loaded: LoadedCurriculum): Curriculum {

@@ -30,6 +30,8 @@ import {
   WishlistStatesQuerySchema,
 } from './engagement-community';
 import {
+  MODERATION_SUBJECT_TYPES,
+  ModerationActionSchema,
   ModerationQueueQuerySchema,
   ModerationReasonRequestSchema,
   REPORT_SUBJECT_PATHS,
@@ -368,6 +370,22 @@ describe('learning', () => {
 });
 
 describe('engagement', () => {
+  it('moderation subjects match moderation_actions_subject_type_ck (announcements are delete-only)', () => {
+    expect([...MODERATION_SUBJECT_TYPES].sort()).toEqual([...REPORT_SUBJECT_TYPES].sort());
+    expect((MODERATION_SUBJECT_TYPES as readonly string[]).includes('ANNOUNCEMENT')).toBe(false);
+    const action = {
+      id: uuid(1),
+      subjectType: 'REVIEW',
+      subjectId: uuid(2),
+      action: 'HIDE',
+      actor: null,
+      reason: null,
+      occurredAt: '2026-10-24T12:00:00.000Z',
+    };
+    expect(ok(ModerationActionSchema, action)).toBe(true);
+    expect(ok(ModerationActionSchema, { ...action, subjectType: 'ANNOUNCEMENT' })).toBe(false);
+  });
+
   it('reviews: rating 1–5, optional plain-text body', () => {
     expect(ok(UpsertReviewRequestSchema, { rating: 5 })).toBe(true);
     expect(ok(UpsertReviewRequestSchema, { rating: 5, body: null })).toBe(true);

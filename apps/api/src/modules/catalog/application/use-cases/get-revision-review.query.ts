@@ -29,6 +29,11 @@ function toRevisionSections(revision: RevisionRecord): RevisionSection[] {
       mediaAssetId: lecture.mediaAssetId,
       durationSeconds: revision.lectures.get(lecture.id)?.durationSeconds ?? null,
       articleBodyMd: lecture.articleBodyMd,
+      // The summary only: the questions with their keys are the separate admin quiz route.
+      quiz:
+        lecture.quiz === null
+          ? null
+          : { passPct: lecture.quiz.passPct, questionCount: lecture.quiz.questions.length },
     })),
   }));
 }

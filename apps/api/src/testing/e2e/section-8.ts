@@ -180,6 +180,60 @@ export const SECTION_8_PHASE_5_REALTIME: readonly Operation[] = [
   [`${V1}/realtime/tickets`, 'post'],
 ];
 
+/**
+ * Phase 5 catalog (P5-T6): QUIZ authoring on the working copy (instructor BFF, `Pol course:read`
+ * / `course:update`) and the admin revision quiz (`course:read:any`) of the learning experience
+ * design §8 "Instructor" / "Admin"; covered by modules/catalog/catalog-quiz.e2e.spec.ts.
+ */
+export const SECTION_8_PHASE_5_CATALOG_QUIZ: readonly Operation[] = [
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz`, 'get'],
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz`, 'put'],
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz/questions`, 'post'],
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz/questions/{questionId}`, 'patch'],
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz/questions/{questionId}`, 'delete'],
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz/questions/{questionId}/options`, 'put'],
+  [`${V1}/courses/{courseId}/lectures/{lectureId}/quiz/order`, 'put'],
+  [`${V1}/admin/course-revisions/{revisionId}/lectures/{lectureId}/quiz`, 'get'],
+];
+
+/**
+ * Phase 5 notifications (P5-T14): the inbox, preferences and the public one-click unsubscribe
+ * of the learning experience design §8 "Notifications" / "Public"; covered by
+ * modules/notifications/notifications.e2e.spec.ts.
+ */
+export const SECTION_8_PHASE_5_NOTIFICATIONS: readonly Operation[] = [
+  [`${V1}/me/notifications`, 'get'],
+  [`${V1}/me/notifications/unread-count`, 'get'],
+  [`${V1}/me/notifications/{notificationId}/read`, 'post'],
+  [`${V1}/me/notifications/read-all`, 'post'],
+  [`${V1}/me/notification-preferences`, 'get'],
+  [`${V1}/me/notification-preferences`, 'put'],
+  [`${V1}/notifications/unsubscribe`, 'post'],
+];
+
+/**
+ * Phase 5 engagement A (P5-T12): public ratings and reviews, the caller's review, the instructor
+ * reviews and replies, the wishlist, and reports on reviews and replies; covered by
+ * modules/engagement/engagement.e2e.spec.ts. Q&A, announcements, Q&A reports and admin
+ * moderation are P5-T13.
+ */
+export const SECTION_8_PHASE_5_ENGAGEMENT_A: readonly Operation[] = [
+  [`${V1}/engagement/ratings`, 'get'],
+  [`${V1}/engagement/courses/{courseId}/reviews`, 'get'],
+  [`${V1}/me/courses/{courseId}/review`, 'get'],
+  [`${V1}/me/courses/{courseId}/review`, 'put'],
+  [`${V1}/me/courses/{courseId}/review`, 'delete'],
+  [`${V1}/courses/{courseId}/reviews`, 'get'],
+  [`${V1}/courses/{courseId}/reviews/{reviewId}/reply`, 'put'],
+  [`${V1}/courses/{courseId}/reviews/{reviewId}/reply`, 'delete'],
+  [`${V1}/me/wishlist`, 'get'],
+  [`${V1}/me/wishlist/states`, 'get'],
+  [`${V1}/me/wishlist/{courseId}`, 'put'],
+  [`${V1}/me/wishlist/{courseId}`, 'delete'],
+  [`${V1}/engagement/reviews/{subjectId}/reports`, 'post'],
+  [`${V1}/engagement/review-replies/{subjectId}/reports`, 'post'],
+];
+
 export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_1,
   ...SECTION_8_PHASE_2,
@@ -188,6 +242,9 @@ export const SECTION_8: readonly Operation[] = [
   ...SECTION_8_PHASE_4_COMMERCE_B,
   ...SECTION_8_PHASE_4_COMMERCE_C,
   ...SECTION_8_PHASE_5_REALTIME,
+  ...SECTION_8_PHASE_5_CATALOG_QUIZ,
+  ...SECTION_8_PHASE_5_NOTIFICATIONS,
+  ...SECTION_8_PHASE_5_ENGAGEMENT_A,
 ];
 
 /** Every Phase 4 operation (P4-T17: phase4.e2e.spec.ts checks it against Swagger and Express). */

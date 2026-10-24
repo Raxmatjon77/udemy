@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type RedisClient, RedisUnavailableError } from '../../../../shared/redis';
-import { RedisSessionRevocationStore, revokedSessionKey } from './redis-session-revocation.store';
+import {
+  RedisSessionRevocationStore,
+  REVOKED_AMONG_BATCH_SIZE,
+  revokedSessionKey,
+} from './redis-session-revocation.store';
 
 const SID = '0199d0a0-0000-7000-8000-000000000002';
 const SID_2 = '0199d0a0-0000-7000-8000-000000000003';
@@ -9,6 +13,7 @@ const SID_2 = '0199d0a0-0000-7000-8000-000000000003';
 class FakeRedis {
   readonly entries = new Map<string, { value: string; expiresAt: number }>();
   down = false;
+  readonly mgetCalls: number[] = [];
 
   async set(key: string, value: string, mode: 'EX', seconds: number): Promise<'OK'> {
     this.assertUp();
@@ -21,6 +26,15 @@ class FakeRedis {
     this.assertUp();
     const entry = this.entries.get(key);
     return entry !== undefined && entry.expiresAt > Date.now() ? 1 : 0;
+  }
+
+  async mget(keys: string[]): Promise<(string | null)[]> {
+    this.assertUp();
+    this.mgetCalls.push(keys.length);
+    return keys.map((key) => {
+      const entry = this.entries.get(key);
+      return entry !== undefined && entry.expiresAt > Date.now() ? entry.value : null;
+    });
   }
 
   multi(): {
@@ -93,12 +107,28 @@ describe('RedisSessionRevocationStore (fake Redis)', () => {
     await expect(store.revokeMany([])).resolves.toBeUndefined();
   });
 
+  it('revokedAmong batches MGETs and returns only the revoked sessions', async () => {
+    await store.revokeMany([SID]);
+    const many = Array.from(
+      { length: REVOKED_AMONG_BATCH_SIZE + 1 },
+      (_, i) => `0199d0a0-0000-7000-9000-${String(i).padStart(12, '0')}`,
+    );
+
+    const revoked = await store.revokedAmong([SID, SID_2, SID, 'not-a-uuid', ...many]);
+
+    expect([...revoked]).toEqual([SID]);
+    // 2 + 501 distinct well-formed ids: two MGETs.
+    expect(redis.mgetCalls).toEqual([REVOKED_AMONG_BATCH_SIZE, 3]);
+    await expect(store.revokedAmong([])).resolves.toEqual(new Set());
+  });
+
   it('fails closed: every operation throws RedisUnavailableError when Redis is down', async () => {
     redis.down = true;
 
     await expect(store.isRevoked(SID)).rejects.toBeInstanceOf(RedisUnavailableError);
     await expect(store.revoke(SID)).rejects.toBeInstanceOf(RedisUnavailableError);
     await expect(store.revokeMany([SID])).rejects.toBeInstanceOf(RedisUnavailableError);
+    await expect(store.revokedAmong([SID])).rejects.toBeInstanceOf(RedisUnavailableError);
   });
 
   it('treats a failed command inside MULTI as an outage', async () => {

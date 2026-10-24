@@ -52,10 +52,30 @@ import {
   type InsertedRevision,
   type NewRevision,
   type RevisionLectureRecord,
+  type RevisionOutline,
   type RevisionRecord,
   RevisionRepository,
 } from '../ports/revision.repository';
+import {
+  type QuizQuestionPatch,
+  type QuizQuestionRecord,
+  QuizRepository,
+  type QuizSettingsRecord,
+  type WorkingQuizRecord,
+} from '../ports/quiz.repository';
+import type { QuizOptionDraft } from '../../domain/quiz';
+import type { SnapshotQuiz } from '../../domain/revision-snapshot';
 import { SubmissionRateLimiter } from '../ports/submission-rate-limiter';
+import {
+  type BrowseRecord,
+  type LiveCourseRecord,
+  type LiveCourseSummaryRecord,
+  type LiveLectureLookup,
+  PublicCatalogRepository,
+  type LiveTotals,
+  type RevisionHeaderRecord,
+  type SnapshotLectureRecord,
+} from '../ports/public-catalog.repository';
 import {
   type AdminCourseQuery,
   type AdminCourseRecord,
@@ -107,6 +127,10 @@ export interface CatalogState {
   sections: Map<string, Mutable<SectionRecord>>;
   lectures: Map<string, Mutable<LectureRecord>>;
   articles: Map<string, Mutable<ArticleRecord>>;
+  /** `lecture_quizzes` by lecture id. */
+  quizzes: Map<string, Mutable<QuizSettingsRecord>>;
+  /** `quiz_questions` (with their options) by question id. */
+  quizQuestions: Map<string, Mutable<QuizQuestionRecord>>;
   categories: Map<string, Mutable<CategoryRecord>>;
   events: { type: string; payload: unknown }[];
   assets: Map<string, AssetView>;
@@ -124,6 +148,8 @@ export class CatalogWorld {
     sections: new Map(),
     lectures: new Map(),
     articles: new Map(),
+    quizzes: new Map(),
+    quizQuestions: new Map(),
     categories: new Map(),
     events: [],
     assets: new Map(),
@@ -590,6 +616,7 @@ export class FakeRevisionRepository extends RevisionRepository {
             isPreview: l.isPreview,
             mediaAssetId: l.mediaAssetId,
             articleBodyMd: l.articleBodyMd,
+            quiz: l.quiz,
           })),
         })),
       },
@@ -620,6 +647,42 @@ export class FakeRevisionRepository extends RevisionRepository {
         (x.action === 'APPROVE' || x.action === 'REJECT' || x.action === 'WITHDRAW'),
     );
     return t === undefined ? null : (t.action as 'APPROVE' | 'REJECT' | 'WITHDRAW');
+  }
+
+  async findQuiz(revisionId: string, lectureId: string): Promise<SnapshotQuiz | null> {
+    const lecture = this.world.state.snapshots.get(revisionId)?.lectures.get(lectureId);
+    return lecture?.type === 'QUIZ' ? (lecture.quiz ?? null) : null;
+  }
+
+  async findOutlines(revisionIds: readonly string[]): Promise<Map<string, RevisionOutline>> {
+    const result = new Map<string, RevisionOutline>();
+    for (const id of new Set(revisionIds)) {
+      const snapshot = this.world.state.snapshots.get(id);
+      if (snapshot === undefined) continue;
+      result.set(id, {
+        revisionId: id,
+        courseId: snapshot.courseId,
+        title: snapshot.content.title,
+        sections: snapshot.content.sections.map((section) => ({
+          id: section.id,
+          title: section.title,
+          lectures: section.lectures.map((l) => ({
+            id: l.id,
+            type: l.type,
+            title: l.title,
+            isPreview: l.isPreview,
+            mediaAssetId: l.mediaAssetId,
+            durationSeconds:
+              l.type === 'VIDEO' ? (snapshot.lectures.get(l.id)?.durationSeconds ?? null) : null,
+            quiz:
+              l.type === 'QUIZ' && l.quiz !== null
+                ? { passPct: l.quiz.passPct, questionCount: l.quiz.questions.length }
+                : null,
+          })),
+        })),
+      });
+    }
+    return result;
   }
 
   async findPreviousApprovedId(courseId: string, beforeRevisionNo: number): Promise<string | null> {
@@ -774,6 +837,7 @@ export class FakeCurriculumRepository extends CurriculumRepository {
       if (lecture.sectionId === sectionId) {
         this.s.lectures.delete(lecture.id);
         this.s.articles.delete(lecture.id);
+        deleteQuizOf(this.s, lecture.id);
       }
     }
     this.s.sections.delete(sectionId);
@@ -843,6 +907,7 @@ export class FakeCurriculumRepository extends CurriculumRepository {
     if (lecture === undefined) return;
     this.s.lectures.delete(lectureId);
     this.s.articles.delete(lectureId);
+    deleteQuizOf(this.s, lectureId);
     (await this.listLectures(courseId))
       .filter((l) => l.sectionId === lecture.sectionId)
       .forEach((l, i) => {
@@ -882,6 +947,257 @@ export class FakeCurriculumRepository extends CurriculumRepository {
     const article = { lectureId, bodyMd, updatedAt: this.world.now() };
     this.s.articles.set(lectureId, article);
     return { ...article };
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Quizzes (Phase 5)
+ * -------------------------------------------------------------------------------------- */
+
+/** The ON DELETE CASCADE of `lecture_quizzes` -> `quiz_questions` -> `quiz_options`. */
+function deleteQuizOf(state: CatalogState, lectureId: string): void {
+  state.quizzes.delete(lectureId);
+  for (const question of [...state.quizQuestions.values()]) {
+    if (question.lectureId === lectureId) state.quizQuestions.delete(question.id);
+  }
+}
+
+function copyQuestion(question: QuizQuestionRecord): QuizQuestionRecord {
+  return { ...question, options: question.options.map((o) => ({ ...o })) };
+}
+
+export class FakeQuizRepository extends QuizRepository {
+  constructor(private readonly world: CatalogWorld) {
+    super();
+  }
+
+  private get s(): CatalogState {
+    return this.world.state;
+  }
+
+  private questionsOf(lectureId: string): QuizQuestionRecord[] {
+    return [...this.s.quizQuestions.values()]
+      .filter((q) => q.lectureId === lectureId)
+      .sort((a, b) => a.position - b.position)
+      .map(copyQuestion);
+  }
+
+  async findQuiz(lectureId: string): Promise<WorkingQuizRecord | null> {
+    const settings = this.s.quizzes.get(lectureId);
+    if (settings === undefined) return null;
+    return { settings: { ...settings }, questions: this.questionsOf(lectureId) };
+  }
+
+  async listCourseQuizzes(courseId: string): Promise<Map<string, WorkingQuizRecord>> {
+    const result = new Map<string, WorkingQuizRecord>();
+    for (const lectureId of this.s.quizzes.keys()) {
+      if (this.s.lectures.get(lectureId)?.courseId !== courseId) continue;
+      const quiz = await this.findQuiz(lectureId);
+      if (quiz !== null) result.set(lectureId, quiz);
+    }
+    return result;
+  }
+
+  async insertQuiz(_trx: Transaction<DB>, lectureId: string): Promise<QuizSettingsRecord> {
+    if (this.s.lectures.get(lectureId)?.type !== 'QUIZ') {
+      throw new Error('fake: lecture_quizzes_lecture_id_lecture_type_fk');
+    }
+    const settings = { lectureId, passPct: 70, updatedAt: this.world.now() };
+    this.s.quizzes.set(lectureId, settings);
+    return { ...settings };
+  }
+
+  async updatePassPct(
+    _trx: Transaction<DB>,
+    lectureId: string,
+    passPct: number,
+  ): Promise<QuizSettingsRecord> {
+    const settings = this.s.quizzes.get(lectureId);
+    if (settings === undefined) throw new Error('fake: quiz not found');
+    settings.passPct = passPct;
+    settings.updatedAt = this.world.now();
+    return { ...settings };
+  }
+
+  async touch(_trx: Transaction<DB>, lectureId: string): Promise<void> {
+    const settings = this.s.quizzes.get(lectureId);
+    if (settings !== undefined) settings.updatedAt = this.world.now();
+  }
+
+  async listQuestionIds(_trx: Transaction<DB>, lectureId: string): Promise<string[]> {
+    return this.questionsOf(lectureId).map((q) => q.id);
+  }
+
+  async findQuestion(lectureId: string, questionId: string): Promise<QuizQuestionRecord | null> {
+    const question = this.s.quizQuestions.get(questionId);
+    return question === undefined || question.lectureId !== lectureId
+      ? null
+      : copyQuestion(question);
+  }
+
+  async insertQuestion(
+    _trx: Transaction<DB>,
+    question: {
+      readonly lectureId: string;
+      readonly position: number;
+      readonly kind: QuizQuestionRecord['kind'];
+      readonly promptMd: string;
+      readonly explanationMd: string | null;
+    },
+  ): Promise<QuizQuestionRecord> {
+    if (!this.s.quizzes.has(question.lectureId)) {
+      throw new Error('fake: quiz_questions_lecture_id_fk');
+    }
+    const stored: Mutable<QuizQuestionRecord> = {
+      ...question,
+      id: testId(),
+      updatedAt: this.world.now(),
+      options: [],
+    };
+    this.s.quizQuestions.set(stored.id, stored);
+    return copyQuestion(stored);
+  }
+
+  async updateQuestion(
+    _trx: Transaction<DB>,
+    lectureId: string,
+    questionId: string,
+    patch: QuizQuestionPatch,
+  ): Promise<QuizQuestionRecord> {
+    const question = this.s.quizQuestions.get(questionId);
+    if (question === undefined || question.lectureId !== lectureId) {
+      throw new Error('fake: question not found');
+    }
+    if (patch.kind !== undefined) question.kind = patch.kind;
+    if (patch.promptMd !== undefined) question.promptMd = patch.promptMd;
+    if (patch.explanationMd !== undefined) question.explanationMd = patch.explanationMd;
+    question.updatedAt = this.world.now();
+    return copyQuestion(question);
+  }
+
+  async deleteQuestion(
+    _trx: Transaction<DB>,
+    lectureId: string,
+    questionId: string,
+  ): Promise<void> {
+    const question = this.s.quizQuestions.get(questionId);
+    if (question === undefined || question.lectureId !== lectureId) return;
+    this.s.quizQuestions.delete(questionId);
+    this.questionsOf(lectureId).forEach((q, position) => {
+      const stored = this.s.quizQuestions.get(q.id);
+      if (stored !== undefined) stored.position = position;
+    });
+  }
+
+  async replaceOptions(
+    _trx: Transaction<DB>,
+    lectureId: string,
+    questionId: string,
+    options: readonly QuizOptionDraft[],
+  ): Promise<QuizQuestionRecord> {
+    const question = this.s.quizQuestions.get(questionId);
+    if (question === undefined || question.lectureId !== lectureId) {
+      throw new Error('fake: quiz_options_question_id_fk');
+    }
+    question.options = options.map((o, position) => ({
+      position,
+      text: o.text,
+      isCorrect: o.isCorrect,
+    }));
+    question.updatedAt = this.world.now();
+    return copyQuestion(question);
+  }
+
+  async applyQuestionOrder(
+    _trx: Transaction<DB>,
+    lectureId: string,
+    positions: readonly { readonly id: string; readonly position: number }[],
+  ): Promise<void> {
+    for (const p of positions) {
+      const question = this.s.quizQuestions.get(p.id);
+      if (question !== undefined && question.lectureId === lectureId) {
+        question.position = p.position;
+      }
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------------------------
+ * Public read model (the live courses of the world; the reads the Phase 5 facade and the
+ * landing use)
+ * -------------------------------------------------------------------------------------- */
+
+export class FakePublicCatalogRepository extends PublicCatalogRepository {
+  findLiveCourseCalls = 0;
+
+  constructor(private readonly world: CatalogWorld) {
+    super();
+  }
+
+  private live(course: StoredCourse | undefined): LiveCourseRecord | null {
+    if (
+      course === undefined ||
+      course.deletedAt !== null ||
+      course.publishedRevisionId === null ||
+      (course.status !== 'PUBLISHED' && course.status !== 'ARCHIVED')
+    ) {
+      return null;
+    }
+    const revision = this.world.state.snapshots.get(course.publishedRevisionId);
+    return {
+      id: course.id,
+      slug: course.slug,
+      ownerId: course.ownerId,
+      status: course.status,
+      liveRevisionId: course.publishedRevisionId,
+      thumbnailAssetId: revision?.content.thumbnailAssetId ?? '',
+      firstPublishedAt: course.firstPublishedAt ?? new Date(0),
+      liveSince: course.firstPublishedAt ?? new Date(0),
+    };
+  }
+
+  async findPublishedBySlug(slug: string): Promise<LiveCourseRecord | null> {
+    const course = [...this.world.state.courses.values()].find(
+      (c) => c.slug === slug && c.status === 'PUBLISHED',
+    );
+    return this.live(course);
+  }
+
+  async findLiveCourse(courseId: string): Promise<LiveCourseRecord | null> {
+    this.findLiveCourseCalls += 1;
+    return this.live(this.world.state.courses.get(courseId));
+  }
+
+  async findLiveCourseSummaries(courseIds: readonly string[]): Promise<LiveCourseSummaryRecord[]> {
+    return [...new Set(courseIds)].flatMap((id) => {
+      const course = this.live(this.world.state.courses.get(id));
+      if (course === null) return [];
+      const title = this.world.state.snapshots.get(course.liveRevisionId)?.content.title ?? '';
+      return [{ ...course, title }];
+    });
+  }
+
+  async listCategories(): Promise<CategoryRecord[]> {
+    return [...this.world.state.categories.values()].map((c) => ({ ...c }));
+  }
+
+  findLiveLecture(): Promise<LiveLectureLookup | null> {
+    throw new Error('fake: not implemented');
+  }
+  findRevisionHeader(): Promise<RevisionHeaderRecord | null> {
+    throw new Error('fake: not implemented');
+  }
+  findRevisionLecture(): Promise<SnapshotLectureRecord | null> {
+    throw new Error('fake: not implemented');
+  }
+  listLiveLectureIds(): Promise<string[]> {
+    throw new Error('fake: not implemented');
+  }
+  liveTotals(): Promise<ReadonlyMap<string, LiveTotals>> {
+    throw new Error('fake: not implemented');
+  }
+  browse(): Promise<BrowseRecord[]> {
+    throw new Error('fake: not implemented');
   }
 }
 

@@ -3,6 +3,9 @@ import { InjectRedis, type RedisClient, withRedis } from '../../../../shared/red
 import { SessionRevocationStore } from '../../application/ports/session-revocation.store';
 import { SESSION_REVOCATION_TTL_SECONDS } from '../../domain/access-token';
 
+/** Keys per MGET of `revokedAmong` (bounds one command; a replica holds a few thousand sockets). */
+export const REVOKED_AMONG_BATCH_SIZE = 500;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** `auth:revoked:sid:{sid}` (design §6 "Redis keys"). */
@@ -39,5 +42,19 @@ export class RedisSessionRevocationStore extends SessionRevocationStore {
   async isRevoked(sessionId: string): Promise<boolean> {
     const key = revokedSessionKey(sessionId);
     return (await withRedis(() => this.redis.exists(key))) === 1;
+  }
+
+  /** MGET in batches of `REVOKED_AMONG_BATCH_SIZE`; malformed ids are never revoked. */
+  override async revokedAmong(sessionIds: readonly string[]): Promise<ReadonlySet<string>> {
+    const ids = [...new Set(sessionIds.filter((id) => UUID.test(id)))];
+    const revoked = new Set<string>();
+    for (let start = 0; start < ids.length; start += REVOKED_AMONG_BATCH_SIZE) {
+      const batch = ids.slice(start, start + REVOKED_AMONG_BATCH_SIZE);
+      const values = await withRedis(() => this.redis.mget(batch.map(revokedSessionKey)));
+      batch.forEach((id, index) => {
+        if (values[index] !== null && values[index] !== undefined) revoked.add(id);
+      });
+    }
+    return revoked;
   }
 }

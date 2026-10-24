@@ -36,6 +36,11 @@ export class FakeSessionRevocations implements RealtimeSessionRevocations {
     if (this.failing !== undefined) return Promise.reject(this.failing);
     return Promise.resolve(this.revoked.has(sessionId));
   }
+
+  revokedAmong(sessionIds: readonly string[]): Promise<ReadonlySet<string>> {
+    if (this.failing !== undefined) return Promise.reject(this.failing);
+    return Promise.resolve(new Set(sessionIds.filter((id) => this.revoked.has(id))));
+  }
 }
 
 /** In-memory per-user connection counter with the production cap. */

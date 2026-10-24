@@ -141,6 +141,15 @@ export async function deleteCatalogTestData(
           .selectFrom('catalog.courseRevisions')
           .select('id')
           .where('courseId', 'in', courses);
+        // Phase 5 quiz snapshots (FK children of revision_lectures; no cascade in replica mode)
+        await trx
+          .deleteFrom('catalog.revisionQuizOptions')
+          .where('revisionId', 'in', revisions)
+          .execute();
+        await trx
+          .deleteFrom('catalog.revisionQuizQuestions')
+          .where('revisionId', 'in', revisions)
+          .execute();
         await trx
           .deleteFrom('catalog.revisionLectures')
           .where('revisionId', 'in', revisions)
@@ -154,6 +163,28 @@ export async function deleteCatalogTestData(
           .where('revisionId', 'in', revisions)
           .execute();
         await trx.deleteFrom('catalog.courseRevisions').where('courseId', 'in', courses).execute();
+        // Phase 5 quiz working copy (replica mode skips the ON DELETE CASCADE triggers)
+        const courseLectures = trx
+          .selectFrom('catalog.lectures')
+          .select('id')
+          .where('courseId', 'in', courses);
+        await trx
+          .deleteFrom('catalog.quizOptions')
+          .where('questionId', 'in', (eb) =>
+            eb
+              .selectFrom('catalog.quizQuestions')
+              .select('id')
+              .where('lectureId', 'in', courseLectures),
+          )
+          .execute();
+        await trx
+          .deleteFrom('catalog.quizQuestions')
+          .where('lectureId', 'in', courseLectures)
+          .execute();
+        await trx
+          .deleteFrom('catalog.lectureQuizzes')
+          .where('lectureId', 'in', courseLectures)
+          .execute();
         await trx
           .deleteFrom('catalog.lectureArticles')
           .where('lectureId', 'in', (eb) =>

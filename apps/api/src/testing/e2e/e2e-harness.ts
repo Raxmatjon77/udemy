@@ -162,6 +162,11 @@ export function withoutTraceId(body: unknown): Record<string, unknown> {
 export interface E2eAppOptions {
   /** Extra modules next to AppModule (e.g. a probe `@RealtimeGateway` before P5-T14). */
   readonly imports?: NonNullable<ModuleMetadata['imports']>;
+  /**
+   * Providers replaced by a value (`Test.overrideProvider(provide).useValue(useValue)`), e.g. a
+   * port another task binds later (engagement overrides `LECTURE_COMPLETIONS` until P5-T10).
+   */
+  readonly overrides?: readonly { readonly provide: unknown; readonly useValue: unknown }[];
 }
 
 export function useE2eApp(options: E2eAppOptions = {}): E2eHarness {
@@ -189,9 +194,13 @@ export function useE2eApp(options: E2eAppOptions = {}): E2eHarness {
 
   beforeAll(async () => {
     if (!available()) return;
-    const moduleRef = await NestTest.createTestingModule({
+    let builder = NestTest.createTestingModule({
       imports: [AppModule, ...(options.imports ?? [])],
-    }).compile();
+    });
+    for (const { provide, useValue } of options.overrides ?? []) {
+      builder = builder.overrideProvider(provide).useValue(useValue);
+    }
+    const moduleRef = await builder.compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({
       ...API_APP_OPTIONS,
       logger: false,

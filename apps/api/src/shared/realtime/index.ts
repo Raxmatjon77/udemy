@@ -7,6 +7,7 @@ export * from './realtime-emitter';
 export * from './realtime-gateway.decorator';
 export * from './realtime-guard-context';
 export * from './realtime-identity';
+export * from './realtime-revocation-sweep';
 export * from './realtime-session-revocations';
 export * from './realtime.module';
 export * from './redis-io.adapter';

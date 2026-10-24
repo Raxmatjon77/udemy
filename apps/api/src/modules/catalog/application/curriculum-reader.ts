@@ -9,6 +9,7 @@ import {
   type LectureRecord,
   type SectionRecord,
 } from './ports/curriculum.repository';
+import { QuizRepository, type WorkingQuizRecord } from './ports/quiz.repository';
 
 export interface LoadedLecture {
   readonly record: LectureRecord;
@@ -16,6 +17,8 @@ export interface LoadedLecture {
   readonly asset: AssetView | null;
   /** ARTICLE lectures: plain-text length of the body (0 when never saved); else null. */
   readonly articlePlainLength: number | null;
+  /** QUIZ lectures: the working-copy quiz (settings, questions, options); else null. */
+  readonly quiz: WorkingQuizRecord | null;
 }
 
 export interface LoadedSection {
@@ -39,6 +42,7 @@ export interface LoadedCurriculum {
 export class CurriculumReader {
   constructor(
     private readonly curriculum: CurriculumRepository,
+    private readonly quizzes: QuizRepository,
     private readonly media: MediaFacade,
   ) {}
 
@@ -49,6 +53,9 @@ export class CurriculumReader {
     const bodies = hasArticles
       ? await this.curriculum.listArticleBodies(course.id, ex)
       : new Map<string, string>();
+    const quizzes = lectures.some((l) => l.type === 'QUIZ')
+      ? await this.quizzes.listCourseQuizzes(course.id, ex)
+      : new Map<string, WorkingQuizRecord>();
 
     const assetIds = lectures.flatMap((l) => (l.mediaAssetId === null ? [] : [l.mediaAssetId]));
     if (course.thumbnailAssetId !== null) assetIds.push(course.thumbnailAssetId);
@@ -61,6 +68,7 @@ export class CurriculumReader {
         asset: record.mediaAssetId === null ? null : (assets.get(record.mediaAssetId) ?? null),
         articlePlainLength:
           record.type === 'ARTICLE' ? plainTextLength(bodies.get(record.id) ?? '') : null,
+        quiz: record.type === 'QUIZ' ? (quizzes.get(record.id) ?? null) : null,
       });
     }
     return {
@@ -69,16 +77,18 @@ export class CurriculumReader {
     };
   }
 
-  /** One lecture with its fresh asset state and (ARTICLE) body length. */
+  /** One lecture with its fresh asset state, (ARTICLE) body length and (QUIZ) quiz. */
   async loadLecture(record: LectureRecord, ex?: Executor): Promise<LoadedLecture> {
     const [asset] =
       record.mediaAssetId === null ? [] : await this.media.getAssets([record.mediaAssetId], ex);
     const article =
       record.type === 'ARTICLE' ? await this.curriculum.findArticle(record.id, ex) : null;
+    const quiz = record.type === 'QUIZ' ? await this.quizzes.findQuiz(record.id, ex) : null;
     return {
       record,
       asset: asset ?? null,
       articlePlainLength: record.type === 'ARTICLE' ? plainTextLength(article?.bodyMd ?? '') : null,
+      quiz,
     };
   }
 }

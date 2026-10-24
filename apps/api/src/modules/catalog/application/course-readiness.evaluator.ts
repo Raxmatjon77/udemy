@@ -63,6 +63,7 @@ export class CourseReadinessEvaluator {
             mediaAssetId: l.record.mediaAssetId,
             asset: toReadinessAsset(l.asset),
             articlePlainLength: l.articlePlainLength,
+            quiz: l.quiz,
           })),
         })),
       },

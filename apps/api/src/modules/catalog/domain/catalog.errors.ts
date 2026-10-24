@@ -348,3 +348,35 @@ export class InvalidCatalogField extends ValidationError {
     });
   }
 }
+
+/* ----------------------------------------------------------------------------------------
+ * Quiz authoring (Phase 5 learning experience design D6, §5 catalog)
+ * -------------------------------------------------------------------------------------- */
+
+/** 404 `quiz_question_not_found`: the question is not part of THIS quiz lecture. */
+export class QuizQuestionNotFound extends NotFoundError {
+  constructor(options: CauseOption = {}) {
+    super('The question does not exist in this quiz.', {
+      code: ErrorCode.QuizQuestionNotFound,
+      cause: options.cause,
+    });
+  }
+}
+
+/** 422 `quiz_options_invalid`: 2–6 options with distinct, non-blank texts. */
+export class QuizOptionsInvalid extends ValidationError {
+  constructor(message = 'The answer options are not valid.', options: CauseOption = {}) {
+    super(message, {
+      code: ErrorCode.QuizOptionsInvalid,
+      cause: options.cause,
+      issues: [{ path: 'options', message }],
+    });
+  }
+}
+
+/** 422 `quiz_limit_exceeded`: more than `QUIZ_LIMITS.maxQuestions` questions. */
+export class QuizLimitExceeded extends ValidationError {
+  constructor(message = 'A quiz can have at most 50 questions.', options: CauseOption = {}) {
+    super(message, { code: ErrorCode.QuizLimitExceeded, cause: options.cause });
+  }
+}

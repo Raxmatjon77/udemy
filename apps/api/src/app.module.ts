@@ -5,6 +5,7 @@ import { createConfigModule, DatabaseModule } from '@udemy/nest-common';
 import { AccessModule, PoliciesGuard } from './modules/access';
 import { CatalogModule } from './modules/catalog';
 import { CommerceModule } from './modules/commerce';
+import { EngagementModule } from './modules/engagement';
 import { EnrollmentEntitlements, EnrollmentModule } from './modules/enrollment';
 import {
   ClientAuthGuard,
@@ -13,13 +14,19 @@ import {
   SessionRevocationStore,
 } from './modules/identity';
 import { MediaModule } from './modules/media';
+import { NotificationsModule } from './modules/notifications';
 import { UsersModule } from './modules/users';
 import { AuthSupportModule } from './shared/auth';
 import { apiEnvSchema, AppConfigModule, ObjectStorageModule } from './shared/config';
 import { CourseEntitlementsModule } from './shared/entitlements';
 import { ErrorsModule } from './shared/errors';
 import { HealthModule } from './shared/health';
-import { CourseProgressModule, NoCourseProgress } from './shared/learning-progress';
+import {
+  CourseProgressModule,
+  LectureCompletionsModule,
+  NoCourseProgress,
+  NoLectureCompletions,
+} from './shared/learning-progress';
 import { createApiLoggerModule } from './shared/logging';
 import { OutboxModule } from './shared/outbox';
 import { RealtimeModule } from './shared/realtime';
@@ -59,6 +66,10 @@ import { ValidationModule } from './shared/validation';
     // COURSE_PROGRESS (enrollment asks "how far is this user?" for the my-learning cards, Phase 5
     // D21): unknown (null) until learning binds LearningProgressReader (P5-T10).
     CourseProgressModule.forRoot({ useClass: NoCourseProgress }),
+    // LECTURE_COMPLETIONS (engagement's review gate asks "how many live lectures has this user
+    // completed?", D10): 0 for everyone until learning binds LearningFacade (P5-T10), so the
+    // gate fails closed (review_not_eligible) instead of skipping the progress requirement.
+    LectureCompletionsModule.forRoot({ useClass: NoLectureCompletions }),
     // WS tickets, handshake authentication, the socket.io Redis adapter and emitter (Phase 5
     // D15-D17). The handshake checks session revocation through identity's store.
     RealtimeModule.forRoot({
@@ -73,6 +84,8 @@ import { ValidationModule } from './shared/validation';
     CatalogModule,
     EnrollmentModule,
     CommerceModule,
+    EngagementModule,
+    NotificationsModule,
   ],
   providers: [
     // Global guards, in this exact order (design §1). Nest runs APP_GUARDs in registration

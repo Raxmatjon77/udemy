@@ -18,6 +18,20 @@ import { RedisPlaybackRateLimiter } from './infrastructure/redis-playback-rate-l
 import { AdminRevisionMediaController } from './presentation/admin-revision-media.controller';
 import { CoursePreviewController } from './presentation/course-preview.controller';
 import { PublicCatalogController } from './presentation/public-catalog.controller';
+import { LiveRevisionCache } from './application/live-revision-cache';
+import { CatalogClock } from './application/ports/catalog-clock';
+import { QuizRepository } from './application/ports/quiz.repository';
+import { AddQuizQuestionCommand } from './application/use-cases/add-quiz-question.command';
+import { DeleteQuizQuestionCommand } from './application/use-cases/delete-quiz-question.command';
+import { GetQuizQuery } from './application/use-cases/get-quiz.query';
+import { GetRevisionQuizQuery } from './application/use-cases/get-revision-quiz.query';
+import { PutQuizQuestionOptionsCommand } from './application/use-cases/put-quiz-question-options.command';
+import { ReorderQuizQuestionsCommand } from './application/use-cases/reorder-quiz-questions.command';
+import { UpdateQuizQuestionCommand } from './application/use-cases/update-quiz-question.command';
+import { UpdateQuizSettingsCommand } from './application/use-cases/update-quiz-settings.command';
+import { KyselyQuizRepository } from './infrastructure/kysely-quiz.repository';
+import { SystemCatalogClock } from './infrastructure/system-catalog-clock';
+import { QuizAuthoringController } from './presentation/quiz-authoring.controller';
 import { CatalogSettings } from './application/catalog-settings';
 import { CourseDetailAssembler } from './application/course-detail.assembler';
 import { CourseLocker } from './application/course-locker';
@@ -102,7 +116,9 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
  * review queue / revision review / course list (P2-T10, "catalog B"); the public catalog
  * (category tree, browse, landing, thumbnails), playback authorization for the live revision,
  * the working copy and revisions, the HLS playlist / article / download endpoints and the
- * `CatalogFacade` (P2-T11, "catalog C").
+ * `CatalogFacade` (P2-T11, "catalog C"); the QUIZ lecture type (Phase 5 P5-T6: quiz working
+ * copy, readiness, snapshot + content hash + diff, the owner/admin authoring and admin revision
+ * quiz routes, and the facade's live curriculum / quiz reads with the revision LRU).
  *
  * Depends on media through `MediaFacade` only (usages in catalog's own transaction; playlists
  * and presigned URLs after catalog authorized the viewer), on identity through
@@ -112,7 +128,8 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
  * AppConfigModule and AuthSupportModule. `CourseOwnership` is discovered by access's
  * OwnershipRegistry for `@CheckPolicy({ resource: 'course' })`.
  *
- * Exports `CatalogFacade` only (Phase 4/5 seams).
+ * Exports `CatalogFacade` only (Phase 4/5 seams). Answer keys leave the module only through
+ * `CatalogFacade.getQuizAnswerKey` (learning's grading) and the owner/admin routes above.
  */
 @Module({
   imports: [MediaModule, IdentityModule, UsersModule],
@@ -126,6 +143,7 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
     CourseLifecycleController,
     AdminCategoriesController,
     AdminCourseModerationController,
+    QuizAuthoringController,
   ],
   providers: [
     // Configuration
@@ -205,6 +223,21 @@ export function catalogSettingsFrom(config: AppConfigService): CatalogSettings {
     GetLecturePlaylistQuery,
     GetLectureArticleQuery,
     GetLectureDownloadQuery,
+
+    // QUIZ lectures (Phase 5 P5-T6)
+    { provide: QuizRepository, useClass: KyselyQuizRepository },
+    GetQuizQuery,
+    UpdateQuizSettingsCommand,
+    AddQuizQuestionCommand,
+    UpdateQuizQuestionCommand,
+    DeleteQuizQuestionCommand,
+    PutQuizQuestionOptionsCommand,
+    ReorderQuizQuestionsCommand,
+    GetRevisionQuizQuery,
+
+    // Facade (+ the Phase 5 revision LRU and its clock)
+    { provide: CatalogClock, useClass: SystemCatalogClock },
+    LiveRevisionCache,
     CatalogFacade,
   ],
   exports: [CatalogFacade],

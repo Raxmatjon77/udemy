@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   canonicalJson,
   contentHash,
   referencedAssetIds,
   type SnapshotContent,
+  type SnapshotLecture,
 } from './revision-snapshot';
 
 const content: SnapshotContent = {
@@ -30,6 +32,7 @@ const content: SnapshotContent = {
           isPreview: true,
           mediaAssetId: 'asset-v',
           articleBodyMd: null,
+          quiz: null,
         },
         {
           id: 'l2',
@@ -39,6 +42,7 @@ const content: SnapshotContent = {
           isPreview: false,
           mediaAssetId: null,
           articleBodyMd: 'Body  \n',
+          quiz: null,
         },
       ],
     },
@@ -102,5 +106,110 @@ describe('canonical snapshot hash', () => {
 
   it('lists every referenced asset once, ascending', () => {
     expect(referencedAssetIds(content)).toEqual(['asset-t', 'asset-v']);
+  });
+});
+
+describe('canonical snapshot hash: QUIZ lectures (Phase 5 D6)', () => {
+  const quizLecture: SnapshotLecture = {
+    id: 'l3',
+    type: 'QUIZ',
+    title: 'Check yourself',
+    descriptionMd: null,
+    isPreview: false,
+    mediaAssetId: null,
+    articleBodyMd: null,
+    quiz: {
+      passPct: 70,
+      questions: [
+        {
+          id: 'q1',
+          kind: 'SINGLE_CHOICE',
+          promptMd: 'Pick one',
+          explanationMd: 'Because.',
+          options: [
+            { text: 'Right', isCorrect: true },
+            { text: 'Wrong', isCorrect: false },
+          ],
+        },
+      ],
+    },
+  };
+  const withQuiz = (lecture: SnapshotLecture): SnapshotContent => {
+    const [s1, s2] = content.sections;
+    if (s1 === undefined || s2 === undefined) throw new Error('fixture');
+    return { ...content, sections: [s1, { ...s2, lectures: [lecture] }] };
+  };
+
+  it('non-QUIZ lectures keep the pre-Phase-5 canonical form (old content_hash values match)', () => {
+    // The exact canonical JSON of the fixture as P2 hashed it: no `quiz` member anywhere.
+    const legacy = canonicalJson({
+      v: 1,
+      title: content.title,
+      subtitle: content.subtitle,
+      descriptionMd: content.descriptionMd,
+      language: content.language,
+      level: content.level,
+      categoryId: content.categoryId,
+      thumbnailAssetId: content.thumbnailAssetId,
+      outcomes: [...content.outcomes],
+      requirements: [...content.requirements],
+      sections: content.sections.map((s) => ({
+        id: s.id,
+        title: s.title,
+        objective: s.objective,
+        lectures: s.lectures.map((l) => ({
+          id: l.id,
+          type: l.type,
+          title: l.title,
+          descriptionMd: l.descriptionMd,
+          isPreview: l.isPreview,
+          mediaAssetId: l.mediaAssetId,
+          articleBodyMd: l.articleBodyMd,
+        })),
+      })),
+    });
+    const expected = createHash('sha256').update(legacy, 'utf8').digest('hex');
+    expect(contentHash(content).toString('hex')).toBe(expected);
+  });
+
+  it('every quiz edit changes the hash: pass mark, prompt, explanation, option text, key, order', () => {
+    const base = contentHash(withQuiz(quizLecture)).toString('hex');
+    const quiz = quizLecture.quiz;
+    const question = quiz?.questions[0];
+    if (quiz === null || question === undefined) throw new Error('fixture');
+    const [right, wrong] = question.options;
+    if (right === undefined || wrong === undefined) throw new Error('fixture');
+    const variants: SnapshotLecture['quiz'][] = [
+      { ...quiz, passPct: 71 },
+      { ...quiz, questions: [{ ...question, promptMd: 'Pick one!' }] },
+      { ...quiz, questions: [{ ...question, explanationMd: null }] },
+      { ...quiz, questions: [{ ...question, kind: 'MULTIPLE_CHOICE' }] },
+      { ...quiz, questions: [{ ...question, options: [{ ...right, text: 'Correct' }, wrong] }] },
+      {
+        ...quiz,
+        questions: [
+          {
+            ...question,
+            options: [
+              { ...right, isCorrect: false },
+              { ...wrong, isCorrect: true },
+            ],
+          },
+        ],
+      },
+      { ...quiz, questions: [{ ...question, options: [wrong, right] }] },
+      { ...quiz, questions: [] },
+    ];
+    for (const variant of variants) {
+      expect(contentHash(withQuiz({ ...quizLecture, quiz: variant })).toString('hex')).not.toBe(
+        base,
+      );
+    }
+    // equal content, equal hash
+    expect(contentHash(withQuiz(structuredClone(quizLecture))).toString('hex')).toBe(base);
+  });
+
+  it('a quiz references no media asset', () => {
+    expect(referencedAssetIds(withQuiz(quizLecture))).toEqual(['asset-t', 'asset-v']);
   });
 });

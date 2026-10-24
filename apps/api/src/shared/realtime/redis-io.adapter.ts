@@ -11,10 +11,14 @@ import { type Namespace, Server, type ServerOptions, type Socket } from 'socket.
 import type { RealtimeAdapterFactory } from './realtime-adapter.factory';
 import { RealtimeConnectError, type RealtimeConnectionAuth } from './realtime-connection.auth';
 import { getRealtimeIdentity, setRealtimeIdentity } from './realtime-identity';
+import { RealtimeRevocationSweep } from './realtime-revocation-sweep';
+import type { RealtimeSessionRevocations } from './realtime-session-revocations';
 
 export interface RealtimeAdapterDependencies {
   readonly auth: RealtimeConnectionAuth;
   readonly adapterFactory: RealtimeAdapterFactory;
+  /** For the 60 s revoked-session sweep of live sockets (`RealtimeRevocationSweep`). */
+  readonly sessions: RealtimeSessionRevocations;
 }
 
 /** A namespace must be connected within this time after the WebSocket opened. */
@@ -35,16 +39,21 @@ const INBOUND_WINDOW_MS = 60_000;
  * - on connect: joins the server-assigned user room `u:{userId}:{APP}` (D17), closes the socket
  *   at `expiresAt` after a `session.reauth` hint (15 min cap), and disconnects a socket that
  *   sends more than `maxInboundPerMinute` messages;
+ * - every `revocationSweepSeconds` (60 s): disconnects the local sockets whose session was
+ *   revoked since their handshake (`RealtimeRevocationSweep`, one batched lookup per sweep);
  * - on disconnect: releases the user's connection slot.
  */
 export class RedisIoAdapter extends IoAdapter {
   private readonly log = new Logger(RedisIoAdapter.name);
+  /** The revoked-session sweep of this replica's sockets (exposed for tests). */
+  readonly revocationSweep: RealtimeRevocationSweep;
 
   constructor(
     app: INestApplicationContext,
     private readonly deps: RealtimeAdapterDependencies,
   ) {
     super(app);
+    this.revocationSweep = new RealtimeRevocationSweep(deps.sessions);
   }
 
   /** The enforced server options (exposed for tests). */
@@ -86,10 +95,12 @@ export class RedisIoAdapter extends IoAdapter {
     });
     this.secure(server.of('/'));
     server.on('new_namespace', (namespace: Namespace) => this.secure(namespace));
+    this.revocationSweep.start();
     return server;
   }
 
   override async dispose(): Promise<void> {
+    this.revocationSweep.stop();
     await super.dispose();
     await this.deps.adapterFactory.close();
   }
@@ -149,8 +160,10 @@ export class RedisIoAdapter extends IoAdapter {
       next();
     });
 
+    this.revocationSweep.track(socket);
     socket.once('disconnect', () => {
       clearTimeout(expiry);
+      this.revocationSweep.untrack(socket);
       void this.deps.auth.release(identity);
     });
   }

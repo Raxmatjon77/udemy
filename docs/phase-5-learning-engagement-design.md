@@ -1139,3 +1139,35 @@ The BFFs add `REALTIME_PUBLIC_URL` to `connect-src` as its WebSocket origin (`ht
 - **Origin check stays in the app:** the ingress must pass the browser's `Origin` header through unchanged (`REALTIME_ALLOWED_ORIGINS` is checked on the handshake). TLS terminates at the ingress, so `REALTIME_PUBLIC_URL` is the public `https://` origin and browsers connect with `wss://`.
 - **Rollouts:** a pod draining on SIGTERM closes its sockets; clients reconnect with a fresh ticket to a ready pod. The readiness probe gates new handshakes like any HTTP traffic, and `maxUnavailable: 0` keeps capacity during the rollout. If Phase 7 splits realtime into its own Deployment (Q9, `API_ROLE=realtime`), only the `/realtime/socket.io/` route moves to it.
 - **Redis:** the progress write-behind buffer lives in Redis until it is flushed (D2), so the production Redis needs AOF persistence (the dev compose runs `appendonly yes`, `appendfsync everysec`), and the api and the worker must point at the same instance (adapter and emitter share its pub/sub channels).
+
+### One-click unsubscribe (RFC 8058) and the revocation sweep (P5-T14)
+
+**Unsubscribe token** (signed by the worker, verified by the api; both use `NOTIFICATIONS_UNSUBSCRIBE_SECRET`):
+
+- `v1.{userId}.{category}.{mac}`, with `mac = base64url(HMAC-SHA256(secret, "v1|{userId}|{category}"))`: the full 32-byte digest, 43 characters, no padding. `userId` is the lowercase uuid; `category` is one of `NOTIFICATION_CATEGORIES`.
+- The api verifies the MAC with `timingSafeEqual` and accepts one encoding only. A token for a locked category (MODERATION) is always invalid. Tokens never expire; rotating the secret invalidates every link already sent.
+- Reference implementation: `apps/api/src/modules/notifications/{domain/unsubscribe-token.ts, infrastructure/hmac-unsubscribe-token.codec.ts}`. The P5-T15 mail templates must produce exactly this format.
+
+**Endpoint.** The api has **one** unsubscribe endpoint: `POST /api/v1/notifications/unsubscribe` with the JSON body `{token}`. It is C + `@Public`, student BFF only (`@AllowClients('student')`), and answers 204 (idempotent), 400 `invalid_unsubscribe_token`, or 429 (30/h per IP). The token travels only in the body, so it never shows up in an api URL or access log.
+
+**Mail headers (decided here; the design left them open).** §8 and the Phase 7 ingress keep the api private, and the BFF proxy requires a same-origin `Origin` plus `Content-Type: application/json` on unsafe methods. A mail provider's one-click POST meets neither, so it cannot hit the api or `/api/proxy/*` directly. Every notification e-mail therefore carries:
+
+```
+List-Unsubscribe: <{STUDENT_APP_ORIGIN}/api/notifications/unsubscribe?token={token}>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+```
+
+The visible footer link stays `{STUDENT_APP_ORIGIN}/unsubscribe#token={token}` (the page POSTs it, §10). The header URL needs a small **student BFF route handler**, which is a follow-up for the web-student/web-auth owner and not part of P5-T14:
+
+- `POST /api/notifications/unsubscribe?token=` accepts `application/x-www-form-urlencoded` with `List-Unsubscribe=One-Click`, needs no cookie and does no Origin check (RFC 8058 §3.2).
+- It forwards `{token}` to the api route above with the BFF's client credentials and `X-Client-IP`, and answers 200 with an empty body, or 400 on `invalid_unsubscribe_token`.
+- A `GET` on that URL (a client that ignores `List-Unsubscribe-Post`) redirects to `/unsubscribe#token=…`, so a GET never changes state.
+
+Instructor and admin e-mails use the student origin as well: the token alone identifies the user.
+
+**Revoked-session sweep (D16).** `RedisIoAdapter` keeps a `RealtimeRevocationSweep` of the sockets connected to its replica.
+
+- Every `REALTIME_LIMITS.revocationSweepSeconds` (60 s), it groups the sockets by session id and asks `RealtimeSessionRevocations.revokedAmong(sessionIds)` once. The identity store answers with batched `MGET auth:revoked:sid:*` (500 keys per command).
+- It disconnects every socket of a revoked session. The client's next ticket request then gets 401, and it stops.
+- Sweeps never overlap. When the lookup fails (Redis down), the sockets stay connected and the next tick retries: the 15 min cap still bounds their life, and a mass disconnect during an outage would only start a reconnect storm that the handshake refuses anyway.
+- The timer is `unref`'d, starts with the socket.io server and stops in `dispose()`.

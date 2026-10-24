@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { Lecture, LectureType } from '@udemy/contracts';
-import { LectureTypeMismatch, SectionNotFound } from '../../domain/catalog.errors';
+import { SectionNotFound } from '../../domain/catalog.errors';
 import { assertCanAddLecture } from '../../domain/curriculum';
 import { CourseLocker } from '../course-locker';
 import { CourseRepository } from '../ports/course.repository';
 import { CurriculumRepository } from '../ports/curriculum.repository';
+import { QuizRepository } from '../ports/quiz.repository';
 import { TransactionRunner } from '../ports/transaction-runner';
 import { toLectureView } from '../views';
 
@@ -19,24 +20,20 @@ export interface AddLectureInput {
 /**
  * `AddLecture` (design §5): appended at the end of a section of THIS course (another course's
  * section is 404 `section_not_found`); ≤ 100 per section and ≤ 500 per course. The type is
- * immutable afterwards.
+ * immutable afterwards. A QUIZ lecture (Phase 5 D6) gets its `lecture_quizzes` settings row
+ * (pass mark 70) in the same transaction (the deferred `lecture_quizzes_required_ck`).
  */
 @Injectable()
 export class AddLectureCommand {
   constructor(
     private readonly courses: CourseRepository,
     private readonly curriculum: CurriculumRepository,
+    private readonly quizzes: QuizRepository,
     private readonly locker: CourseLocker,
     private readonly tx: TransactionRunner,
   ) {}
 
   execute(input: AddLectureInput): Promise<Lecture> {
-    // TODO(P5-T6): QUIZ joined the contracts' LectureType (Phase 5 D6) before the catalog
-    // supports it (`lecture_quizzes`, the lectures.type CHECK). Refuse it until then instead
-    // of failing on the DB CHECK with a 500.
-    if (input.type === 'QUIZ') {
-      return Promise.reject(new LectureTypeMismatch('Quiz lectures are not available yet.'));
-    }
     return this.tx.run(async (trx) => {
       const course = await this.locker.lockEditable(trx, input.courseId, input.actorId);
       const section = await this.curriculum.findSection(course.id, input.sectionId, trx);
@@ -50,8 +47,12 @@ export class AddLectureCommand {
         title: input.title,
         position: counts.inSection,
       });
+      const quiz =
+        lecture.type === 'QUIZ'
+          ? { settings: await this.quizzes.insertQuiz(trx, lecture.id), questions: [] }
+          : null;
       await this.courses.bumpVersion(trx, course.id);
-      return toLectureView(lecture, null, lecture.type === 'ARTICLE' ? 0 : null);
+      return toLectureView(lecture, null, lecture.type === 'ARTICLE' ? 0 : null, quiz);
     });
   }
 }

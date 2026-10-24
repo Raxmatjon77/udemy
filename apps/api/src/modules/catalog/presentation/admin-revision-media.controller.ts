@@ -25,6 +25,8 @@ import {
   RevisionLecturePlaylistParamsSchema,
   type RevisionLectureVariantPlaylistParams,
   RevisionLectureVariantPlaylistParamsSchema,
+  type RevisionQuiz,
+  RevisionQuizSchema,
   type RevisionThumbnailQuery,
   RevisionThumbnailQuerySchema,
   type RevisionThumbnailResponse,
@@ -36,6 +38,7 @@ import { GetCourseThumbnailQuery } from '../application/use-cases/get-course-thu
 import { GetLectureArticleQuery } from '../application/use-cases/get-lecture-article.query';
 import { GetLectureDownloadQuery } from '../application/use-cases/get-lecture-download.query';
 import { GetLecturePlaylistQuery } from '../application/use-cases/get-lecture-playlist.query';
+import { GetRevisionQuizQuery } from '../application/use-cases/get-revision-quiz.query';
 import type { PlaybackViewer } from '../domain/playback-access';
 import {
   MASTER_PLAYLIST_SHORT_CACHE,
@@ -51,8 +54,8 @@ const REVISION_404 = 'not_found (revision) / lecture_not_found (not in this revi
 /**
  * `/api/v1/admin/course-revisions/:revisionId/...`: the media of a revision exactly as it was
  * submitted (design §8; admin app, `course:read:any`): the reviewer plays, reads and downloads
- * what will go live, independent of later working-copy edits. Every lecture is looked up in
- * THAT revision (404 otherwise).
+ * what will go live, independent of later working-copy edits, and (Phase 5) reads its quizzes
+ * WITH their answer keys. Every lecture is looked up in THAT revision (404 otherwise).
  */
 @ApiTags('catalog-admin')
 @ApiBearerAuth()
@@ -66,6 +69,7 @@ export class AdminRevisionMediaController {
     private readonly playlists: GetLecturePlaylistQuery,
     private readonly articles: GetLectureArticleQuery,
     private readonly downloads: GetLectureDownloadQuery,
+    private readonly quizzes: GetRevisionQuizQuery,
   ) {}
 
   @Get('thumbnail')
@@ -148,6 +152,22 @@ export class AdminRevisionMediaController {
       lectureId: params.lectureId,
       viewer,
     });
+  }
+
+  @Get('lectures/:lectureId/quiz')
+  @ApiOperation({
+    summary: 'The quiz of a QUIZ lecture in the revision, with its answer key (moderation)',
+  })
+  @ApiOkResponse({ standardSchema: RevisionQuizSchema })
+  @ApiBadRequestResponse({ description: 'validation_failed' })
+  @ApiNotFoundResponse({ description: REVISION_404 })
+  @ApiUnprocessableEntityResponse({ description: 'lecture_type_mismatch (not a QUIZ)' })
+  quiz(
+    @Param({ schema: RevisionLectureParamsSchema }) params: RevisionLectureParams,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<RevisionQuiz> {
+    noStore(res);
+    return this.quizzes.execute({ revisionId: params.revisionId, lectureId: params.lectureId });
   }
 
   @Get('lectures/:lectureId/download')

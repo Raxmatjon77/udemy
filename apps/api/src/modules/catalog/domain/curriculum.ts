@@ -54,12 +54,16 @@ export function assertCanAddLecture(counts: {
  * The media purpose a lecture type accepts (VIDEO -> LECTURE_VIDEO, RESOURCE ->
  * LECTURE_RESOURCE).
  *
- * @throws LectureTypeMismatch for ARTICLE lectures (they have no media)
+ * @throws LectureTypeMismatch for ARTICLE and QUIZ lectures (they have no media)
  */
 export function mediaPurposeFor(type: LectureType): MediaPurpose {
   const purpose = LECTURE_MEDIA_PURPOSE[type];
   if (purpose === null) {
-    throw new LectureTypeMismatch('Article lectures have no media; edit the article instead.');
+    throw new LectureTypeMismatch(
+      type === 'QUIZ'
+        ? 'Quiz lectures have no media; edit the quiz instead.'
+        : 'Article lectures have no media; edit the article instead.',
+    );
   }
   return purpose;
 }

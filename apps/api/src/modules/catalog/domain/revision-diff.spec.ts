@@ -15,6 +15,7 @@ const lecture = (
   isPreview: false,
   mediaAssetId: `asset-${id}`,
   articleBodyMd: null,
+  quiz: null,
   ...extra,
 });
 
@@ -145,5 +146,50 @@ describe('diffRevisions', () => {
     expect(diffRevisions(next, { id: 'r1', content: base }).lectures.removed).toEqual([
       { id: 'l2', title: 'L2', type: 'VIDEO', sectionId: 's1', sectionTitle: 'One' },
     ]);
+  });
+});
+
+describe('diffRevisions: QUIZ lectures (Phase 5 D6)', () => {
+  const quizLecture = (passPct: number, correctFirst: boolean): SnapshotLecture =>
+    lecture('q1', 'Quiz', {
+      type: 'QUIZ',
+      mediaAssetId: null,
+      quiz: {
+        passPct,
+        questions: [
+          {
+            id: 'qq1',
+            kind: 'SINGLE_CHOICE',
+            promptMd: 'Pick',
+            explanationMd: null,
+            options: [
+              { text: 'A', isCorrect: correctFirst },
+              { text: 'B', isCorrect: !correctFirst },
+            ],
+          },
+        ],
+      },
+    });
+  const course = (q: SnapshotLecture): SnapshotContent => ({
+    ...base,
+    sections: [{ id: 's1', title: 'S', objective: null, lectures: [q] }],
+  });
+
+  it('an unchanged quiz is not changed', () => {
+    const diff = diffRevisions(course(quizLecture(70, true)), {
+      id: 'base',
+      content: course(quizLecture(70, true)),
+    });
+    expect(diff.lectures.changed).toEqual([]);
+  });
+
+  it('a new answer key or pass mark marks the lecture changed', () => {
+    for (const next of [quizLecture(70, false), quizLecture(80, true)]) {
+      const diff = diffRevisions(course(next), {
+        id: 'base',
+        content: course(quizLecture(70, true)),
+      });
+      expect(diff.lectures.changed).toEqual(['q1']);
+    }
   });
 });

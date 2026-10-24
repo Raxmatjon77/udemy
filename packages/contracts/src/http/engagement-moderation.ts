@@ -21,14 +21,12 @@ import { CompactPaginationQuerySchema, emptyToUndefined, pageSchema } from './pa
  * automatically (a `moderation_actions` row with no actor). A restore dismisses the open reports.
  */
 
-/** `moderation_actions.subject_type`; announcements are moderated by deletion only. */
-export const MODERATION_SUBJECT_TYPES = [
-  'REVIEW',
-  'REVIEW_REPLY',
-  'QUESTION',
-  'ANSWER',
-  'ANNOUNCEMENT',
-] as const;
+/**
+ * `moderation_actions.subject_type` (= `moderation_actions_subject_type_ck`). Announcements are
+ * not listed: they have no moderation flow and are deleted by their owner or an admin instead
+ * (schema design open point 2, "delete only").
+ */
+export const MODERATION_SUBJECT_TYPES = ['REVIEW', 'REVIEW_REPLY', 'QUESTION', 'ANSWER'] as const;
 export const ModerationSubjectTypeSchema = z.enum(MODERATION_SUBJECT_TYPES);
 export type ModerationSubjectType = z.infer<typeof ModerationSubjectTypeSchema>;
 

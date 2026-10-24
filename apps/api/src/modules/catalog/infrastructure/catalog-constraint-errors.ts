@@ -11,6 +11,9 @@ import {
   LectureTypeMismatch,
   OrderMismatch,
   PreviewNotAllowed,
+  QuizLimitExceeded,
+  QuizOptionsInvalid,
+  QuizQuestionNotFound,
   RestoreForbidden,
   ReviewAlreadyPending,
   SelfDecisionForbidden,
@@ -128,6 +131,25 @@ export const CATALOG_CONSTRAINT_ERRORS: Readonly<Record<string, ToDomainError>> 
   lecture_articles_body_md_ck: field('bodyMd', 'Invalid article body.'),
   categories_name_ck: field('name', 'Invalid category name.'),
   categories_slug_ck: field('slug', 'Invalid slug.'),
+  // Phase 5 quiz authoring (P5 schema doc §9). Not listed, so a 500: `quiz_questions_immutable_ck`,
+  // `lecture_quizzes_required_ck`, the revision quiz guards (`revision_quiz_options_key_ck`,
+  // `revision_lectures_quiz_complete_ck`: a readiness bug), `revision_quiz_*_same_tx_ck`,
+  // `revision_lectures_quiz_pass_pct_ck`.
+  revision_lectures_is_preview_ck: (cause) => new PreviewNotAllowed(undefined, { cause }),
+  lecture_quizzes_lecture_id_lecture_type_fk: (cause) =>
+    new LectureTypeMismatch('Only quiz lectures have questions.', { cause }),
+  quiz_questions_lecture_id_fk: (cause) =>
+    new LectureTypeMismatch('Only quiz lectures have questions.', { cause }),
+  lecture_quizzes_pass_pct_ck: field('passPct', 'The pass mark must be between 1 and 100.'),
+  quiz_questions_position_ck: (cause) => new QuizLimitExceeded(undefined, { cause }),
+  quiz_questions_lecture_id_position_uq: (cause) => new OrderMismatch({ cause }),
+  quiz_questions_kind_ck: field('kind', 'Invalid question kind.'),
+  quiz_questions_prompt_md_ck: field('promptMd', 'Invalid question prompt.'),
+  quiz_questions_explanation_md_ck: field('explanationMd', 'Invalid explanation.'),
+  quiz_options_pk: (cause) => new QuizOptionsInvalid(undefined, { cause }),
+  quiz_options_position_ck: (cause) => new QuizOptionsInvalid(undefined, { cause }),
+  quiz_options_text_ck: (cause) => new QuizOptionsInvalid(undefined, { cause }),
+  quiz_options_question_id_fk: (cause) => new QuizQuestionNotFound({ cause }),
 };
 
 /** Re-throws a known constraint violation as its domain error; anything else unchanged. */

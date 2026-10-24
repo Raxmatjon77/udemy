@@ -55,6 +55,8 @@ const lectureIds = {
   draftVideo: '00000000-0000-7000-8000-0000000000b5',
   /** A lecture of ANOTHER live course. */
   foreign: '00000000-0000-7000-8000-0000000000b6',
+  /** A QUIZ lecture (Phase 5): live, in review and in the working copy. */
+  quiz: '00000000-0000-7000-8000-0000000000b7',
 } as const;
 
 function snapshot(
@@ -69,7 +71,7 @@ function snapshot(
     type,
     title: `${type} ${lectureId.slice(-2)}`,
     isPreview,
-    mediaAssetId: type === 'ARTICLE' ? null : `asset-${lectureId.slice(-2)}`,
+    mediaAssetId: type === 'ARTICLE' || type === 'QUIZ' ? null : `asset-${lectureId.slice(-2)}`,
     articleBodyMd: type === 'ARTICLE' ? `# Body of ${lectureId.slice(-2)}` : null,
   };
 }
@@ -201,6 +203,7 @@ describe('LectureAccessAuthorizer', () => {
         snapshot(LIVE_REV, lectureIds.lockedVideo, 'VIDEO', false),
         snapshot(LIVE_REV, lectureIds.previewArticle, 'ARTICLE', true),
         snapshot(LIVE_REV, lectureIds.resource, 'RESOURCE', false),
+        snapshot(LIVE_REV, lectureIds.quiz, 'QUIZ', false),
       ],
     });
     catalog.revisions.set(PENDING_REV, {
@@ -208,6 +211,7 @@ describe('LectureAccessAuthorizer', () => {
       lectures: [
         snapshot(PENDING_REV, lectureIds.lockedVideo, 'VIDEO', false),
         snapshot(PENDING_REV, lectureIds.draftVideo, 'VIDEO', false),
+        snapshot(PENDING_REV, lectureIds.quiz, 'QUIZ', false),
       ],
     });
     catalog.revisions.set('rev-other', {
@@ -227,6 +231,7 @@ describe('LectureAccessAuthorizer', () => {
       [lectureIds.lockedVideo, workingLecture(lectureIds.lockedVideo, 'VIDEO', 'asset-w2')],
       [lectureIds.draftVideo, workingLecture(lectureIds.draftVideo, 'VIDEO', null)],
       [lectureIds.resource, workingLecture(lectureIds.resource, 'RESOURCE', 'asset-w4')],
+      [lectureIds.quiz, workingLecture(lectureIds.quiz, 'QUIZ', null)],
     ]);
     const curriculum = {
       findLecture: (courseId: string, lectureId: string) =>
@@ -420,6 +425,42 @@ describe('LectureAccessAuthorizer', () => {
       await expect(
         revision('admin', '00000000-0000-7000-8000-0000000000ff', lectureIds.lockedVideo),
       ).rejects.toBeInstanceOf(RevisionNotFound);
+    });
+  });
+
+  describe('QUIZ lectures (Phase 5): no playback use at all', () => {
+    const uses = ['stream', 'article', 'download'] as const;
+
+    it('live: 422 lecture_type_mismatch for every use, even for the owner, admins and learners', async () => {
+      hasCourseAccess.mockResolvedValue(true);
+      for (const viewer of ['student', 'owner', 'admin'] as const) {
+        for (const use of uses) {
+          await expect(live(viewer, lectureIds.quiz, use)).rejects.toBeInstanceOf(
+            LectureTypeMismatch,
+          );
+        }
+      }
+    });
+
+    it('working copy and revision: 422 lecture_type_mismatch for every use', async () => {
+      for (const use of uses) {
+        await expect(
+          authorizer.authorize({
+            source: { kind: 'working', courseId: COURSE },
+            lectureId: lectureIds.quiz,
+            use,
+            viewer: viewers.owner,
+          }),
+        ).rejects.toBeInstanceOf(LectureTypeMismatch);
+        await expect(
+          authorizer.authorize({
+            source: { kind: 'revision', revisionId: PENDING_REV },
+            lectureId: lectureIds.quiz,
+            use,
+            viewer: viewers.admin,
+          }),
+        ).rejects.toBeInstanceOf(LectureTypeMismatch);
+      }
     });
   });
 });

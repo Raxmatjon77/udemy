@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CourseLanguage, CourseLevel, LectureType } from '@udemy/contracts';
+import type { CourseLanguage, CourseLevel, LectureType, QuizQuestionKind } from '@udemy/contracts';
 
 /**
  * The reviewable content of a course (D1): exactly what a revision freezes and what
@@ -10,7 +10,35 @@ import type { CourseLanguage, CourseLevel, LectureType } from '@udemy/contracts'
  * Deliberately NOT part of it: the slug (frozen at first publication, not reviewable),
  * timestamps, the submitter note, and video durations (a READY asset is immutable, so its id
  * already pins the duration).
+ *
+ * Phase 5 (D6): a QUIZ lecture also carries its quiz (pass mark, questions, options and the
+ * answer key), so editing a question is a reviewable change and the key is frozen per revision.
  */
+
+/** One answer option of a snapshotted question; its position is its index (0-based). */
+export interface SnapshotQuizOption {
+  readonly text: string;
+  readonly isCorrect: boolean;
+}
+
+/** One question, with its answer key (`isCorrect`) and explanation. */
+export interface SnapshotQuizQuestion {
+  /** The stable working-copy question id (`revision_quiz_questions.question_id`). */
+  readonly id: string;
+  readonly kind: QuizQuestionKind;
+  readonly promptMd: string;
+  readonly explanationMd: string | null;
+  /** In position order. */
+  readonly options: readonly SnapshotQuizOption[];
+}
+
+/** The quiz of a QUIZ lecture, answer key included (never sent to learners as is). */
+export interface SnapshotQuiz {
+  readonly passPct: number;
+  /** In position order. */
+  readonly questions: readonly SnapshotQuizQuestion[];
+}
+
 export interface SnapshotLecture {
   readonly id: string;
   readonly type: LectureType;
@@ -20,6 +48,8 @@ export interface SnapshotLecture {
   readonly mediaAssetId: string | null;
   /** ARTICLE lectures only (the body as stored, never trimmed); null otherwise. */
   readonly articleBodyMd: string | null;
+  /** QUIZ lectures only (an empty quiz has no questions); null otherwise. */
+  readonly quiz: SnapshotQuiz | null;
 }
 
 export interface SnapshotSection {
@@ -84,17 +114,60 @@ function toJson(content: SnapshotContent): Json {
       id: section.id,
       title: section.title,
       objective: section.objective,
-      lectures: section.lectures.map((lecture) => ({
-        id: lecture.id,
-        type: lecture.type,
-        title: lecture.title,
-        descriptionMd: lecture.descriptionMd,
-        isPreview: lecture.isPreview,
-        mediaAssetId: lecture.mediaAssetId,
-        articleBodyMd: lecture.articleBodyMd,
-      })),
+      lectures: section.lectures.map(lectureJson),
     })),
   };
+}
+
+/**
+ * The `quiz` member exists only on QUIZ lectures: every other lecture keeps exactly the
+ * pre-Phase-5 canonical form, so the `content_hash` of every revision submitted before QUIZ
+ * existed still matches its unchanged working copy (no spurious "unpublished changes", and
+ * `nothing_to_review` keeps working) without bumping `SNAPSHOT_FORMAT_VERSION`.
+ */
+function lectureJson(lecture: SnapshotLecture): Json {
+  const base = {
+    id: lecture.id,
+    type: lecture.type,
+    title: lecture.title,
+    descriptionMd: lecture.descriptionMd,
+    isPreview: lecture.isPreview,
+    mediaAssetId: lecture.mediaAssetId,
+    articleBodyMd: lecture.articleBodyMd,
+  };
+  if (lecture.quiz === null) return base;
+  return {
+    ...base,
+    quiz: {
+      passPct: lecture.quiz.passPct,
+      questions: lecture.quiz.questions.map((question) => ({
+        id: question.id,
+        kind: question.kind,
+        promptMd: question.promptMd,
+        explanationMd: question.explanationMd,
+        options: question.options.map((option) => ({
+          text: option.text,
+          isCorrect: option.isCorrect,
+        })),
+      })),
+    },
+  };
+}
+
+/** Canonical JSON of a quiz (equality for the revision diff). */
+export function quizFingerprint(quiz: SnapshotQuiz | null): string {
+  if (quiz === null) return 'null';
+  const json = lectureJson({
+    id: '',
+    type: 'QUIZ',
+    title: '',
+    descriptionMd: null,
+    isPreview: false,
+    mediaAssetId: null,
+    articleBodyMd: null,
+    quiz,
+  }) as { readonly quiz: Json };
+  return canonicalJson(json.quiz);
 }
 
 /** `content_hash`: SHA-256 of the canonical JSON (32 bytes, `course_revisions_content_hash_ck`). */

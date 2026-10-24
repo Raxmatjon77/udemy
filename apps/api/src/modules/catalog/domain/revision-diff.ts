@@ -1,5 +1,10 @@
 import type { RevisionDiff, RevisionDiffField, RevisionFieldChange } from '@udemy/contracts';
-import type { SnapshotContent, SnapshotLecture, SnapshotSection } from './revision-snapshot';
+import {
+  quizFingerprint,
+  type SnapshotContent,
+  type SnapshotLecture,
+  type SnapshotSection,
+} from './revision-snapshot';
 
 /** Header fields in contract order (`REVISION_DIFF_FIELDS`). */
 const SCALAR_FIELDS = [
@@ -46,13 +51,16 @@ function lectureChanged(a: SnapshotLecture, b: SnapshotLecture): boolean {
     a.descriptionMd !== b.descriptionMd ||
     a.isPreview !== b.isPreview ||
     a.mediaAssetId !== b.mediaAssetId ||
-    a.articleBodyMd !== b.articleBodyMd
+    a.articleBodyMd !== b.articleBodyMd ||
+    // QUIZ (Phase 5 D6): pass mark, questions, options or the answer key.
+    quizFingerprint(a.quiz) !== quizFingerprint(b.quiz)
   );
 }
 
 /**
  * Diff of a revision against a base revision (the one live before it), by stable section and
- * lecture ids (D1: ids survive across revisions). `changed` = content differs; `moved` =
+ * lecture ids (D1: ids survive across revisions). `changed` = content differs (for a QUIZ also
+ * its pass mark, questions, options and answer key); `moved` =
  * position (or, for lectures, section) differs; an id can be both. Removed items are not in
  * the revision, so they carry their titles (removed lectures also their base section). Every
  * `changedFields` entry has a `fieldChanges` entry (same order) with the base (`before`) and
