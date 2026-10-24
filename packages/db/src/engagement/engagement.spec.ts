@@ -140,9 +140,11 @@ describe('moderation (R9)', () => {
     expect(s.statements[1]).toContain('FOR NO KEY UPDATE');
     expect(s.statements[2]).toContain('INSERT INTO engagement.answer_reports');
     expect(s.statements[4]).toContain("SET moderation_status = 'HIDDEN'");
-    expect(s.statements[5]).toContain("VALUES ($1, $2, 'HIDE', $3, $4)");
+    expect(s.statements[5]).toContain("VALUES ($1, $2, 'HIDE', $3, $4, clock_timestamp())");
     expect(s.parameters[5]).toEqual(['ANSWER', S, null, null]);
-    expect(s.statements[6]).toContain('SET status = $1, resolved_at = now(), resolved_by = $2');
+    expect(s.statements[6]).toContain(
+      'SET status = $1, resolved_at = clock_timestamp(), resolved_by = $2',
+    );
   });
 
   it('a repeat report never auto-hides; a missing subject is NOT_FOUND', async () => {

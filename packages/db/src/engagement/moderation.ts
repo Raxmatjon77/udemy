@@ -6,6 +6,14 @@
  * <= 2 and nobody hides. The auto-hide, its `moderation_actions` (actor NULL) row and the
  * ACTIONED updates happen in that same transaction. Every subject's moderation_status equals
  * its latest HIDE/RESTORE action (moderation_status_log_ck, checked at COMMIT).
+ *
+ * Timestamps written under the subject lock use clock_timestamp(), not now(): now() is the
+ * transaction START, and a transaction that began first can be the last to get the lock. With
+ * now() the auto-hider's resolved_at could precede a report committed while it waited
+ * (*_reports_resolved_ck, resolved_at >= created_at), and an admin RESTORE could get an
+ * occurred_at older than the AUTO HIDE it undoes, so the guard's "latest action by occurred_at"
+ * would be wrong. Read after the lock, clock_timestamp() is later than every committed report
+ * and action on the subject, and later than this transaction's own now().
  */
 import { sql } from 'kysely';
 import { assertIntInRange, assertOneOf } from '../internal/assert';
@@ -107,8 +115,8 @@ async function hide(
     executor,
   );
   await sql`
-    INSERT INTO engagement.moderation_actions (subject_type, subject_id, action, actor_id, reason)
-    VALUES (${type}, ${id}, 'HIDE', ${actorId}, ${reason})
+    INSERT INTO engagement.moderation_actions (subject_type, subject_id, action, actor_id, reason, occurred_at)
+    VALUES (${type}, ${id}, 'HIDE', ${actorId}, ${reason}, clock_timestamp())
   `.execute(executor);
 }
 
@@ -120,7 +128,7 @@ async function resolveOpenReports(
   actorId: string | null,
 ): Promise<number> {
   const result = await sql`
-    UPDATE ${sql.raw(TABLES[type].reports)} SET status = ${status}, resolved_at = now(), resolved_by = ${actorId}
+    UPDATE ${sql.raw(TABLES[type].reports)} SET status = ${status}, resolved_at = clock_timestamp(), resolved_by = ${actorId}
      WHERE subject_id = ${id} AND status = 'OPEN'
   `.execute(executor);
   return Number(result.numAffectedRows ?? 0n);
@@ -182,8 +190,8 @@ export async function moderateSubject(
       trx,
     );
     await sql`
-      INSERT INTO engagement.moderation_actions (subject_type, subject_id, action, actor_id, reason)
-      VALUES (${input.subjectType}, ${input.subjectId}, 'RESTORE', ${input.actorId}, ${input.reason})
+      INSERT INTO engagement.moderation_actions (subject_type, subject_id, action, actor_id, reason, occurred_at)
+      VALUES (${input.subjectType}, ${input.subjectId}, 'RESTORE', ${input.actorId}, ${input.reason}, clock_timestamp())
     `.execute(trx);
     const n = await resolveOpenReports(
       trx,
@@ -203,8 +211,8 @@ export async function moderateSubject(
   );
   if (n === 0) return { outcome: 'NOOP', moderationStatus: status };
   await sql`
-    INSERT INTO engagement.moderation_actions (subject_type, subject_id, action, actor_id, reason)
-    VALUES (${input.subjectType}, ${input.subjectId}, 'DISMISS_REPORTS', ${input.actorId}, ${input.reason})
+    INSERT INTO engagement.moderation_actions (subject_type, subject_id, action, actor_id, reason, occurred_at)
+    VALUES (${input.subjectType}, ${input.subjectId}, 'DISMISS_REPORTS', ${input.actorId}, ${input.reason}, clock_timestamp())
   `.execute(trx);
   return { outcome: 'APPLIED', moderationStatus: status, resolvedReports: n };
 }

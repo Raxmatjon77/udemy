@@ -361,7 +361,20 @@ describe('moderation (D13, R9)', () => {
         ),
       ),
     );
-    expect(results.every((r) => r.ok)).toBe(true);
+    // show the SQLSTATE/constraint of a failed reporter (e.g. *_reports_resolved_ck), not just `false`
+    expect(
+      results.flatMap((r) =>
+        r.ok
+          ? []
+          : [
+              {
+                code: r.error.code,
+                constraint: (r.error as { constraint?: string }).constraint,
+                message: r.error.message,
+              },
+            ],
+      ),
+    ).toEqual([]);
     expect(
       results.filter((r) => r.ok && r.value.outcome === 'REPORTED' && r.value.autoHidden),
     ).toHaveLength(1);

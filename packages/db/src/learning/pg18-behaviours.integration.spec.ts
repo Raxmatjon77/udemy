@@ -60,7 +60,10 @@ describe('PG 18 behaviours (schema doc §0)', () => {
           def: string;
         }>`SELECT pg_get_functiondef('learning.coverage_bits(varbit)'::regprocedure) AS def`,
       );
-      expect(def.def).toContain('bit_count(p_bits)');
+      // the native body: pg_get_functiondef shows the varbit -> bit coercion,
+      // `RETURN (bit_count((p_bits)::"bit"))::integer`, not the text-count fallback
+      expect(def.def).toMatch(/bit_count\(\(?p_bits\)?(::"?bit"?)?\)/);
+      expect(def.def).not.toContain('replace(');
       expect(
         await one(
           trx,

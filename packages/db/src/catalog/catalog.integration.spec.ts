@@ -618,16 +618,26 @@ describe('revisions', () => {
     // TRUNCATE needs a transaction with no pending trigger events on the table (else 55006)
     const truncates: [string, string][] = [
       ['course_transitions', 'TRUNCATE catalog.course_transitions'],
-      ['revision_lectures', 'TRUNCATE catalog.revision_lectures'],
       ['revision_bullets', 'TRUNCATE catalog.revision_bullets'],
-      // course_revisions is an FK target, so plain TRUNCATE already fails (0A000); CASCADE reaches the trigger
+      // FK targets (course_revisions; revision_lectures since 0005's revision_quiz_questions FK):
+      // plain TRUNCATE already fails (0A000, asserted below); CASCADE reaches the trigger
       ['course_revisions CASCADE', 'TRUNCATE catalog.course_revisions CASCADE'],
+      ['revision_lectures CASCADE', 'TRUNCATE catalog.revision_lectures CASCADE'],
     ];
     for (const [label, statement] of truncates) {
       await rollback(pg.db, async (trx) => {
         await sql`SET LOCAL lock_timeout = '5s'`.execute(trx);
         const err = await expectFailure(trx, () => sql.raw(statement).execute(trx));
         expect({ label, code: err.code }).toEqual({ label, code: '42501' });
+      });
+    }
+    for (const table of ['course_revisions', 'revision_lectures']) {
+      await rollback(pg.db, async (trx) => {
+        await sql`SET LOCAL lock_timeout = '5s'`.execute(trx);
+        const err = await expectFailure(trx, () =>
+          sql.raw(`TRUNCATE catalog.${table}`).execute(trx),
+        );
+        expect({ table, code: err.code }).toEqual({ table, code: '0A000' });
       });
     }
   });
