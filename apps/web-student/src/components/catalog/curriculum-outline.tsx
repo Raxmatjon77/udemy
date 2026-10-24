@@ -206,6 +206,8 @@ function LectureTypeIcon({ type }: { type: LectureType }) {
     VIDEO: 'M5 4.5v15l13-7.5z',
     ARTICLE: 'M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3',
     RESOURCE: 'M12 4v11m0 0-4-4m4 4 4-4M5 20h14',
+    // TODO(P5-T8): final quiz icon; QUIZ lectures arrive with the Phase 5 catalog (P5-T6).
+    QUIZ: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2',
   };
   return (
     <svg

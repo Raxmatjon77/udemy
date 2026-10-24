@@ -92,6 +92,7 @@ export const LECTURE_TYPE_LABEL: Record<LectureType, string> = {
   VIDEO: 'Video',
   ARTICLE: 'Article',
   RESOURCE: 'Resource',
+  QUIZ: 'Quiz',
 };
 
 export const MEDIA_STATUS_LABEL: Record<MediaAssetStatus, string> = {

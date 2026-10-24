@@ -3,11 +3,23 @@ import { type Role, withImplicitRole } from './role';
 
 /**
  * Granted to every authenticated principal in every app (design §4), whatever their roles.
+ * Phase 5 (§8): every app has a notification bell, so the own inbox is baseline.
  */
 export const BASELINE: readonly Permission[] = Object.freeze([
   'profile:read:own',
   'profile:update:own',
   'session:manage:own',
+  'notification:manage:own',
+] as const satisfies readonly Permission[]);
+
+/**
+ * Permissions granted to more than one role on purpose (Phase 5 design §8): the same Q&A and
+ * report routes serve the student and the instructor BFF; the use case admits ACTIVE learners or
+ * the course owner, so an instructor-app token passes only on owned courses.
+ */
+export const SHARED_ROLE_PERMISSIONS: readonly Permission[] = Object.freeze([
+  'qa:participate',
+  'content:report',
 ] as const satisfies readonly Permission[]);
 
 /**
@@ -34,6 +46,25 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = O
     'enrollment:create',
     // "My learning" and purchase states list only the caller's own enrollments.
     'enrollment:read:own',
+    // Phase 5 (learning experience design §8). The player, heartbeats, completions and course
+    // announcements; the use case also requires an ACTIVE enrollment (403 enrollment_required).
+    'learning:participate',
+    // Private notes; PATCH/DELETE through the `note` resolver (allowed after a revoke, D9).
+    'note:manage:own',
+    // Start (or resume) an attempt on a QUIZ lecture of an enrolled course.
+    'quiz_attempt:create',
+    // Submit and read only the caller's own attempts (`quiz_attempt` resolver).
+    'quiz_attempt:submit:own',
+    'quiz_attempt:read:own',
+    // The caller's own certificates and their PDFs (`certificate` resolver).
+    'certificate:read:own',
+    // One review per enrolled course (D10); the course owner is refused in the use case.
+    'review:write:own',
+    // Private wishlist (D19).
+    'wishlist:manage:own',
+    // Q&A and reports, shared with INSTRUCTOR (see SHARED_ROLE_PERMISSIONS).
+    'qa:participate',
+    'content:report',
   ] as const satisfies readonly Permission[]),
   // Phase 2 (catalog & media design §8). Every `:own` entry is narrowed to the caller's own
   // rows by an ownership resolver (D9: `course` in catalog, `media_asset` in media).
@@ -58,6 +89,12 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = O
     // Phase 4: an instructor sees sales of their own courses only (no buyer PII). Pricing and
     // coupons reuse `course:read:own` / `course:update:own` through the course policy.
     'sales:read:own',
+    // Phase 5: review replies, announcements and the Q&A inbox of own courses (course policy).
+    'course:engage:own',
+    // Phase 5: the instructor answers in the same Q&A as learners (owned courses only) and may
+    // report abuse, but never hides content (D13).
+    'qa:participate',
+    'content:report',
   ] as const satisfies readonly Permission[]),
   ADMIN: Object.freeze([
     'user:read:any',
@@ -86,6 +123,10 @@ export const ROLE_PERMISSIONS: Readonly<Record<Role, readonly Permission[]>> = O
     'enrollment:read:any',
     // Manual grant / revoke (with a reason) for support cases, outside any order.
     'enrollment:grant:any',
+    // Phase 5: the moderation queue (hide / restore / dismiss reports, with a reason, D13).
+    'content:moderate:any',
+    // Phase 5: revoke / reinstate any certificate with a reason, and list a user's certificates.
+    'certificate:manage:any',
   ] as const satisfies readonly Permission[]),
 });
 

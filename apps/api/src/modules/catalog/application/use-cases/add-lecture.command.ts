@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Lecture, LectureType } from '@udemy/contracts';
-import { SectionNotFound } from '../../domain/catalog.errors';
+import { LectureTypeMismatch, SectionNotFound } from '../../domain/catalog.errors';
 import { assertCanAddLecture } from '../../domain/curriculum';
 import { CourseLocker } from '../course-locker';
 import { CourseRepository } from '../ports/course.repository';
@@ -31,6 +31,12 @@ export class AddLectureCommand {
   ) {}
 
   execute(input: AddLectureInput): Promise<Lecture> {
+    // TODO(P5-T6): QUIZ joined the contracts' LectureType (Phase 5 D6) before the catalog
+    // supports it (`lecture_quizzes`, the lectures.type CHECK). Refuse it until then instead
+    // of failing on the DB CHECK with a 500.
+    if (input.type === 'QUIZ') {
+      return Promise.reject(new LectureTypeMismatch('Quiz lectures are not available yet.'));
+    }
     return this.tx.run(async (trx) => {
       const course = await this.locker.lockEditable(trx, input.courseId, input.actorId);
       const section = await this.curriculum.findSection(course.id, input.sectionId, trx);

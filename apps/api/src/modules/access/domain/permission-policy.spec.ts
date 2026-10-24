@@ -6,6 +6,7 @@ import {
   canLoginToApp,
   effectivePermissions,
   ROLE_PERMISSIONS,
+  SHARED_ROLE_PERMISSIONS,
 } from './permission-policy';
 import { ROLES, type Role, withImplicitRole } from './role';
 
@@ -20,6 +21,17 @@ const STUDENT_PERMS: Permission[] = [
   'order:refund:own',
   'enrollment:create',
   'enrollment:read:own',
+  // Phase 5 (learning experience design §8)
+  'learning:participate',
+  'note:manage:own',
+  'quiz_attempt:create',
+  'quiz_attempt:submit:own',
+  'quiz_attempt:read:own',
+  'certificate:read:own',
+  'review:write:own',
+  'wishlist:manage:own',
+  'qa:participate',
+  'content:report',
 ];
 const ADMIN_PERMS: Permission[] = [
   'user:read:any',
@@ -39,6 +51,9 @@ const ADMIN_PERMS: Permission[] = [
   'platform_coupon:manage',
   'enrollment:read:any',
   'enrollment:grant:any',
+  // Phase 5 (learning experience design §8)
+  'content:moderate:any',
+  'certificate:manage:any',
 ];
 /** Phase 2 (catalog & media design §8) and Phase 4 (commerce & enrollment design §8). */
 const INSTRUCTOR_PERMS: Permission[] = [
@@ -52,8 +67,17 @@ const INSTRUCTOR_PERMS: Permission[] = [
   'media_asset:read:own',
   'media_asset:upload:own',
   'sales:read:own',
+  // Phase 5 (learning experience design §8)
+  'course:engage:own',
+  'qa:participate',
+  'content:report',
 ];
-const BASE: Permission[] = ['profile:read:own', 'profile:update:own', 'session:manage:own'];
+const BASE: Permission[] = [
+  'profile:read:own',
+  'profile:update:own',
+  'session:manage:own',
+  'notification:manage:own',
+];
 
 const sorted = (set: ReadonlySet<Permission>): Permission[] => [...set].sort();
 const expected = (...groups: Permission[][]): Permission[] => [...new Set(groups.flat())].sort();
@@ -94,11 +118,11 @@ const MATRIX: Record<string, Record<ClientApp, { perms: Permission[]; login: boo
 };
 
 describe('access permission policy', () => {
-  it('BASELINE is exactly the three own-profile/session permissions', () => {
+  it('BASELINE is exactly the own-profile/session/notification permissions', () => {
     expect([...BASELINE].sort()).toEqual(expected(BASE));
   });
 
-  it('maps every role to the Phase 1, 2 and 4 catalog', () => {
+  it('maps every role to the Phase 1, 2, 4 and 5 catalog', () => {
     expect([...ROLE_PERMISSIONS.STUDENT].sort()).toEqual(expected(STUDENT_PERMS));
     expect([...ROLE_PERMISSIONS.INSTRUCTOR].sort()).toEqual(expected(INSTRUCTOR_PERMS));
     expect([...ROLE_PERMISSIONS.ADMIN].sort()).toEqual(expected(ADMIN_PERMS));
@@ -134,10 +158,18 @@ describe('access permission policy', () => {
     }
   });
 
-  it('roles do not share permissions (each grant has exactly one owner)', () => {
-    const all = ROLES.flatMap((r) => ROLE_PERMISSIONS[r]);
+  it('roles do not share permissions except the documented Q&A/report pair', () => {
+    expect([...SHARED_ROLE_PERMISSIONS].sort()).toEqual(['content:report', 'qa:participate']);
+    const all = ROLES.flatMap((r) => ROLE_PERMISSIONS[r]).filter(
+      (p) => !SHARED_ROLE_PERMISSIONS.includes(p),
+    );
     expect(new Set(all).size).toBe(all.length);
-    for (const p of BASELINE) expect(all).not.toContain(p);
+    for (const p of SHARED_ROLE_PERMISSIONS) {
+      expect(ROLE_PERMISSIONS.STUDENT).toContain(p);
+      expect(ROLE_PERMISSIONS.INSTRUCTOR).toContain(p);
+      expect(ROLE_PERMISSIONS.ADMIN).not.toContain(p);
+    }
+    for (const p of BASELINE) expect(ROLES.flatMap((r) => ROLE_PERMISSIONS[r])).not.toContain(p);
   });
 
   it('STUDENT gets no course/category/media permissions (public reads are @Public)', () => {
@@ -149,7 +181,8 @@ describe('access permission policy', () => {
     const inStudent = effectivePermissions(['STUDENT', 'INSTRUCTOR'], 'student');
     const inAdmin = effectivePermissions(['STUDENT', 'INSTRUCTOR'], 'admin');
     for (const p of INSTRUCTOR_PERMS) {
-      expect(inStudent.has(p)).toBe(false);
+      // The shared Q&A/report permissions reach the student app through the STUDENT role.
+      if (!SHARED_ROLE_PERMISSIONS.includes(p)) expect(inStudent.has(p)).toBe(false);
       expect(inAdmin.has(p)).toBe(false);
     }
   });
@@ -157,7 +190,10 @@ describe('access permission policy', () => {
   it('INSTRUCTOR course/media permissions are owner-scoped (no :any), creation excepted', () => {
     for (const p of ROLE_PERMISSIONS.INSTRUCTOR) {
       expect(p.endsWith(':any')).toBe(false);
-      if (!p.endsWith(':own')) expect(p).toMatch(/:create$/);
+      // the shared Q&A/report permissions are narrowed to owned courses by the use case
+      if (!p.endsWith(':own') && !SHARED_ROLE_PERMISSIONS.includes(p)) {
+        expect(p).toMatch(/:create$/);
+      }
     }
   });
 

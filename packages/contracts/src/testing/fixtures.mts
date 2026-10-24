@@ -433,7 +433,8 @@ export function makeLearningCard(overrides: Partial<LearningCard> = {}): Learnin
     archived: false,
     source: 'ORDER',
     grantedAt: FIXTURE_NOW,
-    progress: null,
+    // Phase 5 (D21): the percent from COURSE_PROGRESS; null only without a reader
+    progress: 0,
     ...overrides,
   });
 }

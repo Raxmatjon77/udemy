@@ -77,7 +77,12 @@ export const LearningCardSchema = z.object({
   archived: z.boolean(),
   source: EnrollmentSourceSchema,
   grantedAt: IsoDateTimeSchema,
-  /** Percent complete; always null until Phase 5 (learning). */
+  /**
+   * Percent complete (Phase 5 design D5, D21): ⌊completed ∩ live lecture ids / live lecture
+   * count × 100⌋ from `COURSE_PROGRESS` (`LearningProgressReader`); 0 when nothing is completed,
+   * 100 means truly complete. Null only when no progress reader is bound (`NoCourseProgress`).
+   * A later revision that adds lectures lowers it, but the course completion is permanent.
+   */
   progress: z.number().int().min(0).max(100).nullable(),
 });
 export type LearningCard = z.infer<typeof LearningCardSchema>;

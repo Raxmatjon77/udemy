@@ -115,6 +115,43 @@ describe('ErrorCode', () => {
     expect(ErrorCode.EmailNotVerified).toBe('email_not_verified');
   });
 
+  it('includes every Phase 5 learning, engagement and notification code (design §5)', () => {
+    for (const code of [
+      'enrollment_required',
+      'completion_not_allowed',
+      'note_not_found',
+      'note_limit_exceeded',
+      'quiz_attempt_not_found',
+      'attempt_not_in_progress',
+      'quiz_answers_invalid',
+      'quiz_question_not_found',
+      'quiz_options_invalid',
+      'quiz_limit_exceeded',
+      'certificate_not_found',
+      'certificate_pdf_pending',
+      'review_not_found',
+      'review_not_eligible',
+      'cannot_review_own_course',
+      'reply_not_found',
+      'question_not_found',
+      'answer_not_found',
+      'not_content_author',
+      'cannot_vote_own_content',
+      'cannot_report_own_content',
+      'announcement_not_found',
+      'announcement_limit_exceeded',
+      'course_not_wishlistable',
+      'wishlist_full',
+      'notification_not_found',
+      'preference_locked',
+      'invalid_unsubscribe_token',
+      'realtime_unavailable',
+    ]) {
+      expect(isErrorCode(code), code).toBe(true);
+    }
+    expect(ErrorCode.EnrollmentRequired).toBe('enrollment_required');
+  });
+
   it('is accepted by ProblemDetails, which still allows unknown codes', () => {
     const known: ProblemDetails = {
       type: 'about:blank',

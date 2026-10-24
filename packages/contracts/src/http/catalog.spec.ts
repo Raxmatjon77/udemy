@@ -57,6 +57,8 @@ describe('catalog constants', () => {
       VIDEO: 'LECTURE_VIDEO',
       RESOURCE: 'LECTURE_RESOURCE',
       ARTICLE: null,
+      // Phase 5: quizzes have no media
+      QUIZ: null,
     });
   });
 });

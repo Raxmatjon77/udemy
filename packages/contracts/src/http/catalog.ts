@@ -101,16 +101,22 @@ export const COURSE_BADGES = [
 export const CourseBadgeSchema = z.enum(COURSE_BADGES);
 export type CourseBadge = z.infer<typeof CourseBadgeSchema>;
 
-export const LECTURE_TYPES = ['VIDEO', 'ARTICLE', 'RESOURCE'] as const;
+/**
+ * Phase 5 (learning experience design D6) adds QUIZ: a lecture whose questions are authored in
+ * the working copy and snapshotted into revisions like articles. QUIZ lectures have no media and
+ * can never be a free preview.
+ */
+export const LECTURE_TYPES = ['VIDEO', 'ARTICLE', 'RESOURCE', 'QUIZ'] as const;
 export const LectureTypeSchema = z.enum(LECTURE_TYPES);
 export type LectureType = z.infer<typeof LectureTypeSchema>;
 
-/** Media purpose a lecture type accepts (invariant 3); ARTICLE lectures have no media. */
+/** Media purpose a lecture type accepts (invariant 3); ARTICLE and QUIZ lectures have no media. */
 export const LECTURE_MEDIA_PURPOSE: Readonly<Record<LectureType, MediaPurpose | null>> =
   Object.freeze({
     VIDEO: 'LECTURE_VIDEO',
     RESOURCE: 'LECTURE_RESOURCE',
     ARTICLE: null,
+    QUIZ: null,
   });
 
 /** Lecture types that may be marked as a free preview (invariant 4). */

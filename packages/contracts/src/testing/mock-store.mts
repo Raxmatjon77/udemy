@@ -67,6 +67,10 @@ import {
  * `seed.rateLimits`): a 429 `rate_limited` problem with a `Retry-After` header. The handlers
  * paginate lists like the api (`?limit=`, an opaque `nextCursor`). Not modelled: the webhook
  * (call `completePayment` / `expirePayment` / `settleRefund` instead).
+ *
+ * Phase 5: `LearningCard.progress` comes from a `COURSE_PROGRESS`-like reader (null by default,
+ * like the api's `NoCourseProgress`); `createLearningMockStore` binds the learning state to it and
+ * listens to enrollment changes (`onEnrollmentChange`) like the Phase 5 workers do.
  */
 
 export interface MockUser {
@@ -127,6 +131,19 @@ interface MockRefund extends AdminRefund {
 interface MockEnrollment extends Enrollment {
   transitions: EnrollmentTransition[];
 }
+
+/** What the Phase 5 workers react to (certificate revoker, review-enrollment sync, room revoker). */
+export interface MockEnrollmentChange {
+  userId: string;
+  courseId: string;
+  kind: 'GRANTED' | 'REGRANTED' | 'REVOKED';
+}
+
+/**
+ * The `COURSE_PROGRESS` seam (Phase 5 D21): percent complete of a course for a user, or null.
+ * The default is the api's `NoCourseProgress` (null); `createLearningMockStore` binds its own.
+ */
+export type MockCourseProgressReader = (userId: string, courseId: string) => number | null;
 
 export interface CommerceMockSeed {
   /** The signed-in user. Default `FIXTURE_IDS.student`. */
@@ -245,6 +262,8 @@ export class CommerceMockStore {
   private readonly rateWindows = new Map<string, { startedAt: number; count: number }>();
   private seq = 0x100;
   private orderNumber = 1000;
+  private progressReader: MockCourseProgressReader = () => null;
+  private readonly enrollmentListeners: ((change: MockEnrollmentChange) => void)[] = [];
 
   constructor(seed: CommerceMockSeed = {}) {
     this.viewerId = seed.viewerId ?? FIXTURE_IDS.student;
@@ -258,6 +277,56 @@ export class CommerceMockStore {
     this.coupons.push(...(seed.coupons ?? []));
     const at = this.iso();
     this.cartItems = (seed.cart ?? []).map((courseId) => ({ courseId, addedAt: at }));
+  }
+
+  /* ---------------------------------------------------------------- Phase 5 seams */
+
+  /** The store's clock (shared with `createLearningMockStore`). */
+  currentTime(): Date {
+    return this.now();
+  }
+
+  /** Binds `COURSE_PROGRESS` (`LearningCard.progress`); null restores `NoCourseProgress`. */
+  setCourseProgressReader(reader: MockCourseProgressReader | null): void {
+    this.progressReader = reader ?? (() => null);
+  }
+
+  /** Called after every grant, regrant and revoke (like a consumer of `enrollment.enrollment`). */
+  onEnrollmentChange(listener: (change: MockEnrollmentChange) => void): void {
+    this.enrollmentListeners.push(listener);
+  }
+
+  /** `EnrollmentFacade.hasAccess`: an ACTIVE enrollment. */
+  hasActiveEnrollment(userId: string, courseId: string): boolean {
+    return this.activeEnrollment(userId, courseId) !== undefined;
+  }
+
+  /** User ids with an ACTIVE enrollment in the course (announcement fan-out). */
+  activeEnrolleeIds(courseId: string): string[] {
+    return this.enrollments
+      .filter((e) => e.courseId === courseId && e.status === 'ACTIVE')
+      .map((e) => e.userId);
+  }
+
+  /** Test helper: an ACTIVE enrollment without an order (source FREE unless given). */
+  seedEnrollment(userId: string, courseId: string, source: EnrollmentSource = 'FREE'): Enrollment {
+    return this.enrollmentView(this.grant(userId, courseId, source, null, null, null).enrollment);
+  }
+
+  /** Test helper: revoke the user's ACTIVE enrollment (as a refund or an admin would). */
+  revokeEnrollmentOf(
+    userId: string,
+    courseId: string,
+    reason: EnrollmentRevokeReason = 'ADMIN',
+  ): Enrollment {
+    const enrollment = this.activeEnrollment(userId, courseId);
+    if (!enrollment) throw new MockApiError(404, ErrorCode.EnrollmentNotFound);
+    this.revoke(enrollment, reason, null, reason === 'ADMIN' ? this.viewerId : null, null);
+    return this.enrollmentView(enrollment);
+  }
+
+  private notifyEnrollment(change: MockEnrollmentChange): void {
+    for (const listener of this.enrollmentListeners) listener(change);
   }
 
   /* ---------------------------------------------------------------- helpers */
@@ -1489,6 +1558,7 @@ export class CommerceMockStore {
         revokeReason: null,
       });
       existing.transitions.push(transition);
+      this.notifyEnrollment({ userId, courseId, kind: 'REGRANTED' });
       return { enrollment: existing, outcome: 'REGRANTED' };
     }
     const enrollment: MockEnrollment = {
@@ -1504,6 +1574,7 @@ export class CommerceMockStore {
       transitions: [transition],
     };
     this.enrollments.push(enrollment);
+    this.notifyEnrollment({ userId, courseId, kind: 'GRANTED' });
     return { enrollment, outcome: 'GRANTED' };
   }
 
@@ -1527,6 +1598,11 @@ export class CommerceMockStore {
       reason: note,
       actorId,
       occurredAt: at,
+    });
+    this.notifyEnrollment({
+      userId: enrollment.userId,
+      courseId: enrollment.courseId,
+      kind: 'REVOKED',
     });
   }
 
@@ -1581,7 +1657,7 @@ export class CommerceMockStore {
             archived: course.status === 'ARCHIVED',
             source: e.source,
             grantedAt: e.grantedAt,
-            progress: null,
+            progress: this.progressReader(e.userId, course.id),
           },
         ];
       });

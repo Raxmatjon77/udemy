@@ -173,6 +173,64 @@ export const ErrorCode = {
   // webhooks
   /** Stripe-Signature missing, malformed, stale or wrong (400, no detail). */
   WebhookSignatureInvalid: 'webhook_signature_invalid',
+
+  // learning (Phase 5, design §5). Reused: course_not_found, lecture_not_found,
+  // lecture_type_mismatch, markdown_not_allowed, invalid_state_transition, rate_limited.
+  /** Every learner route needs an ACTIVE enrollment; the owner preview is read-only (403). */
+  EnrollmentRequired: 'enrollment_required',
+  /** Manual completion of a VIDEO/QUIZ, or a cause that does not match the type (422). */
+  CompletionNotAllowed: 'completion_not_allowed',
+  NoteNotFound: 'note_not_found',
+  /** More than `LEARNING_LIMITS.maxNotesPerCourse` notes in one course (422). */
+  NoteLimitExceeded: 'note_limit_exceeded',
+  QuizAttemptNotFound: 'quiz_attempt_not_found',
+  /** Submit of an ABANDONED attempt (409); a SUBMITTED one returns its stored result. */
+  AttemptNotInProgress: 'attempt_not_in_progress',
+  /** Unknown question ids, positions out of range, or several selections on SINGLE (422). */
+  QuizAnswersInvalid: 'quiz_answers_invalid',
+  CertificateNotFound: 'certificate_not_found',
+  /** The certificate exists but its PDF is not rendered yet; retry shortly (409). */
+  CertificatePdfPending: 'certificate_pdf_pending',
+
+  // catalog: quiz authoring (Phase 5)
+  QuizQuestionNotFound: 'quiz_question_not_found',
+  /** Option list rejected by the domain (422). */
+  QuizOptionsInvalid: 'quiz_options_invalid',
+  /** More than `QUIZ_LIMITS.maxQuestions` questions (422). */
+  QuizLimitExceeded: 'quiz_limit_exceeded',
+
+  // engagement (Phase 5)
+  ReviewNotFound: 'review_not_found',
+  /** ACTIVE enrollment but no completed lecture yet (D10, 422). */
+  ReviewNotEligible: 'review_not_eligible',
+  /** The course owner cannot review their own course (403). */
+  CannotReviewOwnCourse: 'cannot_review_own_course',
+  ReplyNotFound: 'reply_not_found',
+  QuestionNotFound: 'question_not_found',
+  AnswerNotFound: 'answer_not_found',
+  /** Only the author may edit or delete; accept needs the question author or owner (403). */
+  NotContentAuthor: 'not_content_author',
+  CannotVoteOwnContent: 'cannot_vote_own_content',
+  CannotReportOwnContent: 'cannot_report_own_content',
+  AnnouncementNotFound: 'announcement_not_found',
+  /**
+   * 4 announcements per course per 30 days (D18, 422); the problem carries `retryAt`
+   * (`AnnouncementLimitProblem`).
+   */
+  AnnouncementLimitExceeded: 'announcement_limit_exceeded',
+  /** Not PUBLISHED, owned by the caller, or already enrolled (409). */
+  CourseNotWishlistable: 'course_not_wishlistable',
+  /** More than `WISHLIST_LIMITS.maxItems` items (422). */
+  WishlistFull: 'wishlist_full',
+
+  // notifications and realtime (Phase 5)
+  NotificationNotFound: 'notification_not_found',
+  /** A transactional category/channel cannot be turned off (422). */
+  PreferenceLocked: 'preference_locked',
+  /** Malformed, forged or wrong-version unsubscribe token (400). */
+  InvalidUnsubscribeToken: 'invalid_unsubscribe_token',
+  /** The ticket store (Redis) is unavailable (503). */
+  RealtimeUnavailable: 'realtime_unavailable',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

@@ -22,6 +22,7 @@ import {
   TransitionNoteSchema,
 } from './catalog';
 import { ThumbnailQuerySchema } from './catalog-public';
+import { LectureQuizSummarySchema } from './quiz';
 import { ExpectedVersionSchema, IsoDateTimeSchema, SlugSchema, UuidSchema } from './fields';
 import { AssetViewSchema, SignedUrlSchema } from './media';
 import { emptyToUndefined, pageSchema, paginationQuerySchema } from './pagination';
@@ -48,6 +49,10 @@ export const COURSE_READINESS_ISSUE_CODES = [
   'LECTURE_MEDIA_MISSING',
   'LECTURE_MEDIA_NOT_READY',
   'ARTICLE_TOO_SHORT',
+  // Phase 5 (design §5): a QUIZ lecture without questions; a question with too few options or
+  // the wrong number of correct options (SINGLE exactly one, MULTIPLE at least one).
+  'QUIZ_EMPTY',
+  'QUIZ_QUESTION_INVALID',
 ] as const;
 export const CourseReadinessIssueCodeSchema = z.enum(COURSE_READINESS_ISSUE_CODES);
 export type CourseReadinessIssueCode = z.infer<typeof CourseReadinessIssueCodeSchema>;
@@ -310,6 +315,11 @@ export const LectureSchema = z.object({
   asset: AssetViewSchema.nullable(),
   /** ARTICLE lectures: plain length of the body (readiness needs ≥ 50); else null. */
   articleLength: z.number().int().min(0).nullable(),
+  /**
+   * QUIZ lectures: the working-copy settings (Phase 5, additive); null for other types.
+   * Optional until the api fills it (P5-T6); the full quiz is `GET …/lectures/:lectureId/quiz`.
+   */
+  quiz: LectureQuizSummarySchema.nullable().optional(),
   updatedAt: IsoDateTimeSchema,
 });
 export type Lecture = z.infer<typeof LectureSchema>;

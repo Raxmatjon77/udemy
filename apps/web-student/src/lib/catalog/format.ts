@@ -64,6 +64,7 @@ export const LECTURE_TYPE_LABELS: Readonly<Record<LectureType, string>> = {
   VIDEO: 'Video',
   ARTICLE: 'Article',
   RESOURCE: 'Resource',
+  QUIZ: 'Quiz',
 };
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {

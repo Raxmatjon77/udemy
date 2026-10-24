@@ -53,3 +53,30 @@ export interface Page<TItem> {
 export function emptyToUndefined(value: unknown): unknown {
   return value === '' ? undefined : value;
 }
+
+/**
+ * Query-string boolean (`?unreadOnly=true`): only `true` and `false` are accepted, an empty or
+ * missing value is the default. A preprocess, not a transform, so Swagger still renders it.
+ */
+export function booleanQueryParam(defaultValue: boolean) {
+  return z.preprocess((value: unknown) => {
+    if (value === '' || value === undefined) return undefined;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return value;
+  }, z.boolean().default(defaultValue));
+}
+
+/**
+ * Page bounds of the Phase 5 lists (notes, attempts, certificates, reviews, Q&A, announcements,
+ * notifications, wishlist, moderation): `limit` 1–50, default 20.
+ */
+export const COMPACT_PAGE_LIMIT_MAX = 50;
+export const COMPACT_PAGE_LIMIT_DEFAULT = 20;
+
+/** `?cursor=&limit=` with the compact bounds (limit 1–50, default 20). */
+export const CompactPaginationQuerySchema = paginationQuerySchema(
+  COMPACT_PAGE_LIMIT_MAX,
+  COMPACT_PAGE_LIMIT_DEFAULT,
+);
+export type CompactPaginationQuery = z.output<typeof CompactPaginationQuerySchema>;

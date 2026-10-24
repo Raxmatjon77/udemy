@@ -89,14 +89,24 @@ describe('shared/auth decorators', () => {
       | 'refund'
       | 'enrollment'
       | 'sales'
+      // Phase 5 (learning experience design §8)
+      | 'notification'
+      | 'note'
+      | 'quiz_attempt'
+      | 'certificate'
+      | 'review'
+      | 'wishlist'
+      | 'content'
     >();
     expectTypeOf<PolicyAction<'order'>>().toEqualTypeOf<'read' | 'refund'>();
     expectTypeOf<PolicyAction<'enrollment'>>().toEqualTypeOf<'read' | 'grant'>();
     expectTypeOf<PolicyAction<'refund'>>().toEqualTypeOf<'review'>();
     expectTypeOf<PolicyAction<'sales'>>().toEqualTypeOf<'read'>();
     expectTypeOf<PolicyAction<'course'>>().toEqualTypeOf<
-      'read' | 'update' | 'delete' | 'submit' | 'archive' | 'moderate'
+      'read' | 'update' | 'delete' | 'submit' | 'archive' | 'moderate' | 'engage'
     >();
+    expectTypeOf<PolicyAction<'quiz_attempt'>>().toEqualTypeOf<'submit' | 'read'>();
+    expectTypeOf<PolicyAction<'certificate'>>().toEqualTypeOf<'read' | 'manage'>();
     expectTypeOf<PolicyAction<'media_asset'>>().toEqualTypeOf<'read' | 'upload'>();
     expectTypeOf<PolicyAction<'instructor_application'>>().toEqualTypeOf<
       'create' | 'read' | 'withdraw' | 'review'

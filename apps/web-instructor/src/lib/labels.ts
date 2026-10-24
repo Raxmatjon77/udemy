@@ -55,6 +55,7 @@ export const LECTURE_TYPE_LABELS: Readonly<Record<LectureType, string>> = {
   VIDEO: 'Video',
   ARTICLE: 'Article',
   RESOURCE: 'Resource',
+  QUIZ: 'Quiz',
 };
 
 export const MEDIA_STATUS_LABELS: Readonly<Record<MediaAssetStatus, string>> = {
@@ -165,6 +166,14 @@ export function describeReadinessIssue(
     case 'ARTICLE_TOO_SHORT':
       return {
         message: `${lectureRef}: the article is too short${counts(issue)}.`,
+        target: curriculum,
+      };
+    // Phase 5 quiz readiness; TODO(P5-T7): link to the quiz editor once it exists.
+    case 'QUIZ_EMPTY':
+      return { message: `${lectureRef}: the quiz has no questions.`, target: curriculum };
+    case 'QUIZ_QUESTION_INVALID':
+      return {
+        message: `${lectureRef}: a quiz question needs 2–6 options and its correct answer(s) marked.`,
         target: curriculum,
       };
   }

@@ -83,7 +83,8 @@ describe('fixtures', () => {
     expect(makeRefund({ status: 'REJECTED' }).rejectionReason).not.toBeNull();
     expect(makeAdminRefundQueueItem({ status: 'FAILED' }).failureCode).toBe('charge_disputed');
     expect(makeEnrollment({ source: 'FREE' }).orderLineId).toBeNull();
-    expect(makeLearningCard().progress).toBeNull();
+    expect(makeLearningCard().progress).toBe(0);
+    expect(makeLearningCard({ progress: null }).progress).toBeNull();
     expect(makeSalesSummary().courses).toHaveLength(1);
     expect(makeRecentSale({ finalAmount: '9.99' }).instructorShareAmount).toBe('6.99');
     expect(makeCheckoutInProgressProblem().code).toBe('checkout_in_progress');

@@ -12,7 +12,7 @@ describe('permission catalog', () => {
     expect(permission).toMatch(PERMISSION_FORMAT);
   });
 
-  it('contains exactly the Phase 1, 2 and 4 entries', () => {
+  it('contains exactly the Phase 1, 2, 4 and 5 entries', () => {
     expect([...PERMISSIONS].sort()).toEqual(
       [
         'profile:read:own',
@@ -57,6 +57,25 @@ describe('permission catalog', () => {
         'platform_coupon:manage',
         'enrollment:read:any',
         'enrollment:grant:any',
+        // Phase 5: BASELINE
+        'notification:manage:own',
+        // Phase 5: STUDENT
+        'learning:participate',
+        'note:manage:own',
+        'quiz_attempt:create',
+        'quiz_attempt:submit:own',
+        'quiz_attempt:read:own',
+        'certificate:read:own',
+        'review:write:own',
+        'wishlist:manage:own',
+        // Phase 5: STUDENT and INSTRUCTOR
+        'qa:participate',
+        'content:report',
+        // Phase 5: INSTRUCTOR
+        'course:engage:own',
+        // Phase 5: ADMIN
+        'content:moderate:any',
+        'certificate:manage:any',
       ].sort(),
     );
   });
@@ -78,6 +97,19 @@ describe('permission catalog', () => {
     expect(isPermission('order:create:any')).toBe(false);
     expect(isPermission('sales:read:any')).toBe(false);
     expect(PermissionSchema.safeParse('enrollment:grant:own').success).toBe(false);
+  });
+
+  it('knows the Phase 5 learning, engagement and notification permissions (design §8)', () => {
+    expect(isPermission('learning:participate')).toBe(true);
+    expect(isPermission('quiz_attempt:submit:own')).toBe(true);
+    expect(isPermission('course:engage:own')).toBe(true);
+    expect(isPermission('content:moderate:any')).toBe(true);
+    // there is no admin-wide note, wishlist or review access, and nobody moderates their own content
+    expect(isPermission('note:manage:any')).toBe(false);
+    expect(isPermission('wishlist:manage:any')).toBe(false);
+    expect(isPermission('review:write:any')).toBe(false);
+    expect(isPermission('content:moderate:own')).toBe(false);
+    expect(PermissionSchema.safeParse('course:engage:any').success).toBe(false);
   });
 });
 

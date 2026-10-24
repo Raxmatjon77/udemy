@@ -99,10 +99,11 @@ describe('curriculum requests', () => {
   });
 
   it('lectures', () => {
-    for (const type of ['VIDEO', 'ARTICLE', 'RESOURCE']) {
+    // QUIZ joined in Phase 5 (learning experience design D6)
+    for (const type of ['VIDEO', 'ARTICLE', 'RESOURCE', 'QUIZ']) {
       expect(ok(CreateLectureRequestSchema, { type, title: 'Welcome' })).toBe(true);
     }
-    expect(ok(CreateLectureRequestSchema, { type: 'QUIZ', title: 'Welcome' })).toBe(false);
+    expect(ok(CreateLectureRequestSchema, { type: 'ASSIGNMENT', title: 'Welcome' })).toBe(false);
     expect(ok(CreateLectureRequestSchema, { type: 'VIDEO', title: '' })).toBe(false);
     expect(ok(UpdateLectureRequestSchema, { isPreview: true })).toBe(true);
     expect(ok(UpdateLectureRequestSchema, { descriptionMd: null })).toBe(true);

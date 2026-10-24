@@ -198,6 +198,18 @@ describe('identity over HTTP (JWKS + guards)', () => {
           'order:refund:own',
           'enrollment:create',
           'enrollment:read:own',
+          // Phase 5 (learning experience design §8)
+          'notification:manage:own',
+          'learning:participate',
+          'note:manage:own',
+          'quiz_attempt:create',
+          'quiz_attempt:submit:own',
+          'quiz_attempt:read:own',
+          'certificate:read:own',
+          'review:write:own',
+          'wishlist:manage:own',
+          'qa:participate',
+          'content:report',
         ].sort(),
       );
       expect(fakeRedis.exists).toHaveBeenCalledWith(`auth:revoked:sid:${SESSION_ID}`);

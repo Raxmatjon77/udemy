@@ -17,6 +17,7 @@ import { CourseHistoryActorSchema } from './courses';
 import { ExpectedVersionSchema, IsoDateTimeSchema, UuidSchema } from './fields';
 import { AssetViewSchema, SignedUrlSchema } from './media';
 import { emptyToUndefined, pageSchema, PaginationQuerySchema } from './pagination';
+import { LectureQuizSummarySchema } from './quiz';
 
 /* ----------------------------------------------------------------------------------------
  * GET /admin/course-reviews?cursor=&limit= -> 200 page, oldest first
@@ -57,6 +58,11 @@ export const RevisionLectureSchema = z.object({
   durationSeconds: z.number().int().min(0).nullable(),
   /** ARTICLE only. */
   articleBodyMd: z.string().nullable(),
+  /**
+   * QUIZ only (Phase 5, additive): pass mark and question count of the snapshot; the questions
+   * with keys are `GET /admin/course-revisions/:revisionId/lectures/:lectureId/quiz`.
+   */
+  quiz: LectureQuizSummarySchema.nullable().optional(),
 });
 export type RevisionLecture = z.infer<typeof RevisionLectureSchema>;
 

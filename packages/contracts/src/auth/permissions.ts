@@ -21,6 +21,14 @@ import { z } from 'zod';
  * `refund:review:any`, `platform_coupon:manage` and `sales:read:own`. Course pricing and
  * coupons reuse `course:read:own` / `course:update:own` through the course policy.
  * `enrollment:create` is the free enrolment (D14).
+ *
+ * Phase 5 (learning experience design §8) adds `notification:manage:own` (BASELINE, every app),
+ * the learner permissions (`learning:participate`, `note:*`, `quiz_attempt:*`, `certificate:read`,
+ * `review:write`, `wishlist:manage`), `qa:participate` and `content:report` (granted to BOTH
+ * STUDENT and INSTRUCTOR: the same Q&A routes serve both BFFs and the use case admits ACTIVE
+ * learners or the course owner), `course:engage:own` (review replies, announcements, the Q&A
+ * inbox; nested routes go through the existing `course` resolver) and the admin
+ * `content:moderate:any` / `certificate:manage:any`.
  */
 export const PERMISSIONS = [
   // Baseline: every authenticated principal, in any app.
@@ -68,6 +76,25 @@ export const PERMISSIONS = [
   'platform_coupon:manage',
   'enrollment:read:any',
   'enrollment:grant:any',
+  // Baseline (Phase 5): the caller's own inbox, unread count, mark-read and preferences.
+  'notification:manage:own',
+  // STUDENT (Phase 5)
+  'learning:participate',
+  'note:manage:own',
+  'quiz_attempt:create',
+  'quiz_attempt:submit:own',
+  'quiz_attempt:read:own',
+  'certificate:read:own',
+  'review:write:own',
+  'wishlist:manage:own',
+  // STUDENT and INSTRUCTOR (Phase 5)
+  'qa:participate',
+  'content:report',
+  // INSTRUCTOR (Phase 5)
+  'course:engage:own',
+  // ADMIN (Phase 5)
+  'content:moderate:any',
+  'certificate:manage:any',
 ] as const;
 
 /** Compile-time guard: every catalog entry must follow `resource:action[:own|:any]`. */
